@@ -3952,6 +3952,14 @@ function BudgetCalculatorModal({
     () => computeAllocations(sourceAds, totalBudget, specs),
     [sourceAds, totalBudget, specs],
   );
+  // Excluded rows keep their current allocation on Apply — they aren't part
+  // of the pool the calculator is dividing, so we subtract them out to show
+  // the user how much is actually up for grabs in this run.
+  const excludedPreserved = sourceAds.reduce((s, a) => {
+    const spec = specs[a.id] ?? DEFAULT_SPEC;
+    return spec.included ? s : s + (num(a.allocation) ?? 0);
+  }, 0);
+  const availableToAllocate = totalBudget - excludedPreserved;
   // Allocated total mirrors what the calculator will write — excluded rows
   // contribute their current allocation (preserved on Apply) so the header
   // metric matches the dollars actually committed to this source.
@@ -4078,7 +4086,7 @@ function BudgetCalculatorModal({
         </div>
 
         {/* Total budget + summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <Field label="Total Budget (Actual Spend)">
             <DollarInput
               value={budgetInput}
@@ -4094,6 +4102,15 @@ function BudgetCalculatorModal({
             )}
           </Field>
           <MetricBox
+            label="Available to allocate"
+            value={fmt(availableToAllocate)}
+            sub={
+              excludedPreserved > 0
+                ? `total minus ${fmt(excludedPreserved)} preserved`
+                : 'pool being divided'
+            }
+          />
+          <MetricBox
             label="Allocated"
             value={fmt(allocatedTotal)}
             sub={`of ${fmt(totalBudget)}`}
@@ -4106,7 +4123,7 @@ function BudgetCalculatorModal({
             }
           />
           <MetricBox
-            label={remaining >= 0 ? 'Remaining' : 'Over budget by'}
+            label={remaining >= 0 ? 'Remaining after apply' : 'Over budget by'}
             value={fmt(Math.abs(remaining))}
             sub={
               overBudget
@@ -5829,6 +5846,34 @@ function SummaryPanel({ plan }: { plan: PacerPlan }) {
   return (
     <div className="glass-section-card rounded-xl px-5 py-4">
       <SectionLabel icon={<TableCellsIcon className="w-3 h-3" />} text="Summary Table" />
+      {(baseGoal != null || addedGoal != null) && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+              Base Budget
+            </div>
+            <div className="text-lg font-bold tabular-nums" style={{ color: COLORS.base }}>
+              {baseGoal != null ? fmt(baseGoal) : '—'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+              Added Budget
+            </div>
+            <div className="text-lg font-bold tabular-nums" style={{ color: COLORS.added }}>
+              {addedGoal != null ? fmt(addedGoal) : '—'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+              Combined Total
+            </div>
+            <div className="text-lg font-bold tabular-nums text-[var(--foreground)]">
+              {combinedGoal != null ? fmt(combinedGoal) : '—'}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-xs">
           <thead>
@@ -6020,14 +6065,382 @@ function SummaryPanel({ plan }: { plan: PacerPlan }) {
   );
 }
 
-// ─── Compare panel (monthly over/under for the calendar year) ─────────────
+// ─── Over/Under Spend panel ────────────────────────────────────────────────
 interface YearMonthRow {
   period: string;
   budget: number;
   actual: number;
 }
 
+interface MonthAd {
+  id: string;
+  name: string;
+  budgetSource: 'base' | 'added';
+  allocation: number;
+  actual: number;
+}
+
+interface MonthPlanData {
+  baseBudgetGoal: number;
+  addedBudgetGoal: number;
+  ads: MonthAd[];
+}
+
+function daysInPeriod(period: string): number {
+  if (!isValidPeriod(period)) return 30;
+  const [y, m] = period.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+function daysElapsedInPeriod(period: string): number {
+  if (!isValidPeriod(period)) return 0;
+  const [y, m] = period.split('-').map(Number);
+  const today = new Date();
+  const monthStart = new Date(y, m - 1, 1);
+  const monthEnd = new Date(y, m, 0);
+  if (today < monthStart) return 0;
+  if (today > monthEnd) return monthEnd.getDate();
+  return today.getDate();
+}
+
 function ComparePanel({ accountKey }: { accountKey: string | null }) {
+  const [view, setView] = useState<'month' | 'year'>('month');
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+        <h2 className="m-0 flex items-center gap-2 text-base font-bold tracking-tight text-[var(--foreground)]">
+          <ScaleIcon className="w-4 h-4" />
+          {accountKey ? 'Over/Under Spend' : 'Over/Under Spend — all accounts'}
+        </h2>
+        <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-1">
+          {(['month', 'year'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`px-3 py-1 text-[11px] font-medium rounded transition-colors ${
+                view === v
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              {v === 'month' ? 'Month' : 'Year'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {view === 'month' ? (
+        <OverUnderMonthView accountKey={accountKey} />
+      ) : (
+        <OverUnderYearView accountKey={accountKey} />
+      )}
+    </div>
+  );
+}
+
+function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
+  const [period, setPeriod] = useState<string>(() => currentPeriod());
+  const [data, setData] = useState<MonthPlanData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [accountTotalOverride, setAccountTotalOverride] = useState<string>('');
+
+  // Reset override when month or account changes — last month's number
+  // shouldn't bleed into this month's view.
+  useEffect(() => {
+    setAccountTotalOverride('');
+  }, [period, accountKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    setLoadError(null);
+
+    const url = accountKey
+      ? `/api/meta-ads-pacer/${accountKey}?period=${period}`
+      : `/api/meta-ads-pacer/year-summary?year=${period.slice(0, 4)}`;
+
+    fetch(url)
+      .then(async (r) => {
+        if (!r.ok) {
+          const text = await r.text().catch(() => '');
+          throw new Error(`HTTP ${r.status} ${text.slice(0, 200)}`);
+        }
+        return r.json();
+      })
+      .then((json) => {
+        if (cancelled) return;
+        if (accountKey) {
+          const ads = Array.isArray(json?.ads) ? json.ads : [];
+          setData({
+            baseBudgetGoal: num(json?.baseBudgetGoal) ?? 0,
+            addedBudgetGoal: num(json?.addedBudgetGoal) ?? 0,
+            ads: ads.map(
+              (a: {
+                id: string;
+                name?: string | null;
+                budgetSource?: string;
+                allocation?: string | null;
+                pacerActual?: string | null;
+              }) => ({
+                id: a.id,
+                name: a.name || 'Untitled Ad',
+                budgetSource: a.budgetSource === 'added' ? 'added' : 'base',
+                allocation: num(a.allocation) ?? 0,
+                actual: num(a.pacerActual) ?? 0,
+              }),
+            ),
+          });
+        } else {
+          // All-accounts mode — fall back to the year-summary aggregate
+          // for the selected month. No per-ad breakdown available here.
+          const months: YearMonthRow[] = Array.isArray(json?.months) ? json.months : [];
+          const row = months.find((m) => m.period === period);
+          setData({
+            baseBudgetGoal: row?.budget ?? 0,
+            addedBudgetGoal: 0,
+            ads: row
+              ? [
+                  {
+                    id: 'aggregate',
+                    name: 'All tracked ads (aggregate)',
+                    budgetSource: 'base',
+                    allocation: row.budget,
+                    actual: row.actual,
+                  },
+                ]
+              : [],
+          });
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // eslint-disable-next-line no-console
+        console.error('[meta-ads-pacer] over/under month load failed', err);
+        setLoadError(err instanceof Error ? err.message : 'Failed to load');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountKey, period]);
+
+  const totalBudget = data ? data.baseBudgetGoal + data.addedBudgetGoal : 0;
+  const trackedTotal = data ? data.ads.reduce((s, a) => s + a.actual, 0) : 0;
+  const overrideValue = num(accountTotalOverride);
+  const useOverride = overrideValue != null && accountTotalOverride.trim() !== '';
+  const effectiveActual = useOverride ? overrideValue : trackedTotal;
+  const daysIn = daysInPeriod(period);
+  const daysElapsed = daysElapsedInPeriod(period);
+  const shouldHaveSpent =
+    daysIn > 0 ? totalBudget * (daysElapsed / daysIn) : 0;
+  const variance = effectiveActual - totalBudget;
+  const varianceVsExpected = effectiveActual - shouldHaveSpent;
+  const isPastMonth = daysElapsed >= daysIn && daysIn > 0;
+
+  const varianceColor = (v: number) =>
+    Math.abs(v) < 0.005
+      ? COLORS.success
+      : v > 0
+        ? COLORS.error
+        : COLORS.warn;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] p-1">
+          <button
+            type="button"
+            onClick={() => setPeriod((p) => shiftPeriod(p, -1))}
+            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            aria-label="Previous month"
+          >
+            <ChevronLeftIcon className="w-4 h-4" />
+          </button>
+          <span className="text-xs font-bold px-3 min-w-[8rem] text-center">
+            {fmtPeriodLong(period)}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPeriod((p) => shiftPeriod(p, 1))}
+            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            aria-label="Next month"
+          >
+            <ChevronRightIcon className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setPeriod(currentPeriod())}
+            className="ml-1 px-2 py-1 text-[10px] font-medium rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+          >
+            Today
+          </button>
+        </div>
+        <div className="text-[10px] text-[var(--muted-foreground)]">
+          {daysElapsed} of {daysIn} day{daysIn === 1 ? '' : 's'} elapsed
+        </div>
+      </div>
+
+      {loadError ? (
+        <div className="glass-section-card rounded-xl text-center py-12 px-6">
+          <ExclamationTriangleIcon className="w-8 h-8 mx-auto mb-3 text-red-400" />
+          <p className="text-sm text-[var(--foreground)] font-medium mb-1">
+            Could not load monthly over/under.
+          </p>
+          <p className="text-xs text-[var(--muted-foreground)]">{loadError}</p>
+        </div>
+      ) : data == null ? (
+        <div className="text-center py-12 text-[var(--muted-foreground)] text-sm">
+          Loading…
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Per-ad spend block */}
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+            <div className="px-4 py-2.5 bg-[var(--muted)] border-b border-[var(--border)] text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
+              Spend by ad
+            </div>
+            {data.ads.length === 0 ? (
+              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground)]">
+                No ads in {fmtPeriodLong(period)}.
+              </div>
+            ) : (
+              <>
+                <div className="divide-y divide-[var(--border)]">
+                  {data.ads.map((ad) => (
+                    <div
+                      key={ad.id}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium text-[var(--foreground)] truncate">
+                          {ad.name}
+                        </div>
+                        {ad.id !== 'aggregate' && (
+                          <div className="text-[10px] mt-0.5">
+                            <span
+                              style={{
+                                color:
+                                  ad.budgetSource === 'base'
+                                    ? COLORS.base
+                                    : COLORS.added,
+                              }}
+                            >
+                              {ad.budgetSource === 'base' ? 'Base' : 'Added'}
+                            </span>
+                            <span className="text-[var(--muted-foreground)]">
+                              {' · allocated '}
+                              {ad.allocation > 0 ? fmt(ad.allocation) : '—'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right tabular-nums">
+                        <div className="text-sm font-semibold text-[var(--foreground)]">
+                          {fmt(ad.actual)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-[var(--muted)]/40 border-t-2 border-[var(--border)]">
+                  <div className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)]">
+                    Tracked total
+                  </div>
+                  <div className="text-sm font-bold tabular-nums text-[var(--foreground)]">
+                    {fmt(trackedTotal)}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Account-total override + reference figures */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-1.5">
+                Account total this month (optional)
+              </div>
+              <DollarInput
+                value={accountTotalOverride}
+                onChange={setAccountTotalOverride}
+                placeholder="paste from Meta Ads Manager"
+              />
+              <p className="text-[10px] text-[var(--muted-foreground)] mt-1.5">
+                Leave blank to use the tracked total above. Fill in to compare
+                the real account number against budget.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                    Client Budget
+                  </div>
+                  <div className="text-base font-bold tabular-nums text-[var(--foreground)]">
+                    {fmt(totalBudget)}
+                  </div>
+                  {accountKey && (
+                    <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                      Base {fmt(data.baseBudgetGoal)} + Added{' '}
+                      {fmt(data.addedBudgetGoal)}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                    {isPastMonth ? 'Full budget target' : 'Should have spent'}
+                  </div>
+                  <div className="text-base font-bold tabular-nums text-[var(--foreground)]">
+                    {fmt(shouldHaveSpent)}
+                  </div>
+                  {!isPastMonth && totalBudget > 0 && (
+                    <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                      pro-rated {daysElapsed}/{daysIn} days
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Variance summary */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                Variance vs full budget
+              </div>
+              <div
+                className="text-lg font-bold tabular-nums"
+                style={{ color: varianceColor(variance) }}
+              >
+                {`${variance >= 0 ? '+' : '-'}${fmt(Math.abs(variance))}`}
+              </div>
+              <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                {useOverride ? 'using account total' : 'using tracked total'}{' '}
+                {fmt(effectiveActual)} − {fmt(totalBudget)}
+              </div>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                Variance vs {isPastMonth ? 'target' : 'expected so far'}
+              </div>
+              <div
+                className="text-lg font-bold tabular-nums"
+                style={{ color: varianceColor(varianceVsExpected) }}
+              >
+                {`${varianceVsExpected >= 0 ? '+' : '-'}${fmt(Math.abs(varianceVsExpected))}`}
+              </div>
+              <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                {fmt(effectiveActual)} − {fmt(shouldHaveSpent)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverUnderYearView({ accountKey }: { accountKey: string | null }) {
   const initialYear = useMemo(() => new Date().getFullYear(), []);
   const [year, setYear] = useState<number>(initialYear);
   const [months, setMonths] = useState<YearMonthRow[] | null>(null);
@@ -6074,11 +6487,7 @@ function ComparePanel({ accountKey }: { accountKey: string | null }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
-        <h2 className="m-0 flex items-center gap-2 text-base font-bold tracking-tight text-[var(--foreground)]">
-          <ScaleIcon className="w-4 h-4" />
-          {accountKey ? 'Monthly over/under' : 'Monthly over/under — all accounts'}
-        </h2>
+      <div className="flex items-center justify-end gap-4 mb-4 flex-wrap">
         <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] p-1">
           <button
             type="button"
@@ -6890,9 +7299,10 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
           </div>
         </div>
 
-        {/* Pacer page: Pacer | Summary | Compare sub-tabs in the header center,
-            styled like the platform's primary toggle. Summary + Pacer are
-            account-scoped; Compare also runs against the admin overview. */}
+        {/* Pacer page: Pacer | Summary | Over/Under Spend sub-tabs in the
+            header center, styled like the platform's primary toggle. Summary
+            + Pacer are account-scoped; Over/Under Spend also runs against the
+            admin overview. */}
         {mode === 'pacer' && (
           <div className="flex items-center rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
             {activeKey && (
@@ -6933,7 +7343,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
               }`}
             >
               <ScaleIcon className="w-3.5 h-3.5" />
-              Compare
+              Over/Under Spend
             </button>
           </div>
         )}
