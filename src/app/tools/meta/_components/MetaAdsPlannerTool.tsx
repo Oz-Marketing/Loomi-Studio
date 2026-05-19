@@ -5453,7 +5453,7 @@ interface AccountNote {
   authorUserId: string | null;
 }
 
-function AccountNotesModal({
+function AccountNotesDrawer({
   accountKey,
   accountLabel,
   users,
@@ -5597,18 +5597,18 @@ function AccountNotesModal({
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:pt-12 bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 animate-overlay-in"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="glass-modal w-full max-w-lg rounded-xl p-5 max-h-[85vh] flex flex-col"
+        className="glass-panel fixed right-3 top-3 bottom-3 w-[420px] max-w-[calc(100vw-1.5rem)] rounded-2xl flex flex-col animate-slide-in-right overflow-hidden"
       >
-        <div className="flex items-center justify-between mb-3">
-          <div>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
+          <div className="min-w-0">
             <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
-              <ChatBubbleOvalLeftIcon className="w-4 h-4" />
-              Notes — {accountLabel}
+              <ChatBubbleOvalLeftIcon className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">Notes — {accountLabel}</span>
             </h3>
             <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
               Account-level chat log. Visible to anyone with pacer access.
@@ -5617,14 +5617,14 @@ function AccountNotesModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] flex-shrink-0"
             aria-label="Close"
           >
             <XMarkIcon className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto themed-scrollbar -mx-2 px-2 mb-3">
+        <div className="flex-1 min-h-0 overflow-y-auto themed-scrollbar px-4 py-3">
           {error ? (
             <div className="text-xs text-[var(--muted-foreground)] py-4 text-center">
               Could not load notes: {error}
@@ -5763,7 +5763,7 @@ function AccountNotesModal({
           )}
         </div>
 
-        <div className="border-t border-[var(--border)] pt-3">
+        <div className="border-t border-[var(--border)] px-4 py-3 flex-shrink-0">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -7842,7 +7842,7 @@ function OverviewAccountRow({
       )}
 
       {notesOpen && (
-        <AccountNotesModal
+        <AccountNotesDrawer
           accountKey={account.accountKey}
           accountLabel={account.dealer}
           users={users}
@@ -8630,7 +8630,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
           the period selector (subaccount view) or the chat icon on
           each account row (admin overview). */}
       {notesOpen && activeKey && (
-        <AccountNotesModal
+        <AccountNotesDrawer
           accountKey={activeKey}
           accountLabel={activeAccount?.dealer ?? activeKey}
           users={users}
