@@ -38,6 +38,8 @@ model User {
   metaPacerAccountRepAds       MetaAdsPacerAd[]          @relation("MetaPacerAccountRep")
   metaPacerDesignNotesAuthored MetaAdsPacerDesignNote[]  @relation("MetaPacerDesignNoteAuthor")
   metaPacerActivityAuthored    MetaAdsPacerActivityLog[] @relation("MetaPacerActivityAuthor")
+  ottAdsAssigned               OttAdsAd[]                @relation("OttAdsAssignedTo")
+  ottAdsOptimizationsAuthored  OttAdsOptimization[]      @relation("OttAdsOptimizationAuthor")
   notifications                Notification[]
   notificationPreferences      NotificationPreference[]
 }
@@ -118,6 +120,7 @@ model Account {
   espTemplates            EspTemplate[]
   mediaAssets             MediaAsset[]
   metaAdsPacerPlan        MetaAdsPacerPlan?
+  ottAdsPlan              OttAdsPlan?
 
   @@index([accountRepId])
 }
@@ -710,6 +713,136 @@ model MetaAdsPacerActivityLog {
   createdAt          DateTime       @default(now())
 
   @@index([adId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────
+// OTT Ads (StackAdapt + other OTT/CTV platforms)
+// Overview-level campaign tracker + monthly analytics
+// ─────────────────────────────────────────────────────
+
+model OttAdsPlan {
+  id         String   @id @default(cuid())
+  accountKey String   @unique
+  account    Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  ads OttAdsAd[]
+}
+
+model OttAdsAd {
+  id       String     @id @default(cuid())
+  planId   String
+  plan     OttAdsPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  position Int        @default(0)
+
+  name     String @default("")
+  platform String @default("stackadapt") // stackadapt | hulu | tiktok | spotify | choozle | other
+  period   String @default("") // YYYY-MM bucket — first flight month
+
+  // Workflow
+  status            String  @default("new_request") // new_request | waiting_on_video | working_on_it | live | on_hold | past_due | cancelled | complete
+  assignedToUserId  String?
+  assignedTo        User?   @relation("OttAdsAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  recurring         String  @default("No") // Yes | No | Unknown
+
+  // Dates
+  flightStart   String?
+  flightEnd     String?
+  dueDate       String?
+  completeDate  String?
+
+  // Money (string to mirror form inputs)
+  grossBudget String? // client-facing gross; actual spend = gross × markup
+
+  // Links / assets
+  videoUrl       String?
+  projectLink    String?
+  notes          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  performance   OttAdsPerformance[]
+  geoPerf       OttAdsGeoPerformance[]
+  propertyPerf  OttAdsPropertyPerformance[]
+  optimizations OttAdsOptimization[]
+
+  @@index([planId, period, position])
+  @@index([planId, position])
+  @@index([status])
+  @@index([assignedToUserId])
+}
+
+// One row per (ad, month). Derived metrics (CPM, VCR, CPCV, Frequency,
+// Cost/Visit, Cost/Site-Visit) are computed client-side from these
+// stored counts so spend/impression edits propagate without re-saving.
+model OttAdsPerformance {
+  id              String   @id @default(cuid())
+  adId            String
+  ad              OttAdsAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  month           String // YYYY-MM
+  spend           String? // numeric stored as string for form parity
+  impressions     String?
+  completedViews  String?
+  uniqueReach     String?
+  footfallVisits  String?
+  siteVisits      String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([adId, month])
+  @@index([adId, month])
+}
+
+model OttAdsGeoPerformance {
+  id              String   @id @default(cuid())
+  adId            String
+  ad              OttAdsAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  month           String // YYYY-MM
+  county          String
+  impressions     String?
+  spend           String?
+  vcr             String? // store as percentage 0-100, parsed at calc time
+  footfallVisits  String?
+  notes           String? // user-entered "next month action"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([adId, month])
+}
+
+model OttAdsPropertyPerformance {
+  id          String   @id @default(cuid())
+  adId        String
+  ad          OttAdsAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  month       String // YYYY-MM
+  rank        Int      @default(0) // 1..15 (top 15)
+  property    String
+  impressions String?
+  spend       String?
+  vcr         String? // percentage 0-100
+  decision    String? // keep | cut | watch | null
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([adId, month, rank])
+}
+
+model OttAdsOptimization {
+  id           String   @id @default(cuid())
+  adId         String
+  ad           OttAdsAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  date         String // YYYY-MM-DD
+  changeMade   String
+  reason       String?
+  result       String?
+  authorUserId String?
+  author       User?    @relation("OttAdsOptimizationAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([adId, date])
 }
 
 // ─────────────────────────────────────────────────────

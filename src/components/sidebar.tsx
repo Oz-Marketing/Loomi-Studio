@@ -26,6 +26,7 @@ import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
 import { FlowIcon } from '@/components/icon-map';
 import { MetaLogoIcon } from '@/components/icons/meta-logo';
+import { TvIcon } from '@heroicons/react/24/outline';
 import { AccountSwitcher } from '@/components/account-switcher';
 import { DevImpersonate } from '@/components/dev-impersonate';
 import { AppLogo } from '@/components/app-logo';
@@ -65,6 +66,24 @@ const toolsNavItem: NavItem = {
         {
           href: '/tools/meta/ad-pacer',
           label: 'Ad Pacer',
+          absolute: true,
+        },
+      ],
+    },
+    {
+      href: '/tools/ott',
+      label: 'OTT',
+      icon: TvIcon,
+      absolute: true,
+      children: [
+        {
+          href: '/tools/ott/tracker',
+          label: 'Tracker',
+          absolute: true,
+        },
+        {
+          href: '/tools/ott/analytics',
+          label: 'Analytics',
           absolute: true,
         },
       ],
