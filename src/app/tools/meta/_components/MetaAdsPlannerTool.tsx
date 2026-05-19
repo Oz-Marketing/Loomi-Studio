@@ -25,7 +25,7 @@ import {
   UserCircleIcon,
   PaintBrushIcon,
   CheckBadgeIcon,
-  ChatBubbleLeftRightIcon,
+  ChatBubbleOvalLeftIcon,
   TrashIcon,
   FunnelIcon,
   ArrowPathIcon,
@@ -1845,7 +1845,7 @@ function UpdatesIndicator({
       title={titleParts.join(' · ')}
       style={{ width: 28, height: 28 }}
     >
-      <ChatBubbleLeftRightIcon
+      <ChatBubbleOvalLeftIcon
         className="w-6 h-6"
         style={{
           color: hasCount ? 'var(--primary)' : 'var(--muted-foreground)',
@@ -2354,7 +2354,7 @@ function ActivityLogPanel({
     <aside className="flex flex-col h-full border-l border-[var(--border)] bg-[var(--muted)]/30 min-h-0">
       <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ChatBubbleLeftRightIcon className="w-4 h-4 text-[var(--primary)]" />
+          <ChatBubbleOvalLeftIcon className="w-4 h-4 text-[var(--primary)]" />
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--foreground)]">
             Updates
           </h3>
@@ -3258,7 +3258,7 @@ function AdEditorModal({
           </div>
           {mode === 'create' ? (
             <aside className="flex flex-col h-full border-l border-[var(--border)] bg-[var(--muted)]/30 p-6 text-center justify-center">
-              <ChatBubbleLeftRightIcon className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-2" />
+              <ChatBubbleOvalLeftIcon className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-2" />
               <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
                 Activity log unlocks once the ad is saved. Click <b>Save</b> to add
                 this ad to the plan, then re-open it to leave comments or
@@ -5573,7 +5573,7 @@ function AccountNotesModal({
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
-              <ChatBubbleLeftRightIcon className="w-4 h-4" />
+              <ChatBubbleOvalLeftIcon className="w-4 h-4" />
               Notes — {accountLabel}
             </h3>
             <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
@@ -5709,12 +5709,12 @@ function AccountNotesButton({
       onClick={onClick}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className="relative inline-flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+      className="relative inline-flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
     >
-      <ChatBubbleLeftRightIcon className="w-4 h-4" />
+      <ChatBubbleOvalLeftIcon className="w-6 h-6" />
       {count != null && count > 0 && (
         <span
-          className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold flex items-center justify-center"
+          className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold flex items-center justify-center"
           style={{ background: COLORS.daily, color: '#0a0a0a' }}
         >
           {count > 99 ? '99+' : count}
