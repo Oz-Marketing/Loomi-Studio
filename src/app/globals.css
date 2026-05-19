@@ -303,30 +303,42 @@ body {
    stays legible over busy page content. */
 main[data-scrolled='true'] .page-sticky-header {
   padding: 0.75rem 1rem;
-  background: rgba(12, 12, 20, 0.94);
-  border-color: var(--sidebar-border);
+  background: rgba(28, 28, 36, 0.96);
+  border-color: rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(28px) saturate(200%);
-  box-shadow: var(--sidebar-shadow);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 [data-theme='light'] main[data-scrolled='true'] .page-sticky-header {
-  background: rgba(255, 255, 255, 0.94);
-  border-color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 /* Heavier frost variant — drop-in replacement for `.glass-panel` when
    the surface needs to read strongly over busy page content (e.g. the
-   account notes drawer). Same blur, much more opaque background. */
+   account notes drawer). Uses a clearly elevated surface color so the
+   panel reads as a distinct card against the near-black page bg, not as
+   a translucent wash that blends in. */
 .frost-heavy {
-  background: rgba(12, 12, 20, 0.94);
-  border: 1px solid var(--sidebar-border);
+  background: rgba(28, 28, 36, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(28px) saturate(200%);
-  box-shadow: var(--sidebar-shadow);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 [data-theme='light'] .frost-heavy {
-  background: rgba(255, 255, 255, 0.94);
-  border-color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 /* Liquid glass panel base */
