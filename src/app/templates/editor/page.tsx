@@ -41,6 +41,9 @@ import {
   ChevronUpDownIcon,
   MagnifyingGlassIcon,
   Squares2X2Icon,
+  SunIcon,
+  MoonIcon,
+  EllipsisVerticalIcon,
 } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -65,6 +68,13 @@ import {
   findMissingPreviewVariables,
   type PreviewContact,
 } from "@/lib/preview-variables";
+import {
+  lintEmailHtml,
+  LINT_CATEGORY_LABELS,
+  LINT_SEVERITY_RANK,
+  type LintIssue,
+  type LintCategory,
+} from "@/lib/email-lint";
 import { shouldFallbackToS3Media } from "@/lib/esp/media-fallback";
 import espVariablesData from "@/data/esp-variables.json";
 import { ComponentIcon, SectionsIcon } from "@/components/icon-map";
@@ -6327,6 +6337,97 @@ function injectLoomiAttributes(html: string): string {
   return html;
 }
 
+/**
+ * Transforms compiled HTML to simulate Apple Mail-style dark mode preview.
+ *
+ * Strategy:
+ *  - Set `color-scheme: dark` on the document so browsers know to use dark UI chrome.
+ *  - Strip the `prefers-color-scheme` wrapper from any dark-mode media queries so
+ *    those rules apply unconditionally (this is what email designers write to
+ *    support dark mode — we just force-enable it here).
+ *  - Inject a fallback dark background so the iframe wrapper itself doesn't
+ *    flash white when the email lacks an explicit body bg.
+ *
+ * Note: this only simulates clients that honor prefers-color-scheme (Apple
+ * Mail). Outlook.com and Gmail mobile apply their own forced inversion that we
+ * cannot replicate from CSS alone.
+ */
+function applyDarkModePreview(html: string): string {
+  if (!html) return html;
+
+  let transformed = html;
+
+  // Unwrap `@media (prefers-color-scheme: dark) { … }` blocks so they always apply.
+  // Match the @media query and its matching closing brace by balanced-brace scan.
+  const re = /@media[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{/gi;
+  const unwrap = (input: string): string => {
+    let result = "";
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    re.lastIndex = 0;
+    while ((match = re.exec(input)) !== null) {
+      const start = match.index;
+      const openBraceIdx = start + match[0].length - 1;
+      // Walk forward, tracking brace depth, to find the matching close brace.
+      let depth = 1;
+      let i = openBraceIdx + 1;
+      while (i < input.length && depth > 0) {
+        const ch = input[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") depth--;
+        i++;
+      }
+      if (depth !== 0) break; // unbalanced — bail out, leave the rest alone
+      const innerStart = openBraceIdx + 1;
+      const innerEnd = i - 1;
+      result += input.slice(cursor, start);
+      result += input.slice(innerStart, innerEnd);
+      cursor = i;
+      re.lastIndex = i;
+    }
+    result += input.slice(cursor);
+    return result;
+  };
+  transformed = unwrap(transformed);
+
+  // Prepend a base dark stylesheet — applied first so the email's own styles win.
+  const darkBaseStyles = `<style data-loomi-dark-preview>html{color-scheme:dark;}html,body{background-color:#1a1a1a;}</style>`;
+
+  if (/<head[^>]*>/i.test(transformed)) {
+    transformed = transformed.replace(/<head([^>]*)>/i, `<head$1>${darkBaseStyles}`);
+  } else {
+    transformed = darkBaseStyles + transformed;
+  }
+
+  return transformed;
+}
+
+/**
+ * Transforms compiled HTML to force a light-mode preview, regardless of the
+ * viewer's OS theme.
+ *
+ * `prefers-color-scheme` reflects the OS preference, not the document's
+ * `color-scheme` property — so we cannot opt out of OS dark mode by setting
+ * `color-scheme: light`. Instead we rewrite any `@media (prefers-color-scheme:
+ * dark)` condition to `@media not all`, which never matches in any context.
+ * The dark rules remain in the source, just dormant, so toggling back to
+ * Dark Mode re-activates them via `applyDarkModePreview`.
+ */
+function applyLightModePreview(html: string): string {
+  if (!html) return html;
+
+  const transformed = html.replace(
+    /@media[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{/gi,
+    "@media not all {",
+  );
+
+  const lightBaseStyles = `<style data-loomi-light-preview>:root,html,body{color-scheme:light;}</style>`;
+  if (/<head[^>]*>/i.test(transformed)) {
+    return transformed.replace(/<head([^>]*)>/i, `<head$1>${lightBaseStyles}`);
+  }
+  return lightBaseStyles + transformed;
+}
+
 // Client-side serializer
 function serializeTemplateClient(template: ParsedTemplate): string {
   if (template.frontmatter?.version === "2") {
@@ -6522,9 +6623,12 @@ export default function TemplateEditorPage() {
   const storeAssignmentDropdownRef = useRef<HTMLDivElement | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
-  const [showCopyDropdown, setShowCopyDropdown] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [previewWidth, setPreviewWidth] = useState<"desktop" | "mobile">(
     "desktop",
+  );
+  const [previewColorScheme, setPreviewColorScheme] = useState<"light" | "dark">(
+    "light",
   );
   const [previewZoom, setPreviewZoom] = useState(PREVIEW_ZOOM_DEFAULT);
   const [hasChanges, setHasChanges] = useState(false);
@@ -6800,6 +6904,36 @@ export default function TemplateEditorPage() {
   );
 
   const [showMissingVars, setShowMissingVars] = useState(false);
+
+  const lintIssues = useMemo<LintIssue[]>(
+    () => lintEmailHtml(previewHtml),
+    [previewHtml],
+  );
+
+  const lintIssuesByCategory = useMemo(() => {
+    const grouped = new Map<LintCategory, LintIssue[]>();
+    for (const issue of lintIssues) {
+      const list = grouped.get(issue.category) ?? [];
+      list.push(issue);
+      grouped.set(issue.category, list);
+    }
+    for (const list of grouped.values()) {
+      list.sort(
+        (a, b) => LINT_SEVERITY_RANK[a.severity] - LINT_SEVERITY_RANK[b.severity],
+      );
+    }
+    return grouped;
+  }, [lintIssues]);
+
+  const [showLintPanel, setShowLintPanel] = useState(false);
+
+  const previewSrcDoc = useMemo(
+    () =>
+      previewColorScheme === "dark"
+        ? applyDarkModePreview(previewHtml)
+        : applyLightModePreview(previewHtml),
+    [previewHtml, previewColorScheme],
+  );
 
   const selectedEditorComponent = useMemo(() => {
     if (selectedComponent === null || !parsed) return null;
@@ -8696,7 +8830,7 @@ export default function TemplateEditorPage() {
       document.body.removeChild(ta);
     }
     setCopied(true);
-    setShowCopyDropdown(false);
+    setShowMoreMenu(false);
     const labels = { compiled: "Compiled HTML", source: "Source Template", text: "Plain Text" };
     toast.success(`${labels[format]} copied!`);
     setTimeout(() => setCopied(false), 2000);
@@ -8821,8 +8955,8 @@ export default function TemplateEditorPage() {
           setShowMissingVars(false);
           return;
         }
-        if (showCopyDropdown) {
-          setShowCopyDropdown(false);
+        if (showMoreMenu) {
+          setShowMoreMenu(false);
           return;
         }
         if (storeAssignmentOpen) {
@@ -8842,7 +8976,7 @@ export default function TemplateEditorPage() {
     showHistory,
     showAiAssistant,
     showMissingVars,
-    showCopyDropdown,
+    showMoreMenu,
     storeAssignmentOpen,
   ]);
 
@@ -8863,16 +8997,16 @@ export default function TemplateEditorPage() {
 
   // Close dropdowns on outside click
   useEffect(() => {
-    if (!showCopyDropdown) return;
+    if (!showMoreMenu) return;
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (!target.closest("[data-copy-dropdown]")) {
-        setShowCopyDropdown(false);
+      if (!target.closest("[data-more-menu]")) {
+        setShowMoreMenu(false);
       }
     };
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
-  }, [showCopyDropdown]);
+  }, [showMoreMenu]);
 
   const adjustPreviewZoom = useCallback((delta: number) => {
     setPreviewZoom((current) =>
@@ -9349,7 +9483,7 @@ export default function TemplateEditorPage() {
     : null;
   const isDragDropLabel = templateTypeLabel === "Drag & Drop";
   const lineCount = code.split("\n").length;
-  const backHref = subHref(espMode ? "/templates" : isAccount ? "/emails" : "/templates/library");
+  const backHref = espMode ? subHref("/templates") : isAccount ? subHref("/emails") : "/templates";
   const handleBackClick = useCallback(() => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
@@ -9560,7 +9694,7 @@ export default function TemplateEditorPage() {
 
       {/* Main split pane */}
       {isV2Template(code) && editorMode === "visual" ? (
-        <div className="flex-1 min-h-0 border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)]">
+        <div className="flex-1 min-h-0 flex gap-4">
           <V2EditorShell
             template={(parseV2Template(code) as EmailTemplate) ?? { version: "2", subject: "", preheader: "", settings: { bodyBg: "#f5f5f5", contentBg: "#ffffff", contentWidth: 600, fontFamily: "Helvetica, Arial, sans-serif", textColor: "#1a1a1a" }, blocks: [] }}
             onChange={(next) => handleCodeChange(JSON.stringify(next, null, 2))}
@@ -10510,6 +10644,104 @@ export default function TemplateEditorPage() {
                   )}
                 </div>
               )}
+              {lintIssues.length > 0 && (() => {
+                const errorCount = lintIssues.filter((i) => i.severity === "error").length;
+                const warnCount = lintIssues.filter((i) => i.severity === "warning").length;
+                const tone =
+                  errorCount > 0
+                    ? "text-red-400 hover:bg-red-500/10"
+                    : warnCount > 0
+                      ? "text-amber-400 hover:bg-amber-500/10"
+                      : "text-sky-400 hover:bg-sky-500/10";
+                const dotTone =
+                  errorCount > 0
+                    ? "text-red-300"
+                    : warnCount > 0
+                      ? "text-amber-300"
+                      : "text-sky-300";
+                return (
+                  <div className="relative ml-1">
+                    <button
+                      onClick={() => setShowLintPanel(!showLintPanel)}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg transition-colors ${tone}`}
+                      title={`${lintIssues.length} email lint issue${lintIssues.length === 1 ? "" : "s"}`}
+                    >
+                      <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-semibold">
+                        {lintIssues.length}
+                      </span>
+                    </button>
+                    {showLintPanel && (
+                      <div className="absolute left-0 top-full mt-1 z-50 w-96 glass-dropdown">
+                        <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--muted)]/40 flex items-center justify-between">
+                          <p className={`text-xs font-semibold ${errorCount > 0 ? "text-red-400" : warnCount > 0 ? "text-amber-400" : "text-sky-400"}`}>
+                            Email Lint
+                            <span className="ml-2 text-[10px] font-normal text-[var(--muted-foreground)]">
+                              {errorCount > 0 && `${errorCount} error${errorCount === 1 ? "" : "s"}`}
+                              {errorCount > 0 && warnCount > 0 && " · "}
+                              {warnCount > 0 && `${warnCount} warning${warnCount === 1 ? "" : "s"}`}
+                            </span>
+                          </p>
+                          <button
+                            onClick={() => setShowLintPanel(false)}
+                            className="p-0.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                          >
+                            <XMarkIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="max-h-96 overflow-y-auto p-2 space-y-3">
+                          {Array.from(lintIssuesByCategory.entries()).map(
+                            ([category, issues]) => (
+                              <div key={category}>
+                                <p className="text-[10px] uppercase tracking-wide font-semibold text-[var(--muted-foreground)] px-1 mb-1">
+                                  {LINT_CATEGORY_LABELS[category]}
+                                </p>
+                                <div className="space-y-1">
+                                  {issues.map((issue) => (
+                                    <div
+                                      key={issue.id}
+                                      className="px-2 py-1.5 rounded-md bg-[var(--background)]"
+                                    >
+                                      <div className="flex items-start gap-2">
+                                        <span
+                                          className={`mt-0.5 text-[10px] leading-none ${
+                                            issue.severity === "error"
+                                              ? "text-red-400"
+                                              : issue.severity === "warning"
+                                                ? "text-amber-400"
+                                                : "text-sky-400"
+                                          } ${dotTone}`}
+                                        >
+                                          ●
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-[11px] font-medium text-[var(--foreground)] leading-snug">
+                                            {issue.message}
+                                          </p>
+                                          {issue.detail && (
+                                            <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 leading-snug">
+                                              {issue.detail}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ),
+                          )}
+                        </div>
+                        <div className="px-3 py-2 border-t border-[var(--border)] bg-[var(--muted)]/30">
+                          <p className="text-[10px] text-[var(--muted-foreground)]">
+                            Static checks on the compiled HTML. They don't catch every issue — send a real test to be sure.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Center — Desktop / Mobile toggle */}
@@ -10555,7 +10787,7 @@ export default function TemplateEditorPage() {
               </div>
             </div>
 
-            {/* Right — Copy dropdown + Undo/Redo */}
+            {/* Right — Undo/Redo + More menu + Refresh */}
             <div className="flex items-center justify-self-end gap-1.5">
               <button
                 onClick={handleUndo}
@@ -10574,38 +10806,82 @@ export default function TemplateEditorPage() {
                 <ArrowUturnRightIcon className="w-3.5 h-3.5" />
               </button>
               <div className="w-px h-5 bg-[var(--border)] mx-0.5" />
-              <div className="relative" data-copy-dropdown>
+              <div className="relative" data-more-menu>
                 <button
-                  onClick={() => setShowCopyDropdown(!showCopyDropdown)}
-                  disabled={!previewHtml}
-                  className={`p-1.5 rounded-lg transition-colors ${copied ? "text-green-400 bg-green-500/10" : "hover:bg-[var(--muted)] disabled:opacity-40"}`}
-                  title="Copy HTML"
+                  onClick={() => setShowMoreMenu(!showMoreMenu)}
+                  className={`p-1.5 rounded-lg transition-colors ${copied ? "text-green-400 bg-green-500/10" : "hover:bg-[var(--muted)]"}`}
+                  title="More actions"
                 >
                   {copied ? (
                     <CheckIcon className="w-4 h-4" />
                   ) : (
-                    <Square2StackIcon className="w-4 h-4" />
+                    <EllipsisVerticalIcon className="w-4 h-4" />
                   )}
                 </button>
-                {showCopyDropdown && (
-                  <div className="absolute right-0 top-full mt-1 z-50 w-48 glass-dropdown">
+                {showMoreMenu && (
+                  <div className="absolute right-0 top-full mt-1 z-50 w-56 glass-dropdown">
+                    <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide font-semibold text-[var(--muted-foreground)]">
+                      Preview Mode
+                    </div>
                     <button
-                      onClick={() => handleCopyHtml("compiled")}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--accent)] transition-colors text-left"
+                      onClick={() => {
+                        setPreviewColorScheme("light");
+                        setShowMoreMenu(false);
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left ${previewColorScheme === "light" ? "bg-[var(--accent)]/60 text-[var(--foreground)]" : "hover:bg-[var(--accent)]"}`}
+                    >
+                      <SunIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                      <span className="flex-1">Light</span>
+                      {previewColorScheme === "light" && (
+                        <CheckIcon className="w-3.5 h-3.5 text-[var(--primary)]" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPreviewColorScheme("dark");
+                        setShowMoreMenu(false);
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left ${previewColorScheme === "dark" ? "bg-[var(--accent)]/60 text-[var(--foreground)]" : "hover:bg-[var(--accent)]"}`}
+                    >
+                      <MoonIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                      <span className="flex-1">Dark</span>
+                      {previewColorScheme === "dark" && (
+                        <CheckIcon className="w-3.5 h-3.5 text-[var(--primary)]" />
+                      )}
+                    </button>
+                    <div className="my-1 border-t border-[var(--border)]/60" />
+                    <div className="px-3 pt-1 pb-1 text-[10px] uppercase tracking-wide font-semibold text-[var(--muted-foreground)]">
+                      Copy
+                    </div>
+                    <button
+                      onClick={() => {
+                        handleCopyHtml("compiled");
+                        setShowMoreMenu(false);
+                      }}
+                      disabled={!previewHtml}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--accent)] disabled:opacity-40 transition-colors text-left"
                     >
                       <CodeBracketIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
                       Compiled HTML
                     </button>
                     <button
-                      onClick={() => handleCopyHtml("source")}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--accent)] transition-colors text-left"
+                      onClick={() => {
+                        handleCopyHtml("source");
+                        setShowMoreMenu(false);
+                      }}
+                      disabled={!previewHtml}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--accent)] disabled:opacity-40 transition-colors text-left"
                     >
                       <Square2StackIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
                       Source Template
                     </button>
                     <button
-                      onClick={() => handleCopyHtml("text")}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--accent)] transition-colors text-left"
+                      onClick={() => {
+                        handleCopyHtml("text");
+                        setShowMoreMenu(false);
+                      }}
+                      disabled={!previewHtml}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--accent)] disabled:opacity-40 transition-colors text-left"
                     >
                       <DocumentArrowDownIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
                       Plain Text
@@ -10613,15 +10889,6 @@ export default function TemplateEditorPage() {
                   </div>
                 )}
               </div>
-              {/* Save */}
-              <button
-                onClick={handleSave}
-                disabled={saving || !hasChanges}
-                className={`p-1.5 rounded-lg transition-colors ${saving ? "text-amber-400 bg-amber-500/10" : "hover:bg-[var(--muted)] disabled:opacity-40"}`}
-                title="Save (⌘S)"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" fill="currentColor" className={`w-4 h-4 ${saving ? "animate-pulse" : ""}`}><path d="M 7 4 C 5.3545455 4 4 5.3545455 4 7 L 4 43 C 4 44.645455 5.3545455 46 7 46 L 43 46 C 44.645455 46 46 44.645455 46 43 L 46 13.199219 A 1.0001 1.0001 0 0 0 45.707031 12.492188 L 37.507812 4.2929688 A 1.0001 1.0001 0 0 0 36.800781 4 L 7 4 z M 7 6 L 12 6 L 12 18 C 12 19.645455 13.354545 21 15 21 L 34 21 C 35.645455 21 37 19.645455 37 18 L 37 6.6132812 L 44 13.613281 L 44 43 C 44 43.554545 43.554545 44 43 44 L 38 44 L 38 29 C 38 27.354545 36.645455 26 35 26 L 15 26 C 13.354545 26 12 27.354545 12 29 L 12 44 L 7 44 C 6.4454545 44 6 43.554545 6 43 L 6 7 C 6 6.4454545 6.4454545 6 7 6 z M 14 6 L 35 6 L 35 18 C 35 18.554545 34.554545 19 34 19 L 15 19 C 14.445455 19 14 18.554545 14 18 L 14 6 z M 29 8 A 1.0001 1.0001 0 0 0 28 9 L 28 16 A 1.0001 1.0001 0 0 0 29 17 L 32 17 A 1.0001 1.0001 0 0 0 33 16 L 33 9 A 1.0001 1.0001 0 0 0 32 8 L 29 8 z M 30 10 L 31 10 L 31 15 L 30 15 L 30 10 z M 15 28 L 35 28 C 35.554545 28 36 28.445455 36 29 L 36 44 L 14 44 L 14 29 C 14 28.445455 14.445455 28 15 28 z"/></svg>
-              </button>
               {/* Refresh preview */}
               <button
                 onClick={() => compilePreview(code)}
@@ -10636,7 +10903,9 @@ export default function TemplateEditorPage() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto bg-zinc-700 flex justify-center">
+          <div
+            className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto flex justify-center ${previewColorScheme === "dark" ? "bg-zinc-950" : "bg-zinc-700"}`}
+          >
             {previewError ? (
               <div className="max-w-md mx-auto p-6 text-center mt-8">
                 <p className="text-red-400 text-sm font-medium mb-2">
@@ -10658,8 +10927,8 @@ export default function TemplateEditorPage() {
               >
                 <iframe
                   ref={iframeRef}
-                  key={`${previewKeyRef.current}-${previewWidth}`}
-                  srcDoc={previewHtml}
+                  key={`${previewKeyRef.current}-${previewWidth}-${previewColorScheme}`}
+                  srcDoc={previewSrcDoc}
                   className="w-full border-0 block mx-auto"
                   style={{
                     minHeight: "100vh",
