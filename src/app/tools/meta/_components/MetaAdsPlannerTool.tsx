@@ -5970,11 +5970,24 @@ function BudgetLogDrawer({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [posting, setPosting] = useState(false);
+  // Per-entry expand state — history is collapsed by default so the
+  // drawer reads as a tidy list; click any entry to expand its full
+  // per-ad snapshot.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const userMap = useMemo(() => {
     const m = new Map<string, DirectoryUser>();
     for (const u of users) m.set(u.id, u);
     return m;
   }, [users]);
+
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -6130,7 +6143,7 @@ function BudgetLogDrawer({
               No entries yet for this month. Log the first one above.
             </div>
           ) : (
-            <ul className="space-y-3 list-none p-0 m-0">
+            <ul className="space-y-2 list-none p-0 m-0">
               {entries.map((entry) => {
                 const isMine =
                   !!currentUserId && entry.authorUserId === currentUserId;
@@ -6145,17 +6158,31 @@ function BudgetLogDrawer({
                   minute: '2-digit',
                 });
                 const rows = parseAdsSnapshot(entry.adsSnapshot);
+                const expanded = expandedIds.has(entry.id);
                 return (
                   <li
                     key={entry.id}
-                    className={`rounded-lg border px-3 py-2 ${
+                    className={`rounded-lg border overflow-hidden ${
                       isMine
                         ? 'border-[var(--primary)]/40 bg-[var(--primary)]/12'
                         : 'border-[var(--border)] bg-[var(--card)]'
                     }`}
                   >
-                    <div className="flex justify-between items-start mb-2 gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
+                    {/* Header row — toggle button on the left, delete on
+                        the right (separate <button>s so nothing is nested). */}
+                    <div className="flex justify-between items-center gap-2 px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(entry.id)}
+                        aria-expanded={expanded}
+                        aria-controls={`budget-log-body-${entry.id}`}
+                        className="flex items-center gap-2 min-w-0 flex-1 text-left rounded hover:bg-[var(--muted)]/30 transition-colors -mx-1 px-1 py-1"
+                      >
+                        {expanded ? (
+                          <ChevronDownIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" />
+                        ) : (
+                          <ChevronRightIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" />
+                        )}
                         {author && (
                           <UserAvatar
                             name={author.name}
@@ -6179,24 +6206,31 @@ function BudgetLogDrawer({
                           </span>
                           <span className="text-[10px] text-[var(--muted-foreground)] truncate">
                             {stamp} · {rows.length} ad{rows.length === 1 ? '' : 's'}
+                            {entry.note && ' · has note'}
                           </span>
                         </div>
-                      </div>
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleDelete(entry.id)}
-                        className="text-[var(--muted-foreground)] hover:text-red-400 transition-colors flex-shrink-0"
+                        className="text-[var(--muted-foreground)] hover:text-red-400 transition-colors flex-shrink-0 p-1 rounded"
                         aria-label="Delete entry"
                         title="Delete"
                       >
                         <TrashIcon className="w-3 h-3" />
                       </button>
                     </div>
-                    <BudgetLogMiniTable rows={rows} />
-                    {entry.note && (
-                      <p className="m-0 mt-1.5 text-xs leading-relaxed text-[var(--foreground)] whitespace-pre-wrap break-words">
-                        {entry.note}
-                      </p>
+
+                    {/* Body — collapsed by default */}
+                    {expanded && (
+                      <div id={`budget-log-body-${entry.id}`} className="px-3 pb-3 border-t border-[var(--border)] pt-2">
+                        <BudgetLogMiniTable rows={rows} />
+                        {entry.note && (
+                          <p className="m-0 mt-2 text-xs leading-relaxed text-[var(--foreground)] whitespace-pre-wrap break-words">
+                            {entry.note}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </li>
                 );
