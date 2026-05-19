@@ -44,14 +44,14 @@ export async function GET(
  * Create a new budget-log entry. Body shape:
  *   {
  *     period: "YYYY-MM",
- *     baseSpend?: string,
- *     baseClientBudget?: string,
- *     addedSpend?: string,
- *     addedClientBudget?: string,
+ *     adsSnapshot: AdSnapshot[],
  *     note?: string,
  *   }
- * All money fields are stored as strings to mirror the rest of the
- * pacer's money handling (preserves user formatting like "1,500.00").
+ *
+ * AdSnapshot mirrors the Summary tab columns — per-ad budgetType,
+ * budget, projected, actual, target, recDaily. The full array is stored
+ * as a JSON string so we preserve the exact view the rep was looking at
+ * when they logged.
  */
 export async function POST(
   req: NextRequest,
@@ -67,10 +67,7 @@ export async function POST(
 
   let body: {
     period?: unknown;
-    baseSpend?: unknown;
-    baseClientBudget?: unknown;
-    addedSpend?: unknown;
-    addedClientBudget?: unknown;
+    adsSnapshot?: unknown;
     note?: unknown;
   };
   try {
@@ -82,6 +79,12 @@ export async function POST(
   if (typeof body.period !== 'string' || !PERIOD_RE.test(body.period)) {
     return NextResponse.json(
       { error: 'period is required (format YYYY-MM)' },
+      { status: 400 },
+    );
+  }
+  if (!Array.isArray(body.adsSnapshot)) {
+    return NextResponse.json(
+      { error: 'adsSnapshot must be an array' },
       { status: 400 },
     );
   }
@@ -104,10 +107,7 @@ export async function POST(
     data: {
       accountKey,
       period: body.period,
-      baseSpend: optString(body.baseSpend),
-      baseClientBudget: optString(body.baseClientBudget),
-      addedSpend: optString(body.addedSpend),
-      addedClientBudget: optString(body.addedClientBudget),
+      adsSnapshot: JSON.stringify(body.adsSnapshot),
       note: optString(body.note),
       authorUserId: session!.user.id,
     },

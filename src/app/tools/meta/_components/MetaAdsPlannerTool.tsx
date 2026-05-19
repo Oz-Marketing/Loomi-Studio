@@ -5812,27 +5812,146 @@ function AccountNotesDrawer({
 }
 
 // ─── Budget Log ───────────────────────────────────────────────────────────
-// Point-in-time snapshots of the pacer's actual-spend + client-budget
-// numbers per account + period. Reps log entries while reviewing the
-// monthly pacer to track when budgets were checked or adjusted.
+// Point-in-time snapshots of the per-ad pacer numbers (mirrors the
+// Summary tab columns). Reps log entries while reviewing the monthly
+// pacer to track when budgets were checked or adjusted.
+
+interface AdSnapshot {
+  adId: string;
+  adName: string;
+  budgetType: 'Daily' | 'Lifetime';
+  budgetSource: 'base' | 'added' | 'split';
+  budget: number;
+  projected: number;
+  actual: number | null;
+  target: number | null;
+  recDaily: number | null;
+}
 
 interface BudgetLogEntry {
   id: string;
   period: string;
-  baseSpend: string | null;
-  baseClientBudget: string | null;
-  addedSpend: string | null;
-  addedClientBudget: string | null;
+  adsSnapshot: string; // JSON-encoded AdSnapshot[]
   note: string | null;
   authorUserId: string | null;
   createdAt: string;
+}
+
+function parseAdsSnapshot(raw: string): AdSnapshot[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as AdSnapshot[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Mini snapshot table reused for both the live "current snapshot"
+// preview and each entry in the history list. Mirrors the Summary tab
+// columns at compact density.
+function BudgetLogMiniTable({ rows }: { rows: AdSnapshot[] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="text-[10px] text-[var(--muted-foreground)] italic px-2 py-3 text-center">
+        No ads to snapshot.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded border border-[var(--border)] bg-[var(--card)]">
+      <table className="w-full border-collapse text-[10px]">
+        <thead>
+          <tr className="border-b border-[var(--border)]">
+            {['Ad', 'Type', 'Budget', 'Projected', 'Actual', 'Target', 'Rec. Daily'].map((h) => (
+              <th
+                key={h}
+                className="px-1.5 py-1.5 text-left text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] whitespace-nowrap"
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const isLifetime = r.budgetType === 'Lifetime';
+            return (
+              <tr key={r.adId} className="border-b border-[var(--border)] last:border-b-0">
+                <td className="px-1.5 py-1.5 text-[var(--foreground)] max-w-[140px] truncate">
+                  {r.adName}
+                </td>
+                <td className="px-1.5 py-1.5">
+                  <span
+                    className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded"
+                    style={{
+                      background: isLifetime
+                        ? 'rgba(167,139,250,0.18)'
+                        : 'rgba(56,189,248,0.18)',
+                      color: isLifetime ? COLORS.lifetime : COLORS.daily,
+                    }}
+                  >
+                    {r.budgetType}
+                  </span>
+                </td>
+                <td
+                  className="px-1.5 py-1.5 tabular-nums whitespace-nowrap"
+                  style={{ color: isLifetime ? COLORS.lifetime : COLORS.daily }}
+                >
+                  {fmt(r.budget)}
+                  <span className="ml-0.5 text-[8px] text-[var(--muted-foreground)]">
+                    {isLifetime ? 'total' : '/day'}
+                  </span>
+                </td>
+                <td className="px-1.5 py-1.5 tabular-nums text-[var(--foreground)]">
+                  {fmt(r.projected)}
+                </td>
+                <td
+                  className="px-1.5 py-1.5 tabular-nums"
+                  style={{
+                    color: r.actual != null ? COLORS.lifetime : 'var(--muted-foreground)',
+                    opacity: r.actual != null ? 1 : 0.6,
+                  }}
+                >
+                  {r.actual != null ? fmt(r.actual) : '—'}
+                </td>
+                <td
+                  className="px-1.5 py-1.5 tabular-nums"
+                  style={{
+                    color: r.target != null ? 'var(--foreground)' : 'var(--muted-foreground)',
+                    opacity: r.target != null ? 1 : 0.6,
+                  }}
+                >
+                  {r.target != null ? fmt(r.target) : '—'}
+                </td>
+                <td
+                  className="px-1.5 py-1.5 tabular-nums"
+                  style={{
+                    color: r.recDaily != null ? COLORS.success : 'var(--muted-foreground)',
+                    opacity: r.recDaily != null ? 1 : 0.6,
+                  }}
+                >
+                  {isLifetime ? (
+                    <span className="text-[var(--muted-foreground)]">n/a</span>
+                  ) : r.recDaily != null ? (
+                    fmt(r.recDaily)
+                  ) : (
+                    '—'
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function BudgetLogDrawer({
   accountKey,
   accountLabel,
   period,
-  snapshot,
+  adsSnapshot,
   users,
   currentUserId,
   onClose,
@@ -5840,14 +5959,9 @@ function BudgetLogDrawer({
   accountKey: string;
   accountLabel: string;
   period: string;
-  // Live snapshot computed by the parent at render time. The drawer
-  // captures these exact values when the user clicks Log.
-  snapshot: {
-    baseSpend: number;
-    baseClientBudget: number;
-    addedSpend: number;
-    addedClientBudget: number;
-  };
+  // Live per-ad snapshot computed by the parent at render time. The
+  // drawer captures this exact array when the user clicks Log.
+  adsSnapshot: AdSnapshot[];
   users: DirectoryUser[];
   currentUserId: string | null;
   onClose: () => void;
@@ -5899,14 +6013,14 @@ function BudgetLogDrawer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           period,
-          baseSpend: snapshot.baseSpend.toString(),
-          baseClientBudget: snapshot.baseClientBudget.toString(),
-          addedSpend: snapshot.addedSpend.toString(),
-          addedClientBudget: snapshot.addedClientBudget.toString(),
+          adsSnapshot,
           note: note.trim() || null,
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}${text ? ` — ${text.slice(0, 200)}` : ''}`);
+      }
       const created = (await res.json()) as BudgetLogEntry;
       setEntries((prev) => [created, ...(prev ?? [])]);
       setNote('');
@@ -5942,7 +6056,7 @@ function BudgetLogDrawer({
     <div className="fixed inset-0 z-50" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="frost-heavy fixed right-3 top-3 bottom-3 w-[460px] max-w-[calc(100vw-1.5rem)] rounded-2xl flex flex-col animate-slide-in-right overflow-hidden"
+        className="frost-heavy fixed right-3 top-3 bottom-3 w-[640px] max-w-[calc(100vw-1.5rem)] rounded-2xl flex flex-col animate-slide-in-right overflow-hidden"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
           <div className="min-w-0">
@@ -5951,7 +6065,7 @@ function BudgetLogDrawer({
               <span className="truncate">Budget Log — {accountLabel}</span>
             </h3>
             <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
-              Snapshots for {fmtPeriodLong(period)}. Captures spend + client budget at the moment you log.
+              Snapshots for {fmtPeriodLong(period)}. Captures per-ad budget, projected, actual, target, and rec. daily at the moment you log.
             </p>
           </div>
           <button
@@ -5964,30 +6078,14 @@ function BudgetLogDrawer({
           </button>
         </div>
 
-        {/* Log-current panel — shows the live snapshot we'd capture if
-            the user clicks Log right now, plus an optional note. */}
+        {/* Log-current panel — shows the live per-ad snapshot we'd
+            capture if the user clicks Log right now, plus an optional
+            note. */}
         <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--primary)]/5 flex-shrink-0 space-y-2">
           <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
-            Log current snapshot
+            Log current snapshot ({adsSnapshot.length} ad{adsSnapshot.length === 1 ? '' : 's'})
           </div>
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div className="rounded border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
-              <div className="text-[9px] uppercase tracking-wider text-[var(--muted-foreground)]" style={{ color: COLORS.base }}>
-                Base
-              </div>
-              <div className="text-[var(--foreground)] tabular-nums">
-                {fmt(snapshot.baseSpend)} <span className="text-[var(--muted-foreground)]">/ {fmt(snapshot.baseClientBudget)}</span>
-              </div>
-            </div>
-            <div className="rounded border border-[var(--border)] bg-[var(--card)] px-2 py-1.5">
-              <div className="text-[9px] uppercase tracking-wider text-[var(--muted-foreground)]" style={{ color: COLORS.added }}>
-                Added
-              </div>
-              <div className="text-[var(--foreground)] tabular-nums">
-                {fmt(snapshot.addedSpend)} <span className="text-[var(--muted-foreground)]">/ {fmt(snapshot.addedClientBudget)}</span>
-              </div>
-            </div>
-          </div>
+          <BudgetLogMiniTable rows={adsSnapshot} />
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -6005,7 +6103,7 @@ function BudgetLogDrawer({
             <button
               type="button"
               onClick={handleLog}
-              disabled={posting}
+              disabled={posting || adsSnapshot.length === 0}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-lg bg-[var(--primary)] text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--primary)]/90 transition-colors"
             >
               <CheckIcon className="w-3.5 h-3.5" />
@@ -6032,7 +6130,7 @@ function BudgetLogDrawer({
               No entries yet for this month. Log the first one above.
             </div>
           ) : (
-            <ul className="space-y-2 list-none p-0 m-0">
+            <ul className="space-y-3 list-none p-0 m-0">
               {entries.map((entry) => {
                 const isMine =
                   !!currentUserId && entry.authorUserId === currentUserId;
@@ -6046,10 +6144,7 @@ function BudgetLogDrawer({
                   hour: 'numeric',
                   minute: '2-digit',
                 });
-                const baseSpend = num(entry.baseSpend) ?? 0;
-                const baseBudget = num(entry.baseClientBudget) ?? 0;
-                const addedSpend = num(entry.addedSpend) ?? 0;
-                const addedBudget = num(entry.addedClientBudget) ?? 0;
+                const rows = parseAdsSnapshot(entry.adsSnapshot);
                 return (
                   <li
                     key={entry.id}
@@ -6083,7 +6178,7 @@ function BudgetLogDrawer({
                             {author?.name ?? 'Unknown'}
                           </span>
                           <span className="text-[10px] text-[var(--muted-foreground)] truncate">
-                            {stamp}
+                            {stamp} · {rows.length} ad{rows.length === 1 ? '' : 's'}
                           </span>
                         </div>
                       </div>
@@ -6097,26 +6192,9 @@ function BudgetLogDrawer({
                         <TrashIcon className="w-3 h-3" />
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-[11px] mb-1.5">
-                      <div className="rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1.5">
-                        <div className="text-[9px] uppercase tracking-wider" style={{ color: COLORS.base }}>
-                          Base
-                        </div>
-                        <div className="text-[var(--foreground)] tabular-nums">
-                          {fmt(baseSpend)} <span className="text-[var(--muted-foreground)]">/ {fmt(baseBudget)}</span>
-                        </div>
-                      </div>
-                      <div className="rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1.5">
-                        <div className="text-[9px] uppercase tracking-wider" style={{ color: COLORS.added }}>
-                          Added
-                        </div>
-                        <div className="text-[var(--foreground)] tabular-nums">
-                          {fmt(addedSpend)} <span className="text-[var(--muted-foreground)]">/ {fmt(addedBudget)}</span>
-                        </div>
-                      </div>
-                    </div>
+                    <BudgetLogMiniTable rows={rows} />
                     {entry.note && (
-                      <p className="m-0 text-xs leading-relaxed text-[var(--foreground)] whitespace-pre-wrap break-words">
+                      <p className="m-0 mt-1.5 text-xs leading-relaxed text-[var(--foreground)] whitespace-pre-wrap break-words">
                         {entry.note}
                       </p>
                     )}
@@ -7062,23 +7140,28 @@ function BudgetPacerPanel({
     [plan.ads, filters, currentUserId],
   );
 
-  // Per-pool actual spend snapshot for the budget-log drawer. Recomputed
-  // each render so the snapshot the drawer captures is always live.
-  const poolSnapshot = useMemo(() => {
-    let baseSpend = 0;
-    let addedSpend = 0;
-    plan.ads.forEach((ad) => {
-      const c = adContribution(ad);
-      baseSpend += c.baseSpent;
-      addedSpend += c.addedSpent;
-    });
-    return {
-      baseSpend,
-      addedSpend,
-      baseClientBudget: num(plan.baseBudgetGoal) ?? 0,
-      addedClientBudget: num(plan.addedBudgetGoal) ?? 0,
-    };
-  }, [plan]);
+  // Per-ad snapshot for the budget-log drawer — mirrors the Summary
+  // tab's AdCalc columns so the logged record matches what the rep was
+  // looking at. Recomputed each render so the snapshot the drawer
+  // captures is always live.
+  const adsSnapshot = useMemo<AdSnapshot[]>(
+    () =>
+      plan.ads.map((ad) => {
+        const c = buildAdCalc(ad);
+        return {
+          adId: ad.id,
+          adName: ad.name || 'Untitled Ad',
+          budgetType: ad.budgetType,
+          budgetSource: ad.budgetSource,
+          budget: c.totalBudget,
+          projected: c.projected,
+          actual: c.actual,
+          target: c.target,
+          recDaily: c.recDaily,
+        };
+      }),
+    [plan],
+  );
 
   const budgetLogButton = (
     <button
@@ -7097,7 +7180,7 @@ function BudgetPacerPanel({
       accountKey={accountKey}
       accountLabel={accountLabel}
       period={period}
-      snapshot={poolSnapshot}
+      adsSnapshot={adsSnapshot}
       users={users}
       currentUserId={currentUserId}
       onClose={() => setBudgetLogOpen(false)}
@@ -7212,7 +7295,7 @@ function SummaryPanel({ plan }: { plan: PacerPlan }) {
   }
 
   return (
-    <div>
+    <div className="glass-section-card rounded-xl px-5 py-4">
       <SectionLabel icon={<TableCellsIcon className="w-3 h-3" />} text="Summary Table" />
       {(baseGoal != null || addedGoal != null) && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">

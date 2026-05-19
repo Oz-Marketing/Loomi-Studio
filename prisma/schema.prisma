@@ -742,22 +742,19 @@ model MetaAdsPacerAccountNote {
 // adjusted budgets during the month. Scoped per-account + per-period
 // (YYYY-MM) so each month's checks live as their own thread.
 model MetaAdsPacerBudgetLog {
-  id                String   @id @default(cuid())
-  accountKey        String
-  account           Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
-  period            String // YYYY-MM
-  // Snapshot of the two key numbers at moment of logging (strings to
-  // mirror the rest of the pacer's money fields). Stored separately for
-  // base + added pools so reps can review pool-level changes over time.
-  baseSpend         String?
-  baseClientBudget  String?
-  addedSpend        String?
-  addedClientBudget String?
+  id           String   @id @default(cuid())
+  accountKey   String
+  account      Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  period       String // YYYY-MM
+  // JSON-encoded AdSnapshot[] — per-ad numbers matching the Summary tab
+  // columns (budgetType, budget, projected, actual, target, recDaily).
+  // See BudgetLogDrawer for the exact shape.
+  adsSnapshot  String   @default("[]")
   // Optional free-text context — "rebalanced after client call", etc.
-  note              String?
-  authorUserId      String?
-  author            User?    @relation("MetaPacerBudgetLogAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
-  createdAt         DateTime @default(now())
+  note         String?
+  authorUserId String?
+  author       User?    @relation("MetaPacerBudgetLogAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
 
   @@index([accountKey, period, createdAt])
 }
