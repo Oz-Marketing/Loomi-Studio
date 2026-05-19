@@ -471,10 +471,25 @@ function ManagementView({ campaignDraftQuery }: { campaignDraftQuery: string }) 
 
   const handleBulkDelete = async () => {
     if (selectedDesigns.size === 0) return;
+    // Show the names of the templates that will be deleted (capped at 8 lines).
+    // The previous count-only message let users miss when the selection had
+    // unintentionally accumulated rows from a prior Move action — names make
+    // over-selection obvious before the user clicks through.
+    const nameByDesign = new Map(
+      templates.map((t) => [t.design, t.name || formatDesign(t.design) || 'Untitled']),
+    );
+    const selectedNames = Array.from(selectedDesigns).map(
+      (design) => nameByDesign.get(design) || 'Unknown template',
+    );
+    const previewLimit = 8;
+    const shown = selectedNames.slice(0, previewLimit).map((n) => `• ${n}`).join('\n');
+    const remaining = selectedNames.length - previewLimit;
+    const list = remaining > 0 ? `${shown}\n… and ${remaining} more` : shown;
     const count = selectedDesigns.size;
+    const headline = `Delete ${count} template${count !== 1 ? 's' : ''}?`;
     const confirmed = await confirm({
       title: 'Delete Templates',
-      message: `Delete ${count} template${count !== 1 ? 's' : ''}? This cannot be undone.`,
+      message: `${headline}\n\n${list}\n\nThis cannot be undone.`,
       confirmLabel: 'Delete',
       destructive: true,
     });
