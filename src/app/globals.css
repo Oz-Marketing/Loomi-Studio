@@ -282,7 +282,6 @@ body {
   padding: 0.75rem 1rem;
   border: 1px solid transparent;
   border-radius: 0.75rem;
-  backdrop-filter: blur(12px) saturate(140%);
   transition:
     padding 0.2s ease,
     background-color 0.2s ease,
@@ -291,21 +290,55 @@ body {
     backdrop-filter 0.2s ease;
 }
 
+/* Used by pages that want a flush look at the top of the page — the
+   header sits inline with no card chrome until the page scrolls and the
+   header actually pins to the viewport edge. */
 .page-sticky-header.pad-on-scroll {
   padding: 0;
 }
 
+/* Only apply the frosted card chrome when the header is *actually* stuck
+   to the viewport (page has scrolled). At rest it stays transparent and
+   flush with the page. Background is intentionally near-opaque so text
+   stays legible over busy page content. */
 main[data-scrolled='true'] .page-sticky-header {
   padding: 0.75rem 1rem;
-  background: var(--sidebar-bg);
-  border-color: var(--sidebar-border);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--sidebar-shadow);
+  background: rgba(28, 28, 36, 0.96);
+  border-color: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(28px) saturate(200%);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 [data-theme='light'] main[data-scrolled='true'] .page-sticky-header {
-  background: rgba(255, 255, 255, 0.82);
-  border-color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Heavier frost variant — drop-in replacement for `.glass-panel` when
+   the surface needs to read strongly over busy page content (e.g. the
+   account notes drawer). Uses a clearly elevated surface color so the
+   panel reads as a distinct card against the near-black page bg, not as
+   a translucent wash that blends in. */
+.frost-heavy {
+  background: rgba(28, 28, 36, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(28px) saturate(200%);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='light'] .frost-heavy {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 /* Liquid glass panel base */

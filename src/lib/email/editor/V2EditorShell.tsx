@@ -23,6 +23,11 @@ import { Squares2X2Icon, Cog6ToothIcon } from '@heroicons/react/24/outline';
 import type { BlockType, EmailTemplate } from '../types';
 import type { PreviewContact } from '@/lib/preview-variables';
 
+const SIDEBAR_MIN_WIDTH = 320;
+const SIDEBAR_MAX_WIDTH = 560;
+const SIDEBAR_DEFAULT_WIDTH = 360;
+const SIDEBAR_STEP_PX = 24;
+
 interface V2EditorShellProps {
   template: EmailTemplate;
   onChange: (next: EmailTemplate) => void;
@@ -73,6 +78,61 @@ function DndShell(props: V2EditorShellProps) {
     duplicateBlock,
   } = useEditor();
   const [activeDragId, setActiveDragId] = React.useState<string | null>(null);
+
+  // Resizable sidebar — mirrors the HTML editor's split-pane resize behavior.
+  const [sidebarWidth, setSidebarWidth] = React.useState(SIDEBAR_DEFAULT_WIDTH);
+  const [isResizingSidebar, setIsResizingSidebar] = React.useState(false);
+  const resizeStartRef = React.useRef<{ x: number; width: number } | null>(null);
+
+  const clampSidebarWidth = React.useCallback(
+    (desired: number) =>
+      Math.round(Math.min(Math.max(desired, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH)),
+    [],
+  );
+
+  const handleResizerMouseDown = React.useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      resizeStartRef.current = { x: e.clientX, width: sidebarWidth };
+      setIsResizingSidebar(true);
+    },
+    [sidebarWidth],
+  );
+
+  const adjustSidebarWidth = React.useCallback(
+    (delta: number) => setSidebarWidth((prev) => clampSidebarWidth(prev + delta)),
+    [clampSidebarWidth],
+  );
+
+  React.useEffect(() => {
+    if (!isResizingSidebar || typeof window === 'undefined') return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const start = resizeStartRef.current;
+      if (!start) return;
+      setSidebarWidth(clampSidebarWidth(start.width + (e.clientX - start.x)));
+    };
+    const stopResizing = () => {
+      resizeStartRef.current = null;
+      setIsResizingSidebar(false);
+    };
+
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', stopResizing);
+    window.addEventListener('blur', stopResizing);
+    return () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', stopResizing);
+      window.removeEventListener('blur', stopResizing);
+    };
+  }, [isResizingSidebar, clampSidebarWidth]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -212,9 +272,42 @@ function DndShell(props: V2EditorShellProps) {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex w-full h-full min-h-0 bg-[var(--background)]">
+      <div className="flex w-full h-full min-h-0 gap-4">
         {/* Left sidebar: Palette OR Properties */}
-        <SidebarContent />
+        <SidebarContent width={sidebarWidth} />
+
+        {/* Resize handle between sidebar and canvas */}
+        <div
+          role="separator"
+          aria-label="Resize sidebar and canvas panes"
+          aria-orientation="vertical"
+          aria-valuenow={sidebarWidth}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
+          tabIndex={0}
+          onMouseDown={handleResizerMouseDown}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              adjustSidebarWidth(-SIDEBAR_STEP_PX);
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              adjustSidebarWidth(SIDEBAR_STEP_PX);
+            }
+          }}
+          className={`group flex-shrink-0 self-stretch w-2 -mx-1 rounded cursor-col-resize transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] ${
+            isResizingSidebar ? 'bg-[var(--primary)]/15' : 'hover:bg-[var(--muted)]'
+          }`}
+          title="Drag to resize sidebar"
+        >
+          <span
+            className={`mx-auto block h-full w-[2px] rounded-full transition-colors ${
+              isResizingSidebar
+                ? 'bg-[var(--primary)]'
+                : 'bg-[var(--border)] group-hover:bg-[var(--primary)]'
+            }`}
+          />
+        </div>
 
         {/* Canvas area — action bar + canvas */}
         <CanvasArea {...props} />
@@ -236,36 +329,38 @@ function CanvasArea(props: V2EditorShellProps) {
 
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0">
-      <ActionBar
-        previewContacts={props.previewContacts}
-        selectedContactId={props.selectedContactId}
-        onSelectContact={props.onSelectContact}
-        onReloadContacts={props.onReloadContacts}
-        contactsLoading={props.contactsLoading}
-        previewWidth={previewWidth}
-        onChangePreviewWidth={setPreviewWidth}
-        zoom={zoom}
-        onZoomIn={() => setZoom((z) => Math.min(200, z + 10))}
-        onZoomOut={() => setZoom((z) => Math.max(50, z - 10))}
-        onZoomReset={() => setZoom(100)}
-        canUndo={props.canUndo}
-        canRedo={props.canRedo}
-        onUndo={props.onUndo}
-        onRedo={props.onRedo}
-        onCopyHtml={props.onCopyHtml}
-        copied={props.copied}
-        outlineOpen={outlineOpen}
-        onToggleOutline={() => setOutlineOpen((v) => !v)}
-      />
-      <div className="flex-1 min-h-0 flex overflow-hidden relative">
-        <Canvas
+      <div className="flex-1 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)] min-w-0 min-h-0">
+        <ActionBar
+          previewContacts={props.previewContacts}
+          selectedContactId={props.selectedContactId}
+          onSelectContact={props.onSelectContact}
+          onReloadContacts={props.onReloadContacts}
+          contactsLoading={props.contactsLoading}
           previewWidth={previewWidth}
+          onChangePreviewWidth={setPreviewWidth}
           zoom={zoom}
-          previewValues={props.previewValues}
+          onZoomIn={() => setZoom((z) => Math.min(200, z + 10))}
+          onZoomOut={() => setZoom((z) => Math.max(50, z - 10))}
+          onZoomReset={() => setZoom(100)}
+          canUndo={props.canUndo}
+          canRedo={props.canRedo}
+          onUndo={props.onUndo}
+          onRedo={props.onRedo}
+          onCopyHtml={props.onCopyHtml}
+          copied={props.copied}
+          outlineOpen={outlineOpen}
+          onToggleOutline={() => setOutlineOpen((v) => !v)}
         />
-        {/* Floating, centered formatting pill — only renders for text/heading blocks */}
-        <FormattingToolbar />
-        {outlineOpen && <OutlinePanel onClose={() => setOutlineOpen(false)} />}
+        <div className="flex-1 min-h-0 flex overflow-hidden relative">
+          <Canvas
+            previewWidth={previewWidth}
+            zoom={zoom}
+            previewValues={props.previewValues}
+          />
+          {/* Floating, centered formatting pill — only renders for text/heading blocks */}
+          <FormattingToolbar />
+          {outlineOpen && <OutlinePanel onClose={() => setOutlineOpen(false)} />}
+        </div>
       </div>
     </div>
   );
@@ -273,34 +368,39 @@ function CanvasArea(props: V2EditorShellProps) {
 
 type PaletteTab = 'components' | 'settings';
 
-function SidebarContent() {
+function SidebarContent({ width }: { width: number }) {
   const { selectedId } = useEditor();
   const [paletteTab, setPaletteTab] = React.useState<PaletteTab>('components');
 
   return (
-    <aside className="w-[360px] flex-shrink-0 border-r border-[var(--border)] overflow-y-auto bg-[var(--card)]">
-      {selectedId ? (
-        <BlockProperties />
-      ) : (
-        <div className="flex flex-col">
-          {/* Top tabs: Components / Settings */}
-          <div className="flex border-b border-[var(--border)]">
-            <PaletteTabButton
-              active={paletteTab === 'components'}
-              onClick={() => setPaletteTab('components')}
-              icon={<Squares2X2Icon className="w-4 h-4" />}
-              label="Components"
-            />
-            <PaletteTabButton
-              active={paletteTab === 'settings'}
-              onClick={() => setPaletteTab('settings')}
-              icon={<Cog6ToothIcon className="w-4 h-4" />}
-              label="Settings"
-            />
+    <aside
+      className="flex-shrink-0 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)] min-h-0"
+      style={{ width: `${width}px` }}
+    >
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {selectedId ? (
+          <BlockProperties />
+        ) : (
+          <div className="flex flex-col">
+            {/* Top tabs: Components / Settings */}
+            <div className="flex border-b border-[var(--border)]">
+              <PaletteTabButton
+                active={paletteTab === 'components'}
+                onClick={() => setPaletteTab('components')}
+                icon={<Squares2X2Icon className="w-4 h-4" />}
+                label="Components"
+              />
+              <PaletteTabButton
+                active={paletteTab === 'settings'}
+                onClick={() => setPaletteTab('settings')}
+                icon={<Cog6ToothIcon className="w-4 h-4" />}
+                label="Settings"
+              />
+            </div>
+            {paletteTab === 'components' ? <ComponentPalette /> : <EmailSettings />}
           </div>
-          {paletteTab === 'components' ? <ComponentPalette /> : <EmailSettings />}
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }

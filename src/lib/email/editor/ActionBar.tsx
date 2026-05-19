@@ -1,14 +1,18 @@
 'use client';
 
+import * as React from 'react';
 import {
   ArrowUturnLeftIcon,
   ArrowUturnRightIcon,
   ComputerDesktopIcon,
   DevicePhoneMobileIcon,
   ArrowPathIcon,
-  Square2StackIcon,
   CheckIcon,
   ListBulletIcon,
+  UserCircleIcon,
+  EllipsisVerticalIcon,
+  CodeBracketIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import type { PreviewContact } from '@/lib/preview-variables';
 
@@ -42,9 +46,6 @@ export interface ActionBarProps {
   onToggleOutline?: () => void;
 }
 
-const iconBtnClass =
-  'h-8 min-w-[32px] inline-flex items-center justify-center px-2 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors';
-
 export function ActionBar({
   previewContacts = [],
   selectedContactId = null,
@@ -66,34 +67,54 @@ export function ActionBar({
   outlineOpen = false,
   onToggleOutline,
 }: ActionBarProps) {
+  const [showMoreMenu, setShowMoreMenu] = React.useState(false);
+
+  // Close menu on Esc + outside click
+  React.useEffect(() => {
+    if (!showMoreMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowMoreMenu(false);
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('[data-d2d-more-menu]')) {
+        setShowMoreMenu(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onMouseDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onMouseDown);
+    };
+  }, [showMoreMenu]);
+
   return (
-    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] bg-[var(--card)] flex-shrink-0">
-      {/* LEFT — Outline toggle + Preview as contact */}
-      <div className="flex items-center gap-2 min-w-0">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-4 py-2 border-b border-[var(--border)] bg-[var(--muted)] flex-shrink-0">
+      {/* LEFT — Outline toggle + Preview As pill */}
+      <div className="flex items-center gap-1.5 min-w-0">
         {onToggleOutline && (
           <button
             onClick={onToggleOutline}
             title="Outline (block structure)"
-            className={
+            className={`p-1.5 rounded ${
               outlineOpen
-                ? 'h-8 w-9 inline-flex items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)] transition-colors flex-shrink-0'
-                : 'h-8 w-9 inline-flex items-center justify-center rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex-shrink-0'
-            }
+                ? 'bg-[var(--primary)] text-white'
+                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
+            }`}
           >
             <ListBulletIcon className="w-4 h-4" />
           </button>
         )}
         {onSelectContact && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border border-[var(--border)] rounded-md bg-[var(--background)] min-w-0">
-            <span className="text-xs font-medium text-[var(--muted-foreground)] whitespace-nowrap">
-              Preview as
-            </span>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--muted)]">
+            <UserCircleIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
             <select
               value={selectedContactId || '__sample__'}
               onChange={(e) => onSelectContact(e.target.value)}
-              className="text-sm bg-transparent border-0 px-1 py-0.5 text-[var(--foreground)] outline-none font-medium cursor-pointer min-w-0 max-w-[180px] truncate"
+              className="w-[220px] max-w-[28vw] min-w-0 bg-transparent text-xs text-[var(--foreground)] focus:outline-none"
             >
-              <option value="__sample__">Sample</option>
+              <option value="__sample__">Preview As: Sample</option>
               {previewContacts.map((c) => {
                 const label =
                   c.fullName ||
@@ -112,7 +133,7 @@ export function ActionBar({
                 onClick={onReloadContacts}
                 disabled={contactsLoading}
                 title="Refresh contacts"
-                className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40 transition-colors"
+                className="p-0.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
               >
                 <ArrowPathIcon
                   className={`w-3.5 h-3.5 ${contactsLoading ? 'animate-spin' : ''}`}
@@ -124,90 +145,123 @@ export function ActionBar({
       </div>
 
       {/* CENTER — Desktop / Mobile / Zoom */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center justify-center gap-1">
         <button
           onClick={() => onChangePreviewWidth('desktop')}
           title="Desktop"
-          className={
+          className={`p-1.5 rounded ${
             previewWidth === 'desktop'
-              ? 'h-8 w-9 inline-flex items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)] transition-colors'
-              : 'h-8 w-9 inline-flex items-center justify-center rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors'
-          }
+              ? 'bg-[var(--primary)] text-white'
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
         >
           <ComputerDesktopIcon className="w-4 h-4" />
         </button>
         <button
           onClick={() => onChangePreviewWidth('mobile')}
           title="Mobile (375px)"
-          className={
+          className={`p-1.5 rounded ${
             previewWidth === 'mobile'
-              ? 'h-8 w-9 inline-flex items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)] transition-colors'
-              : 'h-8 w-9 inline-flex items-center justify-center rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors'
-          }
+              ? 'bg-[var(--primary)] text-white'
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
         >
           <DevicePhoneMobileIcon className="w-4 h-4" />
         </button>
-        <span className="w-px h-5 bg-[var(--border)] mx-1.5" />
-        <button
-          onClick={onZoomOut}
-          disabled={zoom <= 50}
-          title="Zoom out"
-          className={iconBtnClass}
-        >
-          <span className="text-base font-semibold leading-none">−</span>
-        </button>
-        <button
-          onClick={onZoomReset}
-          title="Reset zoom"
-          className={`${iconBtnClass} min-w-[52px] text-xs font-semibold`}
-        >
-          {zoom}%
-        </button>
-        <button
-          onClick={onZoomIn}
-          disabled={zoom >= 200}
-          title="Zoom in"
-          className={iconBtnClass}
-        >
-          <span className="text-base font-semibold leading-none">+</span>
-        </button>
+        <div className="flex items-center gap-0.5 ml-1 pl-2 border-l border-[var(--border)]/70">
+          <button
+            onClick={onZoomOut}
+            disabled={zoom <= 50}
+            title="Zoom out"
+            className="h-7 w-7 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40 transition-colors"
+          >
+            <span className="text-sm font-semibold leading-none">-</span>
+          </button>
+          <button
+            onClick={onZoomReset}
+            title="Reset zoom"
+            className="h-7 min-w-[46px] px-1 rounded text-[10px] font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+          >
+            {zoom}%
+          </button>
+          <button
+            onClick={onZoomIn}
+            disabled={zoom >= 200}
+            title="Zoom in"
+            className="h-7 w-7 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40 transition-colors"
+          >
+            <span className="text-sm font-semibold leading-none">+</span>
+          </button>
+        </div>
       </div>
 
-      {/* RIGHT — Undo / Redo / Copy */}
-      <div className="flex items-center gap-1 justify-end">
+      {/* RIGHT — Undo / Redo + ⋮ More menu */}
+      <div className="flex items-center justify-self-end gap-1.5">
         <button
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (⌘Z)"
-          className={iconBtnClass}
+          className="p-1.5 rounded-lg bg-[var(--muted)] hover:bg-[var(--accent)] disabled:opacity-40 transition-colors"
         >
-          <ArrowUturnLeftIcon className="w-4 h-4" />
+          <ArrowUturnLeftIcon className="w-3.5 h-3.5" />
         </button>
         <button
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (⌘⇧Z)"
-          className={iconBtnClass}
+          className="p-1.5 rounded-lg bg-[var(--muted)] hover:bg-[var(--accent)] disabled:opacity-40 transition-colors"
         >
-          <ArrowUturnRightIcon className="w-4 h-4" />
+          <ArrowUturnRightIcon className="w-3.5 h-3.5" />
         </button>
         {onCopyHtml && (
           <>
-            <span className="w-px h-5 bg-[var(--border)] mx-1.5" />
-            <button
-              onClick={onCopyHtml}
-              title="Copy compiled HTML"
-              className={
-                copied
-                  ? 'h-8 min-w-[32px] inline-flex items-center justify-center px-2 rounded-md text-emerald-500 bg-emerald-500/10 transition-colors'
-                  : iconBtnClass
-              }
-            >
-              {copied ? <CheckIcon className="w-4 h-4" /> : <Square2StackIcon className="w-4 h-4" />}
-            </button>
+            <div className="w-px h-5 bg-[var(--border)] mx-0.5" />
+            <div className="relative" data-d2d-more-menu>
+              <button
+                onClick={() => setShowMoreMenu(!showMoreMenu)}
+                title="More actions"
+                className={`p-1.5 rounded-lg transition-colors ${
+                  copied
+                    ? 'text-green-400 bg-green-500/10'
+                    : 'hover:bg-[var(--muted)]'
+                }`}
+              >
+                {copied ? (
+                  <CheckIcon className="w-4 h-4" />
+                ) : (
+                  <EllipsisVerticalIcon className="w-4 h-4" />
+                )}
+              </button>
+              {showMoreMenu && (
+                <div className="absolute right-0 top-full mt-1 z-50 w-56 glass-dropdown">
+                  <div className="px-3 pt-2 pb-1 flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-wide font-semibold text-[var(--muted-foreground)]">
+                      Copy
+                    </span>
+                    <button
+                      onClick={() => setShowMoreMenu(false)}
+                      className="p-0.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    >
+                      <XMarkIcon className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onCopyHtml();
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--accent)] transition-colors text-left"
+                  >
+                    <CodeBracketIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                    Compiled HTML
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
     </div>
   );
 }
+
