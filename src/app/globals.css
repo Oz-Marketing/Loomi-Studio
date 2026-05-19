@@ -299,17 +299,33 @@ body {
 
 /* Only apply the frosted card chrome when the header is *actually* stuck
    to the viewport (page has scrolled). At rest it stays transparent and
-   flush with the page. */
+   flush with the page. Background is intentionally near-opaque so text
+   stays legible over busy page content. */
 main[data-scrolled='true'] .page-sticky-header {
   padding: 0.75rem 1rem;
-  background: var(--sidebar-bg);
+  background: rgba(12, 12, 20, 0.94);
   border-color: var(--sidebar-border);
   backdrop-filter: blur(28px) saturate(200%);
   box-shadow: var(--sidebar-shadow);
 }
 
 [data-theme='light'] main[data-scrolled='true'] .page-sticky-header {
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(255, 255, 255, 0.9);
+}
+
+/* Heavier frost variant — drop-in replacement for `.glass-panel` when
+   the surface needs to read strongly over busy page content (e.g. the
+   account notes drawer). Same blur, much more opaque background. */
+.frost-heavy {
+  background: rgba(12, 12, 20, 0.94);
+  border: 1px solid var(--sidebar-border);
+  backdrop-filter: blur(28px) saturate(200%);
+  box-shadow: var(--sidebar-shadow);
+}
+
+[data-theme='light'] .frost-heavy {
+  background: rgba(255, 255, 255, 0.94);
   border-color: rgba(255, 255, 255, 0.9);
 }
 
