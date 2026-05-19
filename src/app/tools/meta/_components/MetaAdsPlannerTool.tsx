@@ -40,6 +40,7 @@ import {
   MagnifyingGlassIcon,
   ScaleIcon,
   LockClosedIcon,
+  BoltIcon,
 } from '@heroicons/react/24/outline';
 import { useSession } from 'next-auth/react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -105,6 +106,98 @@ const COLORS = {
   warn: '#f59e0b',
   error: '#ef4444',
 };
+
+// Pacer row health classification — used by both the compact summary
+// row and the expanded card to color the left accent stripe + the
+// inline pacing badge. Keeps the buckets in one place so the badge
+// label and color always agree with the stripe.
+type PacerHealth =
+  | 'over-budget'
+  | 'overpacing'
+  | 'underpacing'
+  | 'on-track'
+  | 'stopped'
+  | 'no-data';
+
+interface PacerHealthInfo {
+  state: PacerHealth;
+  color: string;
+  label: string;
+  short: string; // 1-2 word tag for compact pills
+}
+
+function classifyPacerHealth(
+  ad: { adStatus: string; budgetType: 'Daily' | 'Lifetime' },
+  calc: {
+    budget: number;
+    spent: number;
+    projected: number;
+    hasDates: boolean;
+    endsBeforeToday: boolean;
+    lifetimePacingPct: number | null;
+  },
+): PacerHealthInfo {
+  if (ad.adStatus === 'Off' || ad.adStatus === 'Completed Run') {
+    return {
+      state: 'stopped',
+      color: 'var(--border)',
+      label: 'Stopped',
+      short: 'Off',
+    };
+  }
+  if (calc.budget <= 0 || !calc.hasDates) {
+    return {
+      state: 'no-data',
+      color: 'var(--border)',
+      label: 'No pacing data',
+      short: 'No data',
+    };
+  }
+  if (calc.spent > calc.budget) {
+    return {
+      state: 'over-budget',
+      color: '#ef4444',
+      label: 'Over budget',
+      short: 'Over',
+    };
+  }
+  const isLifetime = ad.budgetType === 'Lifetime';
+  const pct = isLifetime
+    ? calc.lifetimePacingPct
+    : calc.projected > 0 && calc.budget > 0
+      ? (calc.projected / calc.budget) * 100
+      : null;
+  if (pct == null) {
+    return {
+      state: 'no-data',
+      color: 'var(--border)',
+      label: 'No pacing data',
+      short: 'No data',
+    };
+  }
+  if (pct > 105) {
+    return {
+      state: 'overpacing',
+      color: '#f59e0b',
+      label: 'Overpacing',
+      short: 'Overpacing',
+    };
+  }
+  if (pct < 95) {
+    return {
+      state: 'underpacing',
+      color: '#38bdf8',
+      label: 'Underpacing',
+      short: 'Under',
+    };
+  }
+  return {
+    state: 'on-track',
+    color: '#22c55e',
+    label: 'On track',
+    short: 'On track',
+  };
+}
 
 const AD_COLORS = [
   '#38bdf8',
@@ -6607,6 +6700,8 @@ function PacerRow({
   onDailyBudgetChange,
   onTodayChange,
   onEndChange,
+  expanded,
+  onToggleExpanded,
 }: {
   ad: PacerAd;
   index: number;
@@ -6614,6 +6709,8 @@ function PacerRow({
   onDailyBudgetChange: (v: string | null) => void;
   onTodayChange: (v: string | null) => void;
   onEndChange: (v: string | null) => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
 }) {
   const isLifetime = ad.budgetType === 'Lifetime';
   const typeColor = isLifetime ? COLORS.lifetime : COLORS.daily;
@@ -6654,46 +6751,102 @@ function PacerRow({
       ? COLORS.warn
       : COLORS.lifetime;
 
-  const accentColor =
-    calc.budget > 0
-      ? isOnTrack
-        ? COLORS.success
-        : calc.spent > calc.budget
-          ? COLORS.error
-          : 'var(--border)'
-      : 'var(--border)';
+  // Health-based accent colors the left stripe AND the compact pacing
+  // badge in the summary row, so both UI elements agree on the bucket.
+  const health = useMemo(() => classifyPacerHealth(ad, calc), [ad, calc]);
+
+  // Compact one-line summary row. Always visible; clicking it (or the
+  // chevron) expands the full editor card below.
+  const summaryRow = (
+    <button
+      type="button"
+      onClick={onToggleExpanded}
+      aria-expanded={expanded}
+      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--muted)]/30 transition-colors"
+    >
+      {expanded ? (
+        <ChevronDownIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" />
+      ) : (
+        <ChevronRightIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" />
+      )}
+      <div
+        className="w-2 h-2 rounded-sm flex-shrink-0"
+        style={{ background: AD_COLORS[index % AD_COLORS.length] }}
+      />
+      <span className="text-sm font-semibold text-[var(--foreground)] truncate min-w-0 flex-1">
+        {ad.name || 'Untitled Ad'}
+      </span>
+      <span
+        className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded flex-shrink-0"
+        style={{
+          background: isLifetime ? 'rgba(167,139,250,0.18)' : 'rgba(56,189,248,0.18)',
+          color: typeColor,
+        }}
+      >
+        {ad.budgetType}
+      </span>
+      <span className="flex-shrink-0">
+        <AdStatusPill status={ad.adStatus} />
+      </span>
+      {/* Spend snapshot inline: actual + (daily | total target) */}
+      <span className="hidden sm:inline-flex items-baseline gap-1 text-[11px] tabular-nums whitespace-nowrap flex-shrink-0">
+        <span className="text-[var(--muted-foreground)]">Actual</span>
+        <span className="text-[var(--foreground)] font-semibold">
+          {calc.spent > 0 ? fmt(calc.spent) : '—'}
+        </span>
+      </span>
+      <span className="hidden md:inline-flex items-baseline gap-1 text-[11px] tabular-nums whitespace-nowrap flex-shrink-0">
+        <span className="text-[var(--muted-foreground)]">
+          {isLifetime ? 'Target' : 'Daily'}
+        </span>
+        <span style={{ color: typeColor }} className="font-semibold">
+          {isLifetime
+            ? calc.budget > 0
+              ? fmt(calc.budget)
+              : '—'
+            : calc.dailyBudget > 0
+              ? fmt(calc.dailyBudget)
+              : '—'}
+        </span>
+      </span>
+      {/* Health badge — colored by pacing classification, mirrors the
+          left accent stripe so eye + brain agree at a glance. */}
+      <span
+        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded flex-shrink-0"
+        style={{
+          background:
+            health.state === 'stopped' || health.state === 'no-data'
+              ? 'rgba(255,255,255,0.06)'
+              : `${health.color}22`,
+          color:
+            health.state === 'stopped' || health.state === 'no-data'
+              ? 'var(--muted-foreground)'
+              : health.color,
+        }}
+      >
+        {health.short}
+      </span>
+    </button>
+  );
 
   return (
-    <div className="glass-section-card relative rounded-xl px-5 py-4 mb-3.5 overflow-hidden">
+    <div className="glass-section-card relative rounded-xl mb-2.5 overflow-hidden">
+      {/* Left-edge accent stripe colored by pacing health — visible on
+          both summary and expanded states. */}
       <div
-        className="absolute top-0 left-0 right-0 h-0.5"
-        style={{ background: accentColor }}
+        className="absolute top-0 bottom-0 left-0 w-1"
+        style={{ background: health.color }}
       />
+      {summaryRow}
+      {!expanded ? null : (
+        <div className="border-t border-[var(--border)] px-5 py-4 pl-6">
 
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+      <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div
-              className="w-2 h-2 rounded-sm flex-shrink-0"
-              style={{ background: AD_COLORS[index % AD_COLORS.length] }}
-            />
-            <span className="text-sm font-bold text-[var(--foreground)] truncate">
-              {ad.name || 'Untitled Ad'}
-            </span>
-          </div>
+          {/* Name + type + status already live in the summary row above.
+              Expanded view only adds the source pill (since it's hidden
+              in compact mode) and the flight dates on the right. */}
           <div className="flex gap-2 items-center flex-wrap">
-            <span
-              className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-              style={{
-                background: isLifetime
-                  ? 'rgba(167,139,250,0.18)'
-                  : 'rgba(56,189,248,0.18)',
-                color: typeColor,
-              }}
-            >
-              {ad.budgetType}
-            </span>
-            <AdStatusPill status={ad.adStatus} />
             <span
               className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
               style={{
@@ -6991,6 +7144,8 @@ function PacerRow({
       })()}
         </>
       )}
+        </div>
+      )}
     </div>
   );
 }
@@ -7164,7 +7319,13 @@ function BudgetPacerPanel({
   period: string;
   users: DirectoryUser[];
 }) {
+  const { confirm } = useLoomiDialog();
   const [budgetLogOpen, setBudgetLogOpen] = useState(false);
+  // Per-ad expand state. Auto-seeded on first render (and on plan
+  // changes) so rows that need attention are open by default; rep can
+  // still toggle each manually.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const seededExpandedRef = useRef(false);
 
   const updateAd = (u: PacerAd) =>
     onChange({ ...plan, ads: plan.ads.map((a) => (a.id === u.id ? u : a)) });
@@ -7173,6 +7334,76 @@ function BudgetPacerPanel({
     () => applyFilters(plan.ads, filters, currentUserId),
     [plan.ads, filters, currentUserId],
   );
+
+  // Auto-expand needs-attention rows ONCE per mount so the rep lands on
+  // the things that need work. Re-running on plan change would fight
+  // the user's manual collapses; we instead seed once and let the user
+  // own the state from there.
+  useEffect(() => {
+    if (seededExpandedRef.current) return;
+    if (plan.ads.length === 0) return;
+    seededExpandedRef.current = true;
+    const next = new Set<string>();
+    plan.ads.forEach((ad) => {
+      const today = ad.pacerTodayDate ?? datePickerToIso(new Date());
+      const end = ad.pacerEndDate ?? ad.flightEnd;
+      const c = buildPacerCalc(ad, today, end);
+      const h = classifyPacerHealth(ad, c);
+      if (h.state === 'over-budget' || h.state === 'overpacing') {
+        next.add(ad.id);
+      }
+    });
+    if (next.size > 0) setExpandedIds(next);
+  }, [plan.ads]);
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Bulk "Set all dailies to Rec." — applies recommended daily to every
+  // visible non-lifetime, non-stopped ad that has a valid recDaily.
+  const bulkSetDailies = async () => {
+    const candidates = visibleAds.filter((ad) => {
+      if (ad.budgetType !== 'Daily') return false;
+      if (ad.adStatus === 'Off' || ad.adStatus === 'Completed Run') return false;
+      const today = ad.pacerTodayDate ?? datePickerToIso(new Date());
+      const end = ad.pacerEndDate ?? ad.flightEnd;
+      const c = buildPacerCalc(ad, today, end);
+      return c.daysLeft > 0 && c.budget > 0 && c.recDaily > 0;
+    });
+    if (candidates.length === 0) {
+      toast.error('No visible ads have a recommended daily to apply');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Set dailies to recommended',
+      message: `Apply the recommended daily budget to ${candidates.length} visible ad${candidates.length === 1 ? '' : 's'}?`,
+      confirmLabel: 'Apply',
+    });
+    if (!ok) return;
+    const candidateIds = new Set(candidates.map((a) => a.id));
+    onChange({
+      ...plan,
+      ads: plan.ads.map((ad) => {
+        if (!candidateIds.has(ad.id)) return ad;
+        const today = ad.pacerTodayDate ?? datePickerToIso(new Date());
+        const end = ad.pacerEndDate ?? ad.flightEnd;
+        const c = buildPacerCalc(ad, today, end);
+        return {
+          ...ad,
+          pacerDailyBudget: c.recDaily.toFixed(2),
+        };
+      }),
+    });
+    toast.success(
+      `Set daily budget on ${candidates.length} ad${candidates.length === 1 ? '' : 's'} to recommended`,
+    );
+  };
 
   // Per-ad snapshot for the budget-log drawer — mirrors the Summary
   // tab's AdCalc columns so the logged record matches what the rep was
@@ -7206,6 +7437,18 @@ function BudgetPacerPanel({
     >
       <ClipboardDocumentListIcon className="w-3.5 h-3.5" />
       Budget Log
+    </button>
+  );
+
+  const bulkDailyButton = (
+    <button
+      type="button"
+      onClick={bulkSetDailies}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)]/20 transition-colors"
+      title="Set every visible ad's daily budget to its recommended value"
+    >
+      <BoltIcon className="w-3.5 h-3.5" />
+      Set all dailies to Rec.
     </button>
   );
 
@@ -7276,13 +7519,30 @@ function BudgetPacerPanel({
         filteredCount={visibleAds.length}
         totalCount={plan.ads.length}
       />
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3.5 py-2.5 mb-4 text-xs text-[var(--muted-foreground)]">
-        Each ad pulls its <span style={{ color: COLORS.lifetime }}>Target Spend</span>{' '}
-        from the Ad Planner allocation. Edit{' '}
-        <span style={{ color: COLORS.daily }}>Actual Spend</span>,{' '}
-        <span style={{ color: COLORS.daily }}>Daily Budget</span>, and the per-ad{' '}
-        <span style={{ color: COLORS.daily }}>Today / End</span> dates to see projected
-        spend, days left, remaining budget, and the recommended daily adjustment.
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <p className="m-0 text-[11px] text-[var(--muted-foreground)] max-w-[640px]">
+          Click any row to expand. Rows that need attention (overpacing or
+          over-budget) are auto-expanded; the rest stay collapsed.
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() =>
+              setExpandedIds(new Set(visibleAds.map((a) => a.id)))
+            }
+            className="text-[11px] font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] underline-offset-2 hover:underline"
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpandedIds(new Set())}
+            className="text-[11px] font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] underline-offset-2 hover:underline"
+          >
+            Collapse all
+          </button>
+          {bulkDailyButton}
+        </div>
       </div>
       {visibleAds.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] py-10 px-6 text-center text-sm text-[var(--muted-foreground)]">
@@ -7298,6 +7558,8 @@ function BudgetPacerPanel({
             onDailyBudgetChange={(v) => updateAd({ ...ad, pacerDailyBudget: v })}
             onTodayChange={(v) => updateAd({ ...ad, pacerTodayDate: v })}
             onEndChange={(v) => updateAd({ ...ad, pacerEndDate: v })}
+            expanded={expandedIds.has(ad.id)}
+            onToggleExpanded={() => toggleExpanded(ad.id)}
           />
         ))
       )}
