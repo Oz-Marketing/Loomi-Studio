@@ -8174,6 +8174,12 @@ function OverviewAccountRow({
     () => applyFilters(account.ads, filters, currentUserId),
     [account.ads, filters, currentUserId],
   );
+  const filtersActive = activeFilterCount(filters) > 0;
+  // When filters are active, the collapsed header reflects only the
+  // matching subset so reps can scan which accounts have hits without
+  // expanding each row. Default state (no filters) shows the full picture.
+  const headerAds = filtersActive ? visibleAds : account.ads;
+  const noMatches = filtersActive && visibleAds.length === 0;
 
   // Show the client's agreed budget goals (gross dollars) rather than the
   // running allocation total — easier for admins to see commitments at a
@@ -8182,7 +8188,11 @@ function OverviewAccountRow({
   const addedTotal = num(account.addedBudgetGoal) ?? 0;
 
   return (
-    <div className="glass-section-card rounded-xl mb-2.5 overflow-hidden">
+    <div
+      className={`glass-section-card rounded-xl mb-2.5 overflow-hidden transition-opacity ${
+        noMatches ? 'opacity-50' : ''
+      }`}
+    >
       {/* Header row — title + tag stay inline, status battery stacks below.
           Right cluster (Base/Added/Open) is vertically centered against the
           full card height. */}
@@ -8201,14 +8211,20 @@ function OverviewAccountRow({
               {account.dealer}
             </span>
             <span className="text-[11px] text-[var(--muted-foreground)] bg-[var(--muted)] px-2 py-0.5 rounded-full whitespace-nowrap">
-              {account.ads.length} ad{account.ads.length !== 1 ? 's' : ''}
+              {filtersActive
+                ? `${visibleAds.length} of ${account.ads.length} ad${account.ads.length !== 1 ? 's' : ''}`
+                : `${account.ads.length} ad${account.ads.length !== 1 ? 's' : ''}`}
             </span>
           </div>
-          {account.ads.length > 0 && (
+          {headerAds.length > 0 ? (
             <div className="pl-7 max-w-[440px]">
-              <StatusBattery ads={account.ads} size="lg" />
+              <StatusBattery ads={headerAds} size="lg" />
             </div>
-          )}
+          ) : noMatches ? (
+            <div className="pl-7 text-[11px] text-[var(--muted-foreground)] italic">
+              No ads match the current filters.
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-5 flex-shrink-0">
