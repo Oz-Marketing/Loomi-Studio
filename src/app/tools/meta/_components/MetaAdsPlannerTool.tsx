@@ -2378,11 +2378,13 @@ function ActivityLogPanel({
             const isMine = !!currentUserId && u.authorUserId === currentUserId;
             const isEditing = editingId === u.id;
             const author = u.authorUserId ? userById.get(u.authorUserId) : null;
-            const authorName = author
-              ? isMine
-                ? 'You'
-                : author.name
-              : null;
+            const stamp = new Date(u.createdAt).toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            });
             return (
               <div
                 key={u.id}
@@ -2392,42 +2394,33 @@ function ActivityLogPanel({
                     : 'border-[var(--border)] bg-[var(--card)]'
                 }`}
               >
-                <div className="flex justify-between items-start mb-1 gap-2">
+                <div className="flex justify-between items-start mb-1.5 gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     {author && (
                       <UserAvatar
                         name={author.name}
                         email={author.email}
                         avatarUrl={author.avatarUrl}
-                        size={20}
-                        className={`w-5 h-5 rounded-full object-cover flex-shrink-0 border ${
+                        size={28}
+                        className={`w-7 h-7 rounded-full object-cover flex-shrink-0 border ${
                           isMine
                             ? 'border-[var(--primary)]/60'
                             : 'border-[var(--border)]'
                         }`}
                       />
                     )}
-                    <span
-                      className={`text-[10px] truncate ${
-                        isMine
-                          ? 'text-[var(--primary)] font-semibold'
-                          : 'text-[var(--muted-foreground)]'
-                      }`}
-                    >
-                      {new Date(u.createdAt).toLocaleString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                      {authorName && (
-                        <>
-                          {' · '}
-                          {authorName}
-                        </>
-                      )}
-                    </span>
+                    <div className="flex flex-col min-w-0 leading-tight">
+                      <span
+                        className={`text-xs font-semibold truncate ${
+                          isMine ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'
+                        }`}
+                      >
+                        {author?.name ?? 'Unknown'}
+                      </span>
+                      <span className="text-[10px] text-[var(--muted-foreground)] truncate">
+                        {stamp}
+                      </span>
+                    </div>
                   </div>
                   {!isEditing && (
                     <div className="flex items-center gap-1 flex-shrink-0">
@@ -5464,12 +5457,14 @@ function AccountNotesModal({
   accountKey,
   accountLabel,
   users,
+  currentUserId,
   onClose,
   onCountChange,
 }: {
   accountKey: string;
   accountLabel: string;
   users: DirectoryUser[];
+  currentUserId: string | null;
   onClose: () => void;
   onCountChange?: (count: number) => void;
 }) {
@@ -5477,6 +5472,9 @@ function AccountNotesModal({
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   const userMap = useMemo(() => {
     const m = new Map<string, DirectoryUser>();
     for (const u of users) m.set(u.id, u);
@@ -5560,6 +5558,42 @@ function AccountNotesModal({
     }
   };
 
+  const startEdit = (noteId: string, currentText: string) => {
+    setEditingId(noteId);
+    setEditText(currentText);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+  const saveEdit = async (noteId: string) => {
+    const trimmed = editText.trim();
+    if (!trimmed || editSaving) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(
+        `/api/meta-ads-pacer/${accountKey}/notes/${noteId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: trimmed }),
+        },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const updated = (await res.json()) as AccountNote;
+      setNotes((prev) =>
+        (prev ?? []).map((n) => (n.id === noteId ? { ...n, text: updated.text } : n)),
+      );
+      cancelEdit();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[pacer notes] edit failed', err);
+      toast.error('Could not save edit');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div
@@ -5604,13 +5638,15 @@ function AccountNotesModal({
               No notes yet. Add the first one below.
             </div>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-2 list-none p-0 m-0">
               {notes.map((note) => {
+                const isMine =
+                  !!currentUserId && note.authorUserId === currentUserId;
+                const isEditing = editingId === note.id;
                 const author = note.authorUserId
                   ? userMap.get(note.authorUserId)
                   : null;
-                const created = new Date(note.createdAt);
-                const stamp = created.toLocaleString('en-US', {
+                const stamp = new Date(note.createdAt).toLocaleString('en-US', {
                   month: 'short',
                   day: 'numeric',
                   year: 'numeric',
@@ -5620,36 +5656,106 @@ function AccountNotesModal({
                 return (
                   <li
                     key={note.id}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 group"
+                    className={`rounded-lg border px-3 py-2 ${
+                      isMine
+                        ? 'border-[var(--primary)]/40 bg-[var(--primary)]/12'
+                        : 'border-[var(--border)] bg-[var(--card)]'
+                    }`}
                   >
-                    <div className="flex items-baseline justify-between gap-2 mb-1">
-                      <div className="text-[11px] font-semibold text-[var(--foreground)]">
-                        {author?.name ?? 'Unknown'}
-                        {author?.title && (
-                          <span className="font-normal text-[var(--muted-foreground)]">
-                            {' · '}
-                            {author.title}
-                          </span>
+                    <div className="flex justify-between items-start mb-1.5 gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {author && (
+                          <UserAvatar
+                            name={author.name}
+                            email={author.email}
+                            avatarUrl={author.avatarUrl}
+                            size={28}
+                            className={`w-7 h-7 rounded-full object-cover flex-shrink-0 border ${
+                              isMine
+                                ? 'border-[var(--primary)]/60'
+                                : 'border-[var(--border)]'
+                            }`}
+                          />
                         )}
+                        <div className="flex flex-col min-w-0 leading-tight">
+                          <span
+                            className={`text-xs font-semibold truncate ${
+                              isMine ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'
+                            }`}
+                          >
+                            {author?.name ?? 'Unknown'}
+                          </span>
+                          <span className="text-[10px] text-[var(--muted-foreground)] truncate">
+                            {stamp}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-[var(--muted-foreground)] whitespace-nowrap">
-                          {stamp}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(note.id)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-[var(--muted-foreground)] hover:text-red-400 transition-opacity"
-                          aria-label="Delete note"
-                          title="Delete"
-                        >
-                          <TrashIcon className="w-3.5 h-3.5" />
-                        </button>
+                      {!isEditing && (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {isMine && (
+                            <button
+                              type="button"
+                              onClick={() => startEdit(note.id, note.text)}
+                              className="text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors"
+                              aria-label="Edit note"
+                              title="Edit"
+                            >
+                              <PencilSquareIcon className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(note.id)}
+                            className="text-[var(--muted-foreground)] hover:text-red-400 transition-colors"
+                            aria-label="Delete note"
+                            title="Delete"
+                          >
+                            <TrashIcon className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {isEditing ? (
+                      <div className="space-y-1.5">
+                        <textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          rows={3}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                              saveEdit(note.id);
+                            } else if (e.key === 'Escape') {
+                              cancelEdit();
+                            }
+                          }}
+                          className={`${inputClass} resize-none leading-relaxed`}
+                        />
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={cancelEdit}
+                            disabled={editSaving}
+                            className="px-2 py-1 text-[10px] font-medium rounded border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => saveEdit(note.id)}
+                            disabled={editSaving || !editText.trim()}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <CheckIcon className="w-3 h-3" />
+                            {editSaving ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-xs text-[var(--foreground)] whitespace-pre-wrap break-words">
-                      {note.text}
-                    </div>
+                    ) : (
+                      <p className="m-0 text-xs leading-relaxed text-[var(--foreground)] whitespace-pre-wrap break-words">
+                        {note.text}
+                      </p>
+                    )}
                   </li>
                 );
               })}
@@ -7740,6 +7846,7 @@ function OverviewAccountRow({
           accountKey={account.accountKey}
           accountLabel={account.dealer}
           users={users}
+          currentUserId={currentUserId}
           onClose={() => setNotesOpen(false)}
           onCountChange={setNotesCount}
         />
@@ -8527,6 +8634,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
           accountKey={activeKey}
           accountLabel={activeAccount?.dealer ?? activeKey}
           users={users}
+          currentUserId={currentUserId}
           onClose={() => setNotesOpen(false)}
           onCountChange={setNotesCount}
         />

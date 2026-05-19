@@ -280,9 +280,11 @@ body {
   top: 0;
   z-index: 30;
   padding: 0.75rem 1rem;
-  border: 1px solid transparent;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--sidebar-border);
   border-radius: 0.75rem;
-  backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: var(--sidebar-shadow);
   transition:
     padding 0.2s ease,
     background-color 0.2s ease,
@@ -291,21 +293,25 @@ body {
     backdrop-filter 0.2s ease;
 }
 
+/* `pad-on-scroll` historically dropped padding at rest for a flush look,
+   but with the frosted background now applied at rest the bg/border need
+   internal breathing room. Keep the rule a no-op so both states get the
+   same padded card. */
 .page-sticky-header.pad-on-scroll {
-  padding: 0;
+  /* padding kept from .page-sticky-header baseline */
 }
 
 main[data-scrolled='true'] .page-sticky-header {
-  padding: 0.75rem 1rem;
-  background: var(--sidebar-bg);
-  border-color: var(--sidebar-border);
   backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--sidebar-shadow);
+}
+
+[data-theme='light'] .page-sticky-header {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.9);
 }
 
 [data-theme='light'] main[data-scrolled='true'] .page-sticky-header {
-  background: rgba(255, 255, 255, 0.82);
-  border-color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.85);
 }
 
 /* Liquid glass panel base */
