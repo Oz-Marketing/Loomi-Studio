@@ -13,7 +13,6 @@ import {
   Squares2X2Icon,
   CogIcon,
   EnvelopeIcon,
-  PaperAirplaneIcon,
   UserGroupIcon,
   PhotoIcon,
   SunIcon,
@@ -21,6 +20,8 @@ import {
   WrenchScrewdriverIcon,
   ChevronDownIcon,
   ChartBarSquareIcon,
+  ChatBubbleLeftRightIcon,
+  ListBulletIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
@@ -72,53 +73,46 @@ const toolsNavItem: NavItem = {
   ],
 };
 
-// Campaigns group — nests the core campaign-building surfaces underneath.
-const campaignsGroupOverview: NavItem = {
+// Messaging group — nests the email + SMS surfaces underneath.
+// (Flows lives at the top level since it's a separate workflow concept.)
+const messagingGroupCampaigns: NavItem = {
   href: '/campaigns',
-  label: 'Overview',
+  label: 'Campaigns',
+  icon: ListBulletIcon,
+};
+const messagingGroupAnalytics: NavItem = {
+  href: '/campaigns/analytics',
+  label: 'Analytics',
   icon: ChartBarSquareIcon,
 };
-const campaignsGroupTemplates: NavItem = {
+const messagingGroupTemplates: NavItem = {
   href: '/templates',
   label: 'Templates',
   icon: EnvelopeIcon,
 };
-const campaignsGroupFlows: NavItem = {
+const flowsNavItem: NavItem = {
   href: '/flows',
   label: 'Flows',
   icon: FlowIcon as IconComponent,
 };
 
-const campaignsNavAdmin: NavItem = {
+const messagingNav: NavItem = {
   href: '/campaigns',
-  label: 'Campaigns',
-  icon: PaperAirplaneIcon,
+  label: 'Messaging',
+  icon: ChatBubbleLeftRightIcon,
   children: [
-    campaignsGroupOverview,
-    campaignsGroupTemplates,
-    campaignsGroupFlows,
+    messagingGroupCampaigns,
+    messagingGroupAnalytics,
+    messagingGroupTemplates,
   ],
-};
-
-const campaignsNavSubaccountAdmin: NavItem = {
-  href: '/campaigns',
-  label: 'Campaigns',
-  icon: PaperAirplaneIcon,
-  children: [campaignsGroupOverview, campaignsGroupTemplates, campaignsGroupFlows],
-};
-
-const campaignsNavClient: NavItem = {
-  href: '/campaigns',
-  label: 'Campaigns',
-  icon: PaperAirplaneIcon,
-  children: [campaignsGroupOverview, campaignsGroupTemplates],
 };
 
 // Admin-level nav (when in admin mode)
 const adminNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
   { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
-  campaignsNavAdmin,
+  messagingNav,
+  flowsNavItem,
   { href: '/media', label: 'Media', icon: PhotoIcon },
   toolsNavItem,
 ];
@@ -127,16 +121,18 @@ const adminNavItems: NavItem[] = [
 const subaccountAdminNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
   { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
-  campaignsNavSubaccountAdmin,
+  messagingNav,
+  flowsNavItem,
   { href: '/media', label: 'Media', icon: PhotoIcon },
   toolsNavItem,
 ];
 
-// Sub-account nav for client users
+// Sub-account nav for client users — no Flows (matches the previous
+// admin-only restriction on Flows).
 const subaccountClientNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
   { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
-  campaignsNavClient,
+  messagingNav,
 ];
 
 export function Sidebar() {

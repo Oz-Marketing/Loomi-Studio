@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
 import { useCampaignsAggregate, useWorkflowsAggregate } from '@/hooks/use-dashboard-data';
 import { AdminOnly } from '@/components/route-guard';
@@ -20,24 +21,6 @@ import { getAccountOems, industryHasBrands } from '@/lib/oems';
 import PrimaryButton from '@/components/primary-button';
 import { CreateCampaignModal } from '@/components/campaigns/create-campaign-modal';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
-
-// ── Tab Icons (from icons8) ──
-
-function AnalyticsTabIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="currentColor" className={className}>
-      <path d="M 64 1 C 56.28 1 50 7.28 50 15 L 50 93 C 50 100.72 56.28 107 64 107 C 71.72 107 78 100.72 78 93 L 78 15 C 78 7.28 71.72 1 64 1 z M 64 7 C 68.41 7 72 10.59 72 15 L 72 93 C 72 97.41 68.41 101 64 101 C 59.59 101 56 97.41 56 93 L 56 15 C 56 10.59 59.59 7 64 7 z M 108 31 C 100.28 31 94 37.28 94 45 L 94 103 C 94 104.66 95.34 106 97 106 C 98.66 106 100 104.66 100 103 L 100 45 C 100 40.59 103.59 37 108 37 C 112.41 37 116 40.59 116 45 L 116 112 C 116 116.41 112.41 120 108 120 L 9 120 C 7.34 120 6 121.34 6 123 C 6 124.66 7.34 126 9 126 L 108 126 C 115.72 126 122 119.72 122 112 L 122 45 C 122 37.28 115.72 31 108 31 z M 20 61 C 12.28 61 6 67.28 6 75 L 6 93 C 6 100.72 12.28 107 20 107 C 27.72 107 34 100.72 34 93 L 34 75 C 34 67.28 27.72 61 20 61 z M 20 67 C 24.41 67 28 70.59 28 75 L 28 93 C 28 97.41 24.41 101 20 101 C 15.59 101 12 97.41 12 93 L 12 75 C 12 70.59 15.59 67 20 67 z" />
-    </svg>
-  );
-}
-
-function ListTabIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" className={className}>
-      <path d="M 12.988281 6.9882812 A 1.0001 1.0001 0 0 0 12.232422 7.359375 L 7.8398438 12.630859 L 4.5996094 10.199219 A 1.0003907 1.0003907 0 0 0 3.4003906 11.800781 L 7.4003906 14.800781 A 1.0001 1.0001 0 0 0 8.7675781 14.640625 L 13.767578 8.640625 A 1.0001 1.0001 0 0 0 12.988281 6.9882812 z M 18.984375 8.9863281 A 1.0001 1.0001 0 0 0 18 10 L 18 12 C 18 13.093063 18.906937 14 20 14 L 43 14 C 44.093063 14 45 13.093063 45 12 L 45 10 A 1.0001 1.0001 0 1 0 43 10 L 43 12 L 20 12 L 20 10 A 1.0001 1.0001 0 0 0 18.984375 8.9863281 z M 12.988281 19.988281 A 1.0001 1.0001 0 0 0 12.232422 20.359375 L 7.8398438 25.630859 L 4.5996094 23.199219 A 1.0003907 1.0003907 0 1 0 3.4003906 24.800781 L 7.4003906 27.800781 A 1.0001 1.0001 0 0 0 8.7675781 27.640625 L 13.767578 21.640625 A 1.0001 1.0001 0 0 0 12.988281 19.988281 z M 18.984375 21.986328 A 1.0001 1.0001 0 0 0 18 23 L 18 25 C 18 26.093063 18.906937 27 20 27 L 43 27 C 44.093063 27 45 26.093063 45 25 L 45 23 A 1.0001 1.0001 0 1 0 43 23 L 43 25 L 20 25 L 20 23 A 1.0001 1.0001 0 0 0 18.984375 21.986328 z M 8 33 C 6.7500003 33 5.6852256 33.504756 5.0019531 34.273438 C 4.3186806 35.042119 4 36.027778 4 37 C 4 37.972222 4.3186806 38.957881 5.0019531 39.726562 C 5.6852256 40.495244 6.7500003 41 8 41 C 9.2499997 41 10.314774 40.495244 10.998047 39.726562 C 11.681319 38.957881 12 37.972222 12 37 C 12 36.027778 11.681319 35.042119 10.998047 34.273438 C 10.314774 33.504756 9.2499997 33 8 33 z M 18.984375 34.986328 A 1.0001 1.0001 0 0 0 18 36 L 18 38 C 18 39.093063 18.906937 40 20 40 L 43 40 C 44.093063 40 45 39.093063 45 38 L 45 36 A 1.0001 1.0001 0 1 0 43 36 L 43 38 L 20 38 L 20 36 A 1.0001 1.0001 0 0 0 18.984375 34.986328 z M 8 35 C 8.7499995 35 9.1852261 35.245244 9.5019531 35.601562 C 9.8186802 35.957881 10 36.472222 10 37 C 10 37.527778 9.8186802 38.042119 9.5019531 38.398438 C 9.1852261 38.754756 8.7499995 39 8 39 C 7.2500005 39 6.8147739 38.754756 6.4980469 38.398438 C 6.1813198 38.042119 6 37.527778 6 37 C 6 36.472222 6.1813198 35.957881 6.4980469 35.601562 C 6.8147739 35.245244 7.2500005 35 8 35 z" />
-    </svg>
-  );
-}
 
 // ── Types ──
 
@@ -156,7 +139,10 @@ function AdminCampaignsPage() {
   const { data: aggData, error: aggError, isLoading: aggLoading } = useCampaignsAggregate();
   const { data: wfData, isLoading: wfLoading } = useWorkflowsAggregate();
   const [localError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<PageTab>('analytics');
+  const pathname = usePathname();
+  // The sidebar drives view selection: /campaigns → list, /campaigns/analytics → analytics.
+  // The in-page tab toggle is gone; navigation happens at the sidebar level.
+  const activeTab: PageTab = pathname.endsWith('/analytics') ? 'analytics' : 'list';
   const [sideRailMounted, setSideRailMounted] = useState(false);
 
   const campaigns = (aggData?.campaigns ?? []) as Campaign[];
@@ -479,9 +465,11 @@ function AdminCampaignsPage() {
           <div className="flex items-center gap-3">
             <PaperAirplaneIcon className="w-7 h-7 text-[var(--primary)]" />
             <div>
-              <h2 className="text-2xl font-bold">Campaigns</h2>
+              <h2 className="text-2xl font-bold">
+                {activeTab === 'analytics' ? 'Analytics' : 'Campaigns'}
+              </h2>
               <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
-                Email + SMS/MMS campaigns across all accounts
+                Email + SMS/MMS {activeTab === 'analytics' ? 'performance' : 'campaigns'} across all accounts
                 {filteredCampaigns.length !== campaigns.length && (
                   <span className="ml-1 tabular-nums">
                     · {filteredCampaigns.length} / {campaigns.length}
@@ -491,32 +479,9 @@ function AdminCampaignsPage() {
             </div>
           </div>
 
-          {/* Centered tab toggle */}
-          <div className="flex items-center rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab('analytics')}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === 'analytics'
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <AnalyticsTabIcon className="w-3.5 h-3.5" />
-              Analytics
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('list')}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === 'list'
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <ListTabIcon className="w-3.5 h-3.5" />
-              Campaigns
-            </button>
+          {/* Tab toggle removed — sidebar drives navigation between
+              Campaigns (/campaigns) and Analytics (/campaigns/analytics). */}
+          <div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -629,7 +594,10 @@ function AccountCampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [apiError, setApiError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<PageTab>('analytics');
+  const pathname = usePathname();
+  // The sidebar drives view selection: /campaigns → list, /campaigns/analytics → analytics.
+  // The in-page tab toggle is gone; navigation happens at the sidebar level.
+  const activeTab: PageTab = pathname.endsWith('/analytics') ? 'analytics' : 'list';
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -771,9 +739,11 @@ function AccountCampaignsPage() {
           <div className="flex items-center gap-3">
             <PaperAirplaneIcon className="w-7 h-7 text-[var(--primary)]" />
             <div>
-              <h2 className="text-2xl font-bold">Campaigns</h2>
+              <h2 className="text-2xl font-bold">
+                {activeTab === 'analytics' ? 'Analytics' : 'Campaigns'}
+              </h2>
               <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
-                Email + SMS/MMS campaigns for {dealerName}
+                Email + SMS/MMS {activeTab === 'analytics' ? 'performance' : 'campaigns'} for {dealerName}
                 {dateFiltered.length !== visibleCampaigns.length && (
                   <span className="ml-1 tabular-nums">
                     · {dateFiltered.length} / {visibleCampaigns.length}
@@ -783,32 +753,9 @@ function AccountCampaignsPage() {
             </div>
           </div>
 
-          {/* Centered tab toggle */}
-          <div className="flex items-center rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab('analytics')}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === 'analytics'
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <AnalyticsTabIcon className="w-3.5 h-3.5" />
-              Analytics
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('list')}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === 'list'
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <ListTabIcon className="w-3.5 h-3.5" />
-              Campaigns
-            </button>
+          {/* Tab toggle removed — sidebar drives navigation between
+              Campaigns (/campaigns) and Analytics (/campaigns/analytics). */}
+          <div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
