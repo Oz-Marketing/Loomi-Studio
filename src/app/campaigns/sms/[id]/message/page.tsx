@@ -408,10 +408,25 @@ function IphonePreview({
           <div className="absolute inset-x-0 top-0 z-10 pt-3 pb-2 flex items-center justify-between px-6 text-[11px] font-semibold text-black">
             <span className="tabular-nums">9:41</span>
             <span className="opacity-0">{initials}</span>
-            <span className="inline-flex items-center gap-1">
-              <span aria-hidden>▲</span>
-              <span aria-hidden>📶</span>
-              <span aria-hidden>🔋</span>
+            <span className="inline-flex items-center gap-1.5 text-black">
+              {/* signal */}
+              <span className="inline-flex items-end gap-[1.5px] h-2.5">
+                <span className="w-[2px] h-1 bg-black rounded-[0.5px]" />
+                <span className="w-[2px] h-1.5 bg-black rounded-[0.5px]" />
+                <span className="w-[2px] h-2 bg-black rounded-[0.5px]" />
+                <span className="w-[2px] h-2.5 bg-black rounded-[0.5px]" />
+              </span>
+              {/* wifi */}
+              <svg viewBox="0 0 16 12" className="w-3.5 h-3" fill="currentColor" aria-hidden>
+                <path d="M8 11.5l1.8-1.8a2.5 2.5 0 00-3.6 0L8 11.5zM3.4 6.9l1.5 1.5a4.4 4.4 0 016.2 0l1.5-1.5a6.5 6.5 0 00-9.2 0zM.5 4l1.5 1.5a8.5 8.5 0 0112 0L15.5 4a10.5 10.5 0 00-15 0z" />
+              </svg>
+              {/* battery */}
+              <span className="inline-flex items-center">
+                <span className="w-5 h-2.5 border border-black rounded-[2px] p-[1px]">
+                  <span className="block w-full h-full bg-black rounded-[1px]" />
+                </span>
+                <span className="w-[1.5px] h-1.5 bg-black rounded-r-[0.5px] -ml-[0.5px]" />
+              </span>
             </span>
           </div>
 
@@ -472,9 +487,9 @@ function IphonePreview({
             <div className="flex-1 h-7 rounded-full border border-gray-300 px-3 flex items-center text-[11px] text-gray-400">
               iMessage
             </div>
-            <div className="w-6 h-6 rounded-full bg-gray-200 text-gray-400 flex items-center justify-center text-[10px]">
-              🎤
-            </div>
+            <svg viewBox="0 0 16 16" className="w-5 h-5 text-gray-400" fill="currentColor" aria-hidden>
+              <path d="M8 1a2 2 0 00-2 2v4a2 2 0 104 0V3a2 2 0 00-2-2zm-3 6a3 3 0 006 0h1a4 4 0 01-3.5 3.97V13H10v1H6v-1h1.5v-2.03A4 4 0 014 7h1z" />
+            </svg>
           </div>
 
           {/* Home indicator */}
