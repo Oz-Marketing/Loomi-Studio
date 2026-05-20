@@ -285,7 +285,7 @@ export default function MultiMessageStepPage({ params }: PageProps) {
 
               {emailDraft?.htmlContent && templateSlug && (
                 <Link
-                  href={`/templates/editor?design=${encodeURIComponent(templateSlug)}&campaignId=${encodeURIComponent(id)}`}
+                  href={`/templates/editor?design=${encodeURIComponent(templateSlug)}&campaignId=${encodeURIComponent(id)}&multi=1`}
                   className="block w-full text-center px-4 py-2.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/60"
                 >
                   <PencilSquareIcon className="w-4 h-4 inline mr-1.5" />
@@ -301,7 +301,7 @@ export default function MultiMessageStepPage({ params }: PageProps) {
                 </p>
                 {!emailDraft?.htmlContent && (
                   <Link
-                    href={`/campaigns/${encodeURIComponent(id)}/template`}
+                    href={`/campaigns/${encodeURIComponent(id)}/template?multi=1`}
                     className="text-xs text-[var(--primary)] hover:underline"
                   >
                     Pick a template →

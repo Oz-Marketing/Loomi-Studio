@@ -6496,6 +6496,10 @@ export default function TemplateEditorPage() {
   // actions (Schedule, Manage template dropdown) in the top bar instead of
   // the regular Save Template button.
   const campaignIdParam = searchParams.get("campaignId") || "";
+  // The multi=1 flag rides along when the editor is opened from the
+  // multi-channel builder. Without it, Schedule + Change template would
+  // route to email-only paths and the linked SMS draft would be orphaned.
+  const fromMultiBuilder = searchParams.get("multi") === "1";
   const [showManageTemplateMenu, setShowManageTemplateMenu] = useState(false);
   const manageTemplateMenuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -9722,7 +9726,9 @@ export default function TemplateEditorPage() {
                       onClick={() => {
                         setShowManageTemplateMenu(false);
                         router.push(
-                          `/campaigns/${encodeURIComponent(campaignIdParam)}/template`,
+                          fromMultiBuilder
+                            ? `/campaigns/multi/${encodeURIComponent(campaignIdParam)}/message`
+                            : `/campaigns/${encodeURIComponent(campaignIdParam)}/template`,
                         );
                       }}
                       className="w-full text-left px-3 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)]"
@@ -9736,7 +9742,9 @@ export default function TemplateEditorPage() {
               <button
                 onClick={() =>
                   router.push(
-                    `/campaigns/${encodeURIComponent(campaignIdParam)}/schedule`,
+                    fromMultiBuilder
+                      ? `/campaigns/multi/${encodeURIComponent(campaignIdParam)}/schedule`
+                      : `/campaigns/${encodeURIComponent(campaignIdParam)}/schedule`,
                   )
                 }
                 disabled={saving}

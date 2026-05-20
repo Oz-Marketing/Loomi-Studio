@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeftIcon,
   ArrowPathIcon,
@@ -86,7 +86,15 @@ function formatUpdated(value?: string): string {
 
 export default function MessageStepPage({ params }: PageProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { id } = use(params);
+  // If this page was launched from the multi-channel builder we need to
+  // route the user back to the multi flow (not the email-only one) so
+  // the linked SMS draft stays accessible. Carry the flag through every
+  // hop: applyTemplate → editor, edit-template → editor, schedule →
+  // multi schedule, back → multi message.
+  const fromMulti = searchParams.get('multi') === '1';
+  const multiSuffix = fromMulti ? '&multi=1' : '';
   const { accounts } = useAccount();
 
   const [draft, setDraft] = useState<DraftCampaign | null>(null);
@@ -226,7 +234,7 @@ export default function MessageStepPage({ params }: PageProps) {
       // campaignId is passed so the editor shows campaign-aware actions
       // (Schedule + Manage template) instead of Save Template.
       router.push(
-        `/templates/editor?design=${encodeURIComponent(design)}&campaignId=${encodeURIComponent(id)}`,
+        `/templates/editor?design=${encodeURIComponent(design)}&campaignId=${encodeURIComponent(id)}${multiSuffix}`,
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to apply template');
@@ -253,7 +261,11 @@ export default function MessageStepPage({ params }: PageProps) {
       if (subject !== draft.subject) patch.subject = subject;
       if (previewText !== draft.previewText) patch.previewText = previewText;
       if (Object.keys(patch).length > 0) await patchDraft(patch);
-      router.push(`/campaigns/${encodeURIComponent(id)}/schedule`);
+      router.push(
+        fromMulti
+          ? `/campaigns/multi/${encodeURIComponent(id)}/schedule`
+          : `/campaigns/${encodeURIComponent(id)}/schedule`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save');
     } finally {
@@ -313,7 +325,7 @@ export default function MessageStepPage({ params }: PageProps) {
                   return;
                 }
                 router.push(
-                  `/templates/editor?design=${encodeURIComponent(slug)}&campaignId=${encodeURIComponent(id)}`,
+                  `/templates/editor?design=${encodeURIComponent(slug)}&campaignId=${encodeURIComponent(id)}${multiSuffix}`,
                 );
               }}
               onChangeTemplate={handleChangeTemplate}
@@ -334,7 +346,13 @@ export default function MessageStepPage({ params }: PageProps) {
       )}
 
       <BottomBar
-        onBack={() => router.push(`/campaigns/${encodeURIComponent(id)}/recipients`)}
+        onBack={() =>
+          router.push(
+            fromMulti
+              ? `/campaigns/multi/${encodeURIComponent(id)}/message`
+              : `/campaigns/${encodeURIComponent(id)}/recipients`,
+          )
+        }
         onContinue={handleContinue}
         continueLabel={saving ? 'Saving…' : 'Continue to Schedule'}
         continueDisabled={!hasTemplate || !subject.trim() || saving}
