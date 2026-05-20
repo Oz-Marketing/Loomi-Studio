@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -9,10 +9,13 @@ import {
   ChatBubbleLeftRightIcon,
   EnvelopeIcon,
   PencilSquareIcon,
+  PhotoIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
 import PrimaryButton from '@/components/primary-button';
+import { IphoneSmsPreview } from '@/components/campaigns/iphone-sms-preview';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -33,6 +36,20 @@ interface SmsDraft {
   name: string;
   accountKeys: string[];
   message: string;
+  metadata: string;
+}
+
+function parseSmsMediaUrls(rawMetadata: string): string[] {
+  if (!rawMetadata) return [];
+  try {
+    const parsed = JSON.parse(rawMetadata) as Record<string, unknown>;
+    const urls = parsed?.mediaUrls;
+    return Array.isArray(urls)
+      ? urls.filter((u): u is string => typeof u === 'string' && u.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 type Tab = 'email' | 'sms';
@@ -71,6 +88,9 @@ export default function MultiMessageStepPage({ params }: PageProps) {
   const [subject, setSubject] = useState('');
   const [previewText, setPreviewText] = useState('');
   const [smsMessage, setSmsMessage] = useState('');
+  const [smsMediaUrls, setSmsMediaUrls] = useState<string[]>([]);
+  const [smsUploading, setSmsUploading] = useState(false);
+  const smsFileInputRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,6 +119,7 @@ export default function MultiMessageStepPage({ params }: PageProps) {
         setSubject(email.subject || '');
         setPreviewText(email.previewText || '');
         setSmsMessage(smsData.campaign.message || '');
+        setSmsMediaUrls(parseSmsMediaUrls(smsData.campaign.metadata || ''));
       } catch (err) {
         if (!cancelled) {
           toast.error(err instanceof Error ? err.message : 'Failed to load campaign');
@@ -165,6 +186,71 @@ export default function MultiMessageStepPage({ params }: PageProps) {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save SMS');
     }
+  }
+
+  function buildSmsMetadata(urls: string[]): string {
+    const channel: 'SMS' | 'MMS' = urls.length > 0 ? 'MMS' : 'SMS';
+    return JSON.stringify({
+      channel,
+      mediaUrls: urls,
+      sourceMetadata: '',
+      multiChannel: true,
+      linkedEmailCampaignId: id,
+    });
+  }
+
+  async function persistSmsMedia(next: string[]) {
+    if (!smsDraft) return;
+    try {
+      const updated = await patchSms({ metadata: buildSmsMetadata(next) });
+      if (updated) setSmsDraft(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save media');
+    }
+  }
+
+  async function handleSmsFiles(files: FileList | null) {
+    if (!files || files.length === 0 || !smsDraft) return;
+    const toUpload = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    if (toUpload.length === 0) {
+      toast.error('Only image files are supported for MMS.');
+      return;
+    }
+    if (smsMediaUrls.length + toUpload.length > 10) {
+      toast.error('Maximum 10 images per campaign.');
+      return;
+    }
+    setSmsUploading(true);
+    try {
+      const uploaded: string[] = [];
+      const accountKey = smsDraft.accountKeys[0] || '';
+      for (const file of toUpload) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('category', 'ad-creative');
+        if (accountKey) fd.append('accountKey', accountKey);
+        const res = await fetch('/api/media', { method: 'POST', body: fd });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Upload failed');
+        const url = data?.url || data?.asset?.url;
+        if (url) uploaded.push(String(url));
+      }
+      const next = [...smsMediaUrls, ...uploaded];
+      setSmsMediaUrls(next);
+      await persistSmsMedia(next);
+      toast.success(`Added ${uploaded.length} image${uploaded.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setSmsUploading(false);
+      if (smsFileInputRef.current) smsFileInputRef.current.value = '';
+    }
+  }
+
+  async function removeSmsImage(url: string) {
+    const next = smsMediaUrls.filter((u) => u !== url);
+    setSmsMediaUrls(next);
+    await persistSmsMedia(next);
   }
 
   async function handleContinue() {
@@ -331,12 +417,17 @@ export default function MultiMessageStepPage({ params }: PageProps) {
         )}
 
         {tab === 'sms' && (
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 items-start">
-            <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)] space-y-4">
-              <div>
-                <label className="block text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-1.5">
-                  SMS message <span className="text-red-400">*</span>
-                </label>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+            <div className="space-y-5">
+              <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+                    SMS message <span className="text-red-400">*</span>
+                  </label>
+                  <span className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] bg-[var(--muted)] px-2 py-0.5 rounded">
+                    {smsMediaUrls.length > 0 ? 'MMS' : 'SMS'}
+                  </span>
+                </div>
                 <textarea
                   value={smsMessage}
                   onChange={(e) => setSmsMessage(e.target.value)}
@@ -346,31 +437,82 @@ export default function MultiMessageStepPage({ params }: PageProps) {
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-3 text-sm leading-relaxed focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 resize-y"
                 />
                 <p className="text-[11px] text-[var(--muted-foreground)] mt-2">
-                  {smsMessage.length} character{smsMessage.length === 1 ? '' : 's'}. For media
-                  (MMS), open the SMS-only builder for now — multi-channel media support ships
-                  next.
+                  {smsMessage.length} character{smsMessage.length === 1 ? '' : 's'}
+                </p>
+              </div>
+
+              {/* MMS media */}
+              <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Media
+                  </label>
+                  <span className="text-[10px] text-[var(--muted-foreground)]">
+                    {smsMediaUrls.length} / 10
+                  </span>
+                </div>
+
+                <input
+                  ref={smsFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleSmsFiles(e.target.files)}
+                />
+
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                  {smsMediaUrls.map((url) => (
+                    <div
+                      key={url}
+                      className="relative aspect-square rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--muted)] group"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeSmsImage(url)}
+                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/70 hover:bg-black/90 text-white inline-flex items-center justify-center"
+                        aria-label="Remove image"
+                      >
+                        <XMarkIcon className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {smsMediaUrls.length < 10 && (
+                    <button
+                      type="button"
+                      onClick={() => smsFileInputRef.current?.click()}
+                      disabled={smsUploading}
+                      className="aspect-square rounded-lg border-2 border-dashed border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/60 hover:bg-[var(--primary)]/[0.03] transition-colors flex flex-col items-center justify-center gap-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+                    >
+                      {smsUploading ? (
+                        <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <PhotoIcon className="w-6 h-6" />
+                      )}
+                      <span className="text-[10px] font-medium">
+                        {smsUploading ? 'Uploading…' : 'Add image'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-3">
+                  JPG, PNG, GIF, or WebP. Up to 25 MB each. MMS carries higher per-message cost
+                  than SMS.
                 </p>
               </div>
             </div>
 
-            <div className="glass-section-card rounded-2xl p-4 border border-[var(--border)]">
-              <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">
-                Preview
-              </p>
-              {smsMessage.trim() ? (
-                <div className="bg-[var(--muted)]/40 rounded-xl px-4 py-3">
-                  <div className="inline-block max-w-full bg-[#e5e5ea] text-black text-sm leading-snug rounded-2xl px-3 py-2 whitespace-pre-wrap break-words">
-                    {smsMessage}
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-[var(--muted)]/40 rounded-xl p-6 text-center">
-                  <ChatBubbleLeftRightIcon className="w-8 h-8 text-[var(--muted-foreground)] mx-auto opacity-40 mb-2" />
-                  <p className="text-xs text-[var(--muted-foreground)]">
-                    Type a message to see the preview.
-                  </p>
-                </div>
-              )}
+            {/* iPhone-style preview */}
+            <div className="lg:sticky lg:top-20">
+              <IphoneSmsPreview
+                dealerName={account?.dealer || 'Your dealership'}
+                message={smsMessage}
+                mediaUrls={smsMediaUrls}
+                isMms={smsMediaUrls.length > 0}
+              />
             </div>
           </div>
         )}
