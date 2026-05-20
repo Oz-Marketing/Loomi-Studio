@@ -8,6 +8,61 @@ import { TopUtilityBar } from '@/components/top-utility-bar';
 import { AppLogo } from '@/components/app-logo';
 import { stripSubaccountPrefix } from '@/lib/account-slugs';
 
+const BUILDER_STEPS = [
+  { key: 'recipients', label: 'Recipients' },
+  { key: 'template', label: 'Template' },
+  { key: 'edit', label: 'Editor' },
+  { key: 'schedule', label: 'Schedule' },
+] as const;
+
+type BuilderStepKey = (typeof BUILDER_STEPS)[number]['key'];
+
+function campaignBuilderStep(path: string): BuilderStepKey {
+  const match = path.match(/^\/campaigns\/[^/]+\/(recipients|template|edit|schedule)$/);
+  return (match?.[1] as BuilderStepKey) || 'recipients';
+}
+
+function CampaignBuilderProgress({ current }: { current: BuilderStepKey }) {
+  const activeIndex = BUILDER_STEPS.findIndex((s) => s.key === current);
+  return (
+    <nav className="hidden md:flex items-center gap-2" aria-label="Campaign builder progress">
+      {BUILDER_STEPS.map((step, i) => {
+        const isActive = i === activeIndex;
+        const isDone = i < activeIndex;
+        return (
+          <div key={step.key} className="flex items-center gap-2">
+            <div
+              className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                isActive
+                  ? 'bg-[var(--primary)]/15 text-[var(--primary)]'
+                  : isDone
+                    ? 'text-[var(--foreground)]'
+                    : 'text-[var(--muted-foreground)]'
+              }`}
+            >
+              <span
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold ${
+                  isActive
+                    ? 'bg-[var(--primary)] text-white'
+                    : isDone
+                      ? 'bg-[var(--foreground)]/15 text-[var(--foreground)]'
+                      : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
+                }`}
+              >
+                {i + 1}
+              </span>
+              {step.label}
+            </div>
+            {i < BUILDER_STEPS.length - 1 && (
+              <div className="w-6 h-px bg-[var(--border)]" />
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -53,19 +108,28 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
   }
 
   if (isCampaignBuilder) {
+    const step = campaignBuilderStep(normalizedPath);
     return (
       <div className="flex-1 flex flex-col min-h-screen">
-        <header className="flex-shrink-0 flex items-center justify-between px-6 h-14 border-b border-[var(--border)] bg-[var(--background)]/95 backdrop-blur">
-          <AppLogo className="h-7 w-auto" />
-          <button
-            type="button"
-            onClick={() => router.push('/campaigns')}
-            className="inline-flex items-center gap-1.5 px-3 h-9 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)]"
-            aria-label="Exit campaign builder"
-          >
-            <XMarkIcon className="w-4 h-4" />
-            Exit
-          </button>
+        <header className="flex-shrink-0 grid grid-cols-[1fr_auto_1fr] items-center px-6 h-16 border-b border-[var(--border)] bg-[var(--card)]/80 backdrop-blur-md">
+          <div className="flex items-center gap-3 min-w-0">
+            <AppLogo className="h-7 w-auto" />
+            <span className="hidden sm:inline text-sm font-semibold text-[var(--foreground)] truncate">
+              Create an Email Campaign
+            </span>
+          </div>
+          <CampaignBuilderProgress current={step} />
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => router.push('/campaigns')}
+              className="inline-flex items-center gap-1.5 px-3 h-9 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)]"
+              aria-label="Exit campaign builder"
+            >
+              <XMarkIcon className="w-4 h-4" />
+              Exit
+            </button>
+          </div>
         </header>
         <main className="flex-1 min-w-0">{children}</main>
       </div>

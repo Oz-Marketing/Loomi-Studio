@@ -292,14 +292,30 @@ export default function RecipientsStepPage({ params }: PageProps) {
     <div className="pb-32">
       <div className="max-w-5xl mx-auto py-8 px-6">
         {/* Header */}
-        <div className="mb-8">
-          <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">
-            Step 1 of 4 — Recipients
-          </p>
-          <h1 className="text-2xl font-bold">{draft?.name || 'Campaign'}</h1>
-          <p className="text-sm text-[var(--muted-foreground)] mt-1.5">
-            Choose who should receive this campaign.
-          </p>
+        <div className="mb-8 flex items-start justify-between gap-6 flex-wrap">
+          <div className="min-w-0">
+            <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">
+              Recipients
+            </p>
+            <h1 className="text-2xl font-bold">{draft?.name || 'Campaign'}</h1>
+            <p className="text-sm text-[var(--muted-foreground)] mt-1.5">
+              Choose who should receive this campaign.
+            </p>
+          </div>
+
+          {/* Klaviyo-style large sendable count */}
+          <div className="text-right flex-shrink-0">
+            <p className="text-4xl sm:text-5xl font-bold tabular-nums leading-none">
+              {contactsLoading ? (
+                <ArrowPathIcon className="w-7 h-7 inline animate-spin text-[var(--muted-foreground)]" />
+              ) : (
+                sendableCount.toLocaleString()
+              )}
+            </p>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1.5">
+              Sendable recipients
+            </p>
+          </div>
         </div>
 
         {/* Subaccount picker */}
@@ -441,7 +457,7 @@ export default function RecipientsStepPage({ params }: PageProps) {
       </div>
 
       {/* Bottom action bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[var(--background)]/95 backdrop-blur border-t border-[var(--border)] z-40">
+      <div className="fixed bottom-0 left-0 right-0 bg-[var(--card)]/80 backdrop-blur-md border-t border-[var(--border)] z-40">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
           <button
             type="button"
@@ -452,26 +468,12 @@ export default function RecipientsStepPage({ params }: PageProps) {
             Back
           </button>
 
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                Sendable recipients
-              </p>
-              <p className="text-base font-semibold tabular-nums">
-                {contactsLoading ? (
-                  <ArrowPathIcon className="w-4 h-4 inline animate-spin" />
-                ) : (
-                  sendableCount.toLocaleString()
-                )}
-              </p>
-            </div>
-            <PrimaryButton
-              onClick={handleContinue}
-              disabled={!selectedAccountKey || sendableCount === 0 || saving || contactsLoading}
-            >
-              {saving ? 'Saving…' : 'Continue'}
-            </PrimaryButton>
-          </div>
+          <PrimaryButton
+            onClick={handleContinue}
+            disabled={!selectedAccountKey || sendableCount === 0 || saving || contactsLoading}
+          >
+            {saving ? 'Saving…' : 'Continue'}
+          </PrimaryButton>
         </div>
       </div>
     </div>
