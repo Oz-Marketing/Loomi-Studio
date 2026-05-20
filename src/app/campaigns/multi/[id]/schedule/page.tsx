@@ -20,6 +20,7 @@ import { evaluateFilter } from '@/lib/smart-list-engine';
 import type { FilterDefinition } from '@/lib/smart-list-types';
 import { isLikelyDialablePhone, normalizePhoneNumber } from '@/lib/contact-hygiene';
 import PrimaryButton from '@/components/primary-button';
+import { IphoneSmsPreview } from '@/components/campaigns/iphone-sms-preview';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -42,6 +43,20 @@ interface SmsDraft {
   accountKeys: string[];
   message: string;
   sourceFilter: string;
+  metadata: string;
+}
+
+function parseSmsMediaUrls(rawMetadata: string): string[] {
+  if (!rawMetadata) return [];
+  try {
+    const parsed = JSON.parse(rawMetadata) as Record<string, unknown>;
+    const urls = parsed?.mediaUrls;
+    return Array.isArray(urls)
+      ? urls.filter((u): u is string => typeof u === 'string' && u.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 type SendMode = 'now' | 'later';
@@ -102,6 +117,7 @@ export default function MultiScheduleStepPage({ params }: PageProps) {
   const [contactsLoading, setContactsLoading] = useState(false);
 
   const [sendMode, setSendMode] = useState<SendMode>('later');
+  const [previewTab, setPreviewTab] = useState<'email' | 'sms'>('email');
   const [sendAtLocal, setSendAtLocal] = useState(
     toLocalDateTimeInputValue(new Date(Date.now() + 30 * 60_000)),
   );
@@ -281,7 +297,7 @@ export default function MultiScheduleStepPage({ params }: PageProps) {
 
   return (
     <div className="pb-32">
-      <div className="max-w-5xl mx-auto py-8 px-6">
+      <div className="max-w-6xl mx-auto py-8 px-6">
         <div className="mb-6">
           <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">
             Schedule
@@ -290,6 +306,77 @@ export default function MultiScheduleStepPage({ params }: PageProps) {
           <p className="text-sm text-[var(--muted-foreground)] mt-1.5">
             Both the email and SMS fire at the same time once you schedule.
           </p>
+        </div>
+
+        {/* Preview — tabbed Email / SMS so the user can sanity-check the
+            actual content before scheduling. */}
+        <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden mb-5">
+          <div className="border-b border-[var(--border)] flex items-center gap-1 px-4">
+            <button
+              type="button"
+              onClick={() => setPreviewTab('email')}
+              className={`inline-flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                previewTab === 'email'
+                  ? 'border-[var(--primary)] text-[var(--foreground)]'
+                  : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <EnvelopeIcon className="w-4 h-4" />
+              Email
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewTab('sms')}
+              className={`inline-flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                previewTab === 'sms'
+                  ? 'border-[var(--primary)] text-[var(--foreground)]'
+                  : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <ChatBubbleLeftRightIcon className="w-4 h-4" />
+              SMS
+            </button>
+          </div>
+          <div className="bg-[var(--muted)]/30 p-4">
+            {previewTab === 'email' ? (
+              emailDraft?.htmlContent ? (
+                <div className="bg-white rounded-lg border border-[var(--border)] overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-gray-200 bg-gray-50 text-xs text-gray-700">
+                    <div className="truncate">
+                      <span className="font-medium">Subject:</span>{' '}
+                      {emailDraft.subject || (
+                        <span className="text-gray-400 italic">No subject set</span>
+                      )}
+                    </div>
+                    {emailDraft.previewText && (
+                      <div className="truncate text-gray-500 mt-0.5">{emailDraft.previewText}</div>
+                    )}
+                  </div>
+                  <iframe
+                    title="Email preview"
+                    srcDoc={emailDraft.htmlContent}
+                    sandbox=""
+                    className="w-full bg-white border-0"
+                    style={{ height: 600 }}
+                  />
+                </div>
+              ) : (
+                <div className="py-16 text-center text-[var(--muted-foreground)]">
+                  <EnvelopeIcon className="w-10 h-10 mx-auto opacity-40 mb-2" />
+                  <p className="text-sm">No email template loaded yet.</p>
+                </div>
+              )
+            ) : (
+              <div className="py-6 flex justify-center">
+                <IphoneSmsPreview
+                  dealerName={account?.dealer || 'Your dealership'}
+                  message={smsDraft?.message || ''}
+                  mediaUrls={smsDraft ? parseSmsMediaUrls(smsDraft.metadata || '') : []}
+                  isMms={Boolean(smsDraft && parseSmsMediaUrls(smsDraft.metadata || '').length > 0)}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 items-start">

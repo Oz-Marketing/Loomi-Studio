@@ -73,6 +73,12 @@ interface CampaignPageListProps {
     actionLabel?: string;
     actionHref?: string;
   } | null;
+  /**
+   * Extra controls rendered to the right of the search input. The page
+   * uses this to slot the date-range dropdown and Filters button next
+   * to the search bar instead of cluttering the header.
+   */
+  toolbarExtras?: React.ReactNode;
 }
 
 interface PreviewPayload {
@@ -576,6 +582,7 @@ export function CampaignPageList({
   accountMeta,
   accountProviders,
   emptyState,
+  toolbarExtras,
 }: CampaignPageListProps) {
   const { alert } = useLoomiDialog();
 
@@ -883,19 +890,22 @@ export function CampaignPageList({
                 )}
             </p>
           </div>
-          <div className="relative">
-            <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => {
-                setSearch(e.target.value);
-                if (selectedAccount) setCampaignPage(1);
-                else setAccountPage(1);
-              }}
-              placeholder={selectedAccount ? 'Search campaigns...' : 'Search sub-accounts...'}
-              className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
-            />
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => {
+                  setSearch(e.target.value);
+                  if (selectedAccount) setCampaignPage(1);
+                  else setAccountPage(1);
+                }}
+                placeholder={selectedAccount ? 'Search campaigns...' : 'Search sub-accounts...'}
+                className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+              />
+            </div>
+            {toolbarExtras}
           </div>
         </div>
 

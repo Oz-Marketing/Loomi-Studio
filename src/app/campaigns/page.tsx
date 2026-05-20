@@ -485,32 +485,39 @@ function AdminCampaignsPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            <DashboardToolbar
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              customRange={customRange}
-              onCustomRangeChange={setCustomRange}
-              showReset={false}
-              triggerSize="header"
-            />
-            <button
-              type="button"
-              onClick={() => setFiltersOpen((prev) => !prev)}
-              className={`inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border transition-colors ${
-                filtersOpen
-                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
-              }`}
-              aria-pressed={filtersOpen}
-            >
-              <FunnelIcon className="w-4 h-4" />
-              Filters
-              {activeFilterCount > 0 && (
-                <span className="w-5 h-5 rounded-full bg-[var(--primary)] text-white text-[10px] flex items-center justify-center">
-                  {activeFilterCount}
-                </span>
-              )}
-            </button>
+            {/* Date + Filters live in the header for the analytics view; on
+                the list view they're rendered next to the search input
+                inside CampaignPageList (passed via toolbarExtras). */}
+            {activeTab === 'analytics' && (
+              <>
+                <DashboardToolbar
+                  dateRange={dateRange}
+                  onDateRangeChange={setDateRange}
+                  customRange={customRange}
+                  onCustomRangeChange={setCustomRange}
+                  showReset={false}
+                  triggerSize="header"
+                />
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((prev) => !prev)}
+                  className={`inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border transition-colors ${
+                    filtersOpen
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                      : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+                  }`}
+                  aria-pressed={filtersOpen}
+                >
+                  <FunnelIcon className="w-4 h-4" />
+                  Filters
+                  {activeFilterCount > 0 && (
+                    <span className="w-5 h-5 rounded-full bg-[var(--primary)] text-white text-[10px] flex items-center justify-center">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+              </>
+            )}
             <PrimaryButton type="button" onClick={() => setShowCreateModal(true)}>
               <PlusIcon className="w-4 h-4" />
               Create Campaign
@@ -562,6 +569,36 @@ function AdminCampaignsPage() {
               accountMeta={accountMeta}
               accountProviders={accountProviders}
               emptyState={campaignEmptyState}
+              toolbarExtras={
+                <>
+                  <DashboardToolbar
+                    dateRange={dateRange}
+                    onDateRangeChange={setDateRange}
+                    customRange={customRange}
+                    onCustomRangeChange={setCustomRange}
+                    showReset={false}
+                    triggerSize="compact"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setFiltersOpen((prev) => !prev)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${
+                      filtersOpen
+                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+                    }`}
+                    aria-pressed={filtersOpen}
+                  >
+                    <FunnelIcon className="w-3.5 h-3.5" />
+                    Filters
+                    {activeFilterCount > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-[var(--primary)] text-white text-[9px] flex items-center justify-center">
+                        {activeFilterCount}
+                      </span>
+                    )}
+                  </button>
+                </>
+              }
             />
           )}
         </div>
@@ -759,12 +796,14 @@ function AccountCampaignsPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            <DashboardToolbar
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              customRange={customRange}
-              onCustomRangeChange={setCustomRange}
-            />
+            {activeTab === 'analytics' && (
+              <DashboardToolbar
+                dateRange={dateRange}
+                onDateRangeChange={setDateRange}
+                customRange={customRange}
+                onCustomRangeChange={setCustomRange}
+              />
+            )}
 
             <PrimaryButton type="button" onClick={openCreateCampaignModal}>
               <PlusIcon className="w-4 h-4" />
@@ -809,6 +848,16 @@ function AccountCampaignsPage() {
             accountMeta={accountMeta}
             accountProviders={accountProviders}
             emptyState={accountListEmptyState}
+            toolbarExtras={
+              <DashboardToolbar
+                dateRange={dateRange}
+                onDateRangeChange={setDateRange}
+                customRange={customRange}
+                onCustomRangeChange={setCustomRange}
+                showReset={false}
+                triggerSize="compact"
+              />
+            }
           />
         )}
       </div>

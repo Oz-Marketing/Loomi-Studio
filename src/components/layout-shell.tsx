@@ -142,7 +142,19 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
-              onClick={() => router.push('/campaigns')}
+              onClick={() => {
+                // Best-effort: flush any focused input's onBlur so the
+                // currently-typed value gets persisted before we navigate.
+                const active = document.activeElement as HTMLElement | null;
+                if (active && typeof active.blur === 'function') active.blur();
+                if (
+                  confirm(
+                    'Your changes are saved as a draft. You can resume from the Campaigns list. Exit the builder?',
+                  )
+                ) {
+                  router.push('/campaigns');
+                }
+              }}
               className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
               aria-label="Exit campaign builder"
               title="Exit"

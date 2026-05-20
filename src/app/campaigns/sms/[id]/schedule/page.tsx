@@ -19,6 +19,7 @@ import { evaluateFilter } from '@/lib/smart-list-engine';
 import type { FilterDefinition } from '@/lib/smart-list-types';
 import { isLikelyDialablePhone, normalizePhoneNumber } from '@/lib/contact-hygiene';
 import PrimaryButton from '@/components/primary-button';
+import { IphoneSmsPreview } from '@/components/campaigns/iphone-sms-preview';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -32,6 +33,20 @@ interface DraftCampaign {
   message: string;
   sourceAudienceId: string;
   sourceFilter: string;
+  metadata: string;
+}
+
+function parseSmsMediaUrls(rawMetadata: string): string[] {
+  if (!rawMetadata) return [];
+  try {
+    const parsed = JSON.parse(rawMetadata) as Record<string, unknown>;
+    const urls = parsed?.mediaUrls;
+    return Array.isArray(urls)
+      ? urls.filter((u): u is string => typeof u === 'string' && u.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 type SendMode = 'now' | 'later';
@@ -205,17 +220,37 @@ export default function SmsScheduleStepPage({ params }: PageProps) {
     );
   }
 
+  const smsMediaUrls = draft ? parseSmsMediaUrls(draft.metadata || '') : [];
+
   return (
     <div className="pb-32">
-      <div className="max-w-5xl mx-auto py-8 px-6">
+      <div className="max-w-6xl mx-auto py-8 px-6">
         <div className="mb-6">
           <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">
             Schedule
           </p>
           <h1 className="text-2xl font-bold">{draft?.name || 'Campaign'}</h1>
           <p className="text-sm text-[var(--muted-foreground)] mt-1.5">
-            Review the summary and choose when this campaign should send.
+            Review the message and choose when this campaign should send.
           </p>
+        </div>
+
+        {/* SMS preview — final sanity check before scheduling. */}
+        <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden mb-5">
+          <div className="px-4 py-3 border-b border-[var(--border)] flex items-center gap-2">
+            <ChatBubbleLeftRightIcon className="w-4 h-4 text-[var(--muted-foreground)]" />
+            <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+              {smsMediaUrls.length > 0 ? 'MMS' : 'SMS'} preview
+            </p>
+          </div>
+          <div className="bg-[var(--muted)]/30 p-4 py-6 flex justify-center">
+            <IphoneSmsPreview
+              dealerName={account?.dealer || 'Your dealership'}
+              message={draft?.message || ''}
+              mediaUrls={smsMediaUrls}
+              isMms={smsMediaUrls.length > 0}
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 items-start">
