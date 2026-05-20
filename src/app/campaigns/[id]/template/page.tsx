@@ -125,6 +125,16 @@ export default function MessageStepPage({ params }: PageProps) {
           return;
         }
 
+        // Multi-channel context: once a template is loaded on the email
+        // draft, the user belongs on the multi message page where they
+        // can switch to the SMS tab. The email-only settings/preview
+        // view (State B) is only the right home for single-channel
+        // email campaigns.
+        if (fromMulti && campaign.htmlContent) {
+          router.replace(`/campaigns/multi/${encodeURIComponent(id)}/message`);
+          return;
+        }
+
         // If the campaign references a template, re-fetch the latest content
         // and compile it so edits made in the editor flow into this campaign.
         // We store the COMPILED html on the campaign so the iframe preview
