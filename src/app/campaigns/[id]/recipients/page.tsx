@@ -76,7 +76,6 @@ export default function RecipientsStepPage({ params }: PageProps) {
   const [savedAudiences, setSavedAudiences] = useState<SavedAudience[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactsError, setContactsError] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
 
@@ -152,7 +151,6 @@ export default function RecipientsStepPage({ params }: PageProps) {
     }
     let cancelled = false;
     setContactsLoading(true);
-    setContactsError(null);
     fetch(`/api/esp/contacts?accountKey=${encodeURIComponent(selectedAccountKey)}&all=true`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
@@ -162,11 +160,12 @@ export default function RecipientsStepPage({ params }: PageProps) {
       .then((rows) => {
         if (!cancelled) setContacts(rows);
       })
-      .catch((err: Error) => {
-        if (!cancelled) {
-          setContacts([]);
-          setContactsError(err.message);
-        }
+      .catch(() => {
+        // Some subaccounts don't have an ESP connection; that's expected
+        // (Loomi is the engine now). Just show 0 contacts — the big count
+        // in the body header makes it clear what state we're in. Real
+        // pilot accounts with GHL credentials will populate fine.
+        if (!cancelled) setContacts([]);
       })
       .finally(() => {
         if (!cancelled) setContactsLoading(false);
@@ -238,7 +237,7 @@ export default function RecipientsStepPage({ params }: PageProps) {
   }
 
   async function handleContinue() {
-    if (!draft || !selectedAccountKey || sendableCount === 0) return;
+    if (!draft || !selectedAccountKey) return;
     try {
       await persistSelection();
       router.push(`${subHref('/campaigns')}/${encodeURIComponent(draft.id)}/template`);
@@ -451,9 +450,6 @@ export default function RecipientsStepPage({ params }: PageProps) {
           </div>
         </div>
 
-        {contactsError && (
-          <p className="mt-4 text-xs text-red-300">{contactsError}</p>
-        )}
       </div>
 
       {/* Bottom action bar */}
@@ -470,7 +466,7 @@ export default function RecipientsStepPage({ params }: PageProps) {
 
           <PrimaryButton
             onClick={handleContinue}
-            disabled={!selectedAccountKey || sendableCount === 0 || saving || contactsLoading}
+            disabled={!selectedAccountKey || saving || contactsLoading}
           >
             {saving ? 'Saving…' : 'Continue'}
           </PrimaryButton>
