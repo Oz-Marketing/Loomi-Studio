@@ -8,7 +8,6 @@ import {
   CheckCircleIcon,
   ListBulletIcon,
   RectangleStackIcon,
-  SparklesIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
@@ -40,12 +39,11 @@ interface SavedAudience {
   accountKey?: string | null;
 }
 
-type AudienceTab = 'lists' | 'segments' | 'smart-lists';
+type AudienceTab = 'lists' | 'segments';
 
 type AudienceSelection =
   | { kind: 'all' }
-  | { kind: 'segment'; id: string; name: string; filter: FilterDefinition }
-  | { kind: 'smart-list'; id: string; name: string; filter: FilterDefinition };
+  | { kind: 'segment'; id: string; name: string; filter: FilterDefinition };
 
 function parseFilterDefinition(raw: string): FilterDefinition | null {
   if (!raw) return null;
@@ -72,7 +70,7 @@ export default function RecipientsStepPage({ params }: PageProps) {
   const [draftLoading, setDraftLoading] = useState(true);
 
   const [selectedAccountKey, setSelectedAccountKey] = useState('');
-  const [tab, setTab] = useState<AudienceTab>('smart-lists');
+  const [tab, setTab] = useState<AudienceTab>('segments');
   const [selection, setSelection] = useState<AudienceSelection>({ kind: 'all' });
 
   const [savedAudiences, setSavedAudiences] = useState<SavedAudience[]>([]);
@@ -110,18 +108,14 @@ export default function RecipientsStepPage({ params }: PageProps) {
           const parsed = parseFilterDefinition(campaign.sourceFilter);
           if (parsed) {
             const preset = LIFECYCLE_PRESETS.find((p) => p.id === campaign.sourceAudienceId);
-            if (preset) {
-              setSelection({ kind: 'smart-list', id: preset.id, name: preset.name, filter: parsed });
-              setTab('smart-lists');
-            } else {
-              setSelection({
-                kind: 'segment',
-                id: campaign.sourceAudienceId,
-                name: 'Saved Segment',
-                filter: parsed,
-              });
-              setTab('segments');
-            }
+            const name = preset?.name || 'Saved Segment';
+            setSelection({
+              kind: 'segment',
+              id: campaign.sourceAudienceId,
+              name,
+              filter: parsed,
+            });
+            setTab('segments');
           }
         }
       })
@@ -358,82 +352,88 @@ export default function RecipientsStepPage({ params }: PageProps) {
           )}
         </button>
 
-        {/* Tabs */}
-        <div className="border-b border-[var(--border)] mb-5 flex items-center gap-1">
-          {tabButton('lists', 'Lists', ListBulletIcon)}
-          {tabButton('segments', 'Segments', RectangleStackIcon)}
-          {tabButton('smart-lists', 'Smart Lists', SparklesIcon)}
-        </div>
-
-        {/* Tab content */}
-        {tab === 'lists' && (
-          <div className="glass-section-card rounded-2xl p-10 border border-dashed border-[var(--border)] text-center">
-            <ListBulletIcon className="w-10 h-10 text-[var(--muted-foreground)] mx-auto mb-3 opacity-50" />
-            <p className="text-sm font-medium">Lists are coming with the local contact store</p>
-            <p className="text-xs text-[var(--muted-foreground)] mt-1.5 max-w-md mx-auto">
-              Static, manually-curated contact groups need Loomi to own contact storage
-              (not GHL). That work&apos;s next on the roadmap.
-            </p>
+        {/* Tabbed audience picker, wrapped in a single container card so the
+            tabs and content read as one section. */}
+        <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">
+          <div className="border-b border-[var(--border)] flex items-center gap-1 px-5">
+            {tabButton('lists', 'Lists', ListBulletIcon)}
+            {tabButton('segments', 'Segments', RectangleStackIcon)}
           </div>
-        )}
 
-        {tab === 'segments' && (
-          <div className="space-y-2">
-            {scopedAudiences.length === 0 ? (
-              <div className="glass-section-card rounded-2xl p-10 border border-dashed border-[var(--border)] text-center">
-                <RectangleStackIcon className="w-10 h-10 text-[var(--muted-foreground)] mx-auto mb-3 opacity-50" />
-                <p className="text-sm font-medium">No saved segments yet</p>
+          <div className="p-5">
+            {tab === 'lists' && (
+              <div className="py-8 text-center">
+                <ListBulletIcon className="w-10 h-10 text-[var(--muted-foreground)] mx-auto mb-3 opacity-50" />
+                <p className="text-sm font-medium">Lists are coming with the local contact store</p>
                 <p className="text-xs text-[var(--muted-foreground)] mt-1.5 max-w-md mx-auto">
-                  Build a dynamic audience filter and save it as a Segment to reuse across
-                  campaigns. (Segment builder UI coming with the contact store.)
+                  Static, manually-curated contact groups need Loomi to own contact storage
+                  (not GHL). That work&apos;s next on the roadmap.
                 </p>
               </div>
-            ) : (
-              scopedAudiences.map((a) => {
-                const filter = parseFilterDefinition(a.filters);
-                if (!filter) return null;
-                const active = selection.kind === 'segment' && selection.id === a.id;
-                return (
-                  <AudienceCard
-                    key={a.id}
-                    title={a.name}
-                    subtitle="Custom segment"
-                    icon={RectangleStackIcon}
-                    active={active}
-                    onClick={() =>
-                      setSelection({ kind: 'segment', id: a.id, name: a.name, filter })
-                    }
-                  />
-                );
-              })
+            )}
+
+            {tab === 'segments' && (
+              <div className="space-y-5">
+                {/* Pre-built segments (lifecycle presets) */}
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] font-semibold mb-2.5">
+                    Pre-built
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {LIFECYCLE_PRESETS.map((preset) => {
+                      const active = selection.kind === 'segment' && selection.id === preset.id;
+                      return (
+                        <AudienceCard
+                          key={preset.id}
+                          title={preset.name}
+                          subtitle={preset.description}
+                          icon={RectangleStackIcon}
+                          active={active}
+                          onClick={() =>
+                            setSelection({
+                              kind: 'segment',
+                              id: preset.id,
+                              name: preset.name,
+                              filter: preset.definition,
+                            })
+                          }
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Saved (custom) segments — only shown if any exist */}
+                {scopedAudiences.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] font-semibold mb-2.5">
+                      Saved
+                    </p>
+                    <div className="space-y-2">
+                      {scopedAudiences.map((a) => {
+                        const filter = parseFilterDefinition(a.filters);
+                        if (!filter) return null;
+                        const active = selection.kind === 'segment' && selection.id === a.id;
+                        return (
+                          <AudienceCard
+                            key={a.id}
+                            title={a.name}
+                            subtitle="Custom segment"
+                            icon={RectangleStackIcon}
+                            active={active}
+                            onClick={() =>
+                              setSelection({ kind: 'segment', id: a.id, name: a.name, filter })
+                            }
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        )}
-
-        {tab === 'smart-lists' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {LIFECYCLE_PRESETS.map((preset) => {
-              const active = selection.kind === 'smart-list' && selection.id === preset.id;
-              return (
-                <AudienceCard
-                  key={preset.id}
-                  title={preset.name}
-                  subtitle={preset.description}
-                  icon={SparklesIcon}
-                  active={active}
-                  onClick={() =>
-                    setSelection({
-                      kind: 'smart-list',
-                      id: preset.id,
-                      name: preset.name,
-                      filter: preset.definition,
-                    })
-                  }
-                />
-              );
-            })}
-          </div>
-        )}
+        </div>
 
         {contactsError && (
           <p className="mt-4 text-xs text-red-300">{contactsError}</p>
