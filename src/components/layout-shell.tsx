@@ -152,7 +152,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
                     'Your changes are saved as a draft. You can resume from the Campaigns list. Exit the builder?',
                   )
                 ) {
-                  router.push('/campaigns');
+                  router.push('/messaging/campaigns');
                 }
               }}
               className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"

@@ -3,7 +3,16 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // Top-level pages that have sub-account equivalents
-const ADMIN_PAGES = ['/dashboard', '/contacts', '/campaigns', '/flows', '/templates', '/settings'];
+const ADMIN_PAGES = [
+  '/dashboard',
+  '/contacts',
+  '/messaging',
+  '/campaigns', // legacy — redirects under /messaging now, kept so client-role redirect still fires
+  '/email',
+  '/templates', // legacy — redirects under /email now
+  '/flows',
+  '/settings',
+];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

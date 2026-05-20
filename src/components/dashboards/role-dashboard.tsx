@@ -2514,7 +2514,7 @@ function ManagementRoleDashboard({
                   href="/accounts"
                 />
                 <StatCard label="Contacts" value={formatCompactNumber(totals.contactsTotal)} icon={UserGroupIcon} />
-                <StatCard label="Campaigns" value={totals.campaignCount} icon={PaperAirplaneIcon} href="/campaigns" />
+                <StatCard label="Campaigns" value={totals.campaignCount} icon={PaperAirplaneIcon} href="/messaging/campaigns" />
                 <StatCard label="Flows" value={totals.workflowCount} icon={FlowIcon} href="/flows" />
               </div>
 
@@ -2701,7 +2701,7 @@ function ManagementRoleDashboard({
             <div>
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">ESP Campaign Performance</h3>
-                <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
+                <Link href="/messaging/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
                   Open campaign center
                 </Link>
               </div>
@@ -2753,7 +2753,7 @@ function ManagementRoleDashboard({
             <div className="glass-card rounded-xl p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-sm font-semibold">Recent Loomi Campaign Activity</h3>
-                <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
+                <Link href="/messaging/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
                   View all campaigns
                 </Link>
               </div>
@@ -3268,16 +3268,16 @@ function ClientRoleDashboard({
             {renderClientWidget('client_overview', (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                <StatCard label="Campaigns" value={filteredEspCampaigns.length} icon={PaperAirplaneIcon} href={subHref('/campaigns')} />
+                <StatCard label="Campaigns" value={filteredEspCampaigns.length} icon={PaperAirplaneIcon} href={subHref('/messaging/campaigns')} />
                 <StatCard label="Scheduled" value={scheduledEsp} icon={ArrowPathIcon} href={subHref('/campaigns/schedule')} />
-                <StatCard label="Sent / Completed" value={sentEsp} icon={CheckCircleIcon} href={subHref('/campaigns')} />
-                <StatCard label="Loomi Email" value={filteredLoomiEmailCampaigns.length} icon={BookOpenIcon} href={subHref('/campaigns')} />
+                <StatCard label="Sent / Completed" value={sentEsp} icon={CheckCircleIcon} href={subHref('/messaging/campaigns')} />
+                <StatCard label="Loomi Email" value={filteredLoomiEmailCampaigns.length} icon={BookOpenIcon} href={subHref('/messaging/campaigns')} />
                 <StatCard
                   label="Loomi SMS"
                   value={filteredLoomiSmsCampaigns.length}
                   sub={`OR ${formatRatePct(clientEngagement.openRate)}`}
                   icon={ChartBarIcon}
-                  href={subHref('/campaigns')}
+                  href={subHref('/messaging/campaigns')}
                 />
               </div>
 
@@ -3313,7 +3313,7 @@ function ClientRoleDashboard({
             <div>
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">ESP Campaign Performance</h3>
-                <Link href={subHref('/campaigns')} className="text-[10px] text-[var(--primary)] hover:underline">
+                <Link href={subHref('/messaging/campaigns')} className="text-[10px] text-[var(--primary)] hover:underline">
                   Open campaign center
                 </Link>
               </div>

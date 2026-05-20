@@ -81,7 +81,7 @@ export default function SmsMessageStepPage({ params }: PageProps) {
         if (cancelled) return;
         if (!data.campaign) {
           toast.error('Campaign not found');
-          router.push('/campaigns');
+          router.push('/messaging/campaigns');
           return;
         }
         setDraft(data.campaign);

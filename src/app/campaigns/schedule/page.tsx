@@ -684,7 +684,7 @@ export default function ScheduleCampaignPage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => router.push(subHref('/campaigns'))}
+                onClick={() => router.push(subHref('/messaging/campaigns'))}
                 className="inline-flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/40"
               >
                 <ArrowLeftIcon className="w-4 h-4" />
@@ -697,7 +697,7 @@ export default function ScheduleCampaignPage() {
         <div className="max-w-6xl mx-auto space-y-6">
           {/* "Create new" CTA card */}
           <Link
-            href={subHref('/templates')}
+            href={subHref('/email/templates')}
             className="block glass-section-card rounded-2xl p-6 border border-dashed border-[var(--border)] hover:border-[var(--primary)]/60 hover:bg-[var(--primary)]/[0.03] transition-all group"
           >
             <div className="flex items-center gap-5">
@@ -812,7 +812,7 @@ export default function ScheduleCampaignPage() {
             </Link>
             <button
               type="button"
-              onClick={() => router.push(subHref('/campaigns'))}
+              onClick={() => router.push(subHref('/messaging/campaigns'))}
               className="inline-flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/40"
             >
               View Campaigns

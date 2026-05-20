@@ -301,7 +301,7 @@ export function AccountDashboard() {
       {/* Quick actions */}
       <div className="flex gap-3 mb-8">
         <Link
-          href="/templates"
+          href="/email/templates"
           className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[var(--primary)] text-white font-medium text-sm hover:opacity-90 transition-opacity"
         >
           <BookOpenIcon className="w-4 h-4" />
@@ -340,7 +340,7 @@ export function AccountDashboard() {
       {recentEmails.length === 0 ? (
         <div className="text-center py-12 border border-dashed border-[var(--border)] rounded-xl">
           <p className="text-[var(--muted-foreground)] text-sm">No emails yet.</p>
-          <Link href="/templates" className="text-[var(--primary)] text-sm mt-2 inline-block hover:underline">
+          <Link href="/email/templates" className="text-[var(--primary)] text-sm mt-2 inline-block hover:underline">
             Browse templates to get started
           </Link>
         </div>

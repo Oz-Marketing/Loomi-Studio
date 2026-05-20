@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
 export default function EmailsRedirect() {
-  redirect('/templates');
+  redirect('/email/templates');
 }

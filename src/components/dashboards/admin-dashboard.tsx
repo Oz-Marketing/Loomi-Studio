@@ -366,7 +366,7 @@ export function AdminDashboard() {
             <EnvelopeIcon className="w-3.5 h-3.5" />
             Email Analytics
           </h3>
-          <Link href="/templates" className="text-[10px] text-[var(--primary)] hover:underline">
+          <Link href="/email/templates" className="text-[10px] text-[var(--primary)] hover:underline">
             View all emails
           </Link>
         </div>
@@ -387,7 +387,7 @@ export function AdminDashboard() {
             <PaperAirplaneIcon className={`w-3.5 h-3.5 ${iconColorClass('campaigns')}`} />
             ESP Campaigns
           </h3>
-          <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
+          <Link href="/messaging/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
             View campaigns
           </Link>
         </div>
@@ -448,7 +448,7 @@ export function AdminDashboard() {
               <ClockIcon className="w-3.5 h-3.5" />
               Recent Emails
             </h3>
-            <Link href="/templates" className="text-[10px] text-[var(--primary)] hover:underline">
+            <Link href="/email/templates" className="text-[10px] text-[var(--primary)] hover:underline">
               View all
             </Link>
           </div>
@@ -499,7 +499,7 @@ export function AdminDashboard() {
               <BookOpenIcon className="w-3.5 h-3.5" />
               Recent Templates
             </h3>
-            <Link href="/templates" className="text-[10px] text-[var(--primary)] hover:underline">
+            <Link href="/email/templates" className="text-[10px] text-[var(--primary)] hover:underline">
               View all
             </Link>
           </div>

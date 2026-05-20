@@ -147,7 +147,7 @@ export default function MultiScheduleStepPage({ params }: PageProps) {
       } catch (err) {
         if (!cancelled) {
           toast.error(err instanceof Error ? err.message : 'Failed to load campaign');
-          router.push('/campaigns');
+          router.push('/messaging/campaigns');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -273,7 +273,7 @@ export default function MultiScheduleStepPage({ params }: PageProps) {
           ? 'Both channels queued — sending starts within ~1 minute.'
           : `Scheduled both channels for ${formatDateTime(scheduledFor!)}`,
       );
-      router.push('/campaigns');
+      router.push('/messaging/campaigns');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to schedule campaign');
     } finally {

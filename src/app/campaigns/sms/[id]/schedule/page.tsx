@@ -105,7 +105,7 @@ export default function SmsScheduleStepPage({ params }: PageProps) {
         if (cancelled) return;
         if (!data.campaign) {
           toast.error('Campaign not found');
-          router.push('/campaigns');
+          router.push('/messaging/campaigns');
           return;
         }
         setDraft(data.campaign);
@@ -201,7 +201,7 @@ export default function SmsScheduleStepPage({ params }: PageProps) {
           ? 'Campaign queued — sending starts within ~1 minute.'
           : `Campaign scheduled for ${formatDateTime(scheduledFor!)}`,
       );
-      router.push('/campaigns');
+      router.push('/messaging/campaigns');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to schedule campaign');
     } finally {

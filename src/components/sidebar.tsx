@@ -76,17 +76,17 @@ const toolsNavItem: NavItem = {
 // Messaging group — nests the email + SMS surfaces underneath.
 // (Flows lives at the top level since it's a separate workflow concept.)
 const messagingGroupCampaigns: NavItem = {
-  href: '/campaigns',
+  href: '/messaging/campaigns',
   label: 'Campaigns',
   icon: ListBulletIcon,
 };
 const messagingGroupAnalytics: NavItem = {
-  href: '/campaigns/analytics',
+  href: '/messaging/analytics',
   label: 'Analytics',
   icon: ChartBarSquareIcon,
 };
 const messagingGroupTemplates: NavItem = {
-  href: '/templates',
+  href: '/email/templates',
   label: 'Templates',
   icon: EnvelopeIcon,
 };
@@ -97,7 +97,7 @@ const flowsNavItem: NavItem = {
 };
 
 const messagingNav: NavItem = {
-  href: '/campaigns',
+  href: '/messaging/campaigns',
   label: 'Messaging',
   icon: ChatBubbleLeftRightIcon,
   children: [

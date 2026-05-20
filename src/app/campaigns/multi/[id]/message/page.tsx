@@ -127,7 +127,7 @@ export default function MultiMessageStepPage({ params }: PageProps) {
       } catch (err) {
         if (!cancelled) {
           toast.error(err instanceof Error ? err.message : 'Failed to load campaign');
-          router.push('/campaigns');
+          router.push('/messaging/campaigns');
         }
       } finally {
         if (!cancelled) setLoading(false);

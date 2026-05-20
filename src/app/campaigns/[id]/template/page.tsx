@@ -92,7 +92,7 @@ export default function MessageStepPage({ params }: PageProps) {
         if (cancelled) return;
         if (!campaign) {
           toast.error('Campaign not found');
-          router.push('/campaigns');
+          router.push('/messaging/campaigns');
           return;
         }
 

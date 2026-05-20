@@ -84,7 +84,7 @@ export default function SmsRecipientsStepPage({ params }: PageProps) {
         const campaign = data.campaign;
         if (!campaign) {
           toast.error('Campaign not found');
-          router.push('/campaigns');
+          router.push('/messaging/campaigns');
           return;
         }
         setDraft(campaign);
@@ -232,7 +232,7 @@ export default function SmsRecipientsStepPage({ params }: PageProps) {
         // non-fatal
       }
     }
-    router.push('/campaigns');
+    router.push('/messaging/campaigns');
   }
 
   if (draftLoading) {

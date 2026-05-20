@@ -96,7 +96,7 @@ export default function RecipientsStepPage({ params }: PageProps) {
         const campaign = data.campaign;
         if (!campaign) {
           toast.error('Campaign not found');
-          router.push(subHref('/campaigns'));
+          router.push(subHref('/messaging/campaigns'));
           return;
         }
         setDraft(campaign);
@@ -240,7 +240,7 @@ export default function RecipientsStepPage({ params }: PageProps) {
     if (!draft || !selectedAccountKey) return;
     try {
       await persistSelection();
-      router.push(`${subHref('/campaigns')}/${encodeURIComponent(draft.id)}/template`);
+      router.push(`${subHref('/messaging/campaigns')}/${encodeURIComponent(draft.id)}/template`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save selection');
     }
@@ -254,7 +254,7 @@ export default function RecipientsStepPage({ params }: PageProps) {
         // non-fatal — drafts are user-editable; user can return
       }
     }
-    router.push(subHref('/campaigns'));
+    router.push(subHref('/messaging/campaigns'));
   }
 
   if (draftLoading) {

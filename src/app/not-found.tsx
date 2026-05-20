@@ -35,7 +35,7 @@ export default function NotFound() {
           </Link>
 
           <Link
-            href="/templates"
+            href="/email/templates"
             className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--muted)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition hover:border-[var(--primary)]/50 hover:bg-[var(--accent)]"
           >
             <EnvelopeIcon className="h-4 w-4" />

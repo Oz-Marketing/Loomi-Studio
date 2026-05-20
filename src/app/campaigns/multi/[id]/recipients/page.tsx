@@ -100,7 +100,7 @@ export default function MultiRecipientsStepPage({ params }: PageProps) {
         const campaign = data.campaign;
         if (!campaign) {
           toast.error('Multi-channel campaign not found');
-          router.push('/campaigns');
+          router.push('/messaging/campaigns');
           return;
         }
         const smsId = parseLinkedSmsId(campaign.metadata || '');
@@ -265,7 +265,7 @@ export default function MultiRecipientsStepPage({ params }: PageProps) {
         // non-fatal
       }
     }
-    router.push('/campaigns');
+    router.push('/messaging/campaigns');
   }
 
   if (loading) {
