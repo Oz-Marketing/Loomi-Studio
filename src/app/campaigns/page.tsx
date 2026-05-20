@@ -145,7 +145,30 @@ function AdminCampaignsPage() {
   const activeTab: PageTab = pathname.endsWith('/analytics') ? 'analytics' : 'list';
   const [sideRailMounted, setSideRailMounted] = useState(false);
 
-  const campaigns = (aggData?.campaigns ?? []) as Campaign[];
+  // Loomi-native campaigns (EmailCampaign + SmsCampaign) — fetched
+  // alongside the ESP aggregate so drafts and scheduled/sent Loomi
+  // campaigns show up in the list.
+  const [loomiCampaigns, setLoomiCampaigns] = useState<Campaign[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/campaigns/loomi/list')
+      .then((r) => (r.ok ? r.json() : { campaigns: [] }))
+      .then((data: { campaigns?: Campaign[] }) => {
+        if (cancelled) return;
+        setLoomiCampaigns(Array.isArray(data.campaigns) ? data.campaigns : []);
+      })
+      .catch(() => {
+        if (!cancelled) setLoomiCampaigns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const campaigns = useMemo(() => {
+    const espCampaigns = (aggData?.campaigns ?? []) as Campaign[];
+    return [...loomiCampaigns, ...espCampaigns];
+  }, [aggData, loomiCampaigns]);
   const campaignError = useMemo(() => {
     if (localError) return localError;
     if (aggError) {
@@ -644,25 +667,52 @@ function AccountCampaignsPage() {
 
     let cancelled = false;
     async function load() {
-      try {
-        const res = await fetch(`/api/esp/campaigns?accountKey=${encodeURIComponent(accountKey!)}`);
-        const data = await res.json().catch(() => ({}));
-        if (cancelled) return;
+      // Fetch both sources in parallel: ESP-fetched campaigns and any
+      // Loomi-native drafts/scheduled/sent campaigns. Either side may
+      // legitimately fail (e.g. account has no ESP connection) — we
+      // surface that as a non-fatal warning while still showing the
+      // Loomi campaigns the user owns.
+      const [espRes, loomiRes] = await Promise.allSettled([
+        fetch(`/api/esp/campaigns?accountKey=${encodeURIComponent(accountKey!)}`),
+        fetch(`/api/campaigns/loomi/list?accountKey=${encodeURIComponent(accountKey!)}`),
+      ]);
+      if (cancelled) return;
 
-        if (res.ok && Array.isArray(data.campaigns)) {
-          setCampaigns(data.campaigns);
+      let espCampaigns: Campaign[] = [];
+      let espErrorMessage: string | null = null;
+      if (espRes.status === 'fulfilled') {
+        const data = await espRes.value.json().catch(() => ({}));
+        if (cancelled) return;
+        if (espRes.value.ok && Array.isArray(data.campaigns)) {
+          espCampaigns = data.campaigns as Campaign[];
         } else {
-          setApiError(
-            typeof data.error === 'string'
-              ? withCampaignErrorHint(data.error)
-              : `Failed to fetch campaigns (${res.status})`,
-          );
+          espErrorMessage = typeof data.error === 'string'
+            ? withCampaignErrorHint(data.error)
+            : `Failed to fetch ESP campaigns (${espRes.value.status})`;
         }
-      } catch {
-        if (!cancelled) setApiError('Failed to fetch campaigns.');
-      } finally {
-        if (!cancelled) setLoading(false);
+      } else {
+        espErrorMessage = 'Failed to fetch ESP campaigns.';
       }
+
+      let loomiCampaigns: Campaign[] = [];
+      if (loomiRes.status === 'fulfilled') {
+        const data = await loomiRes.value.json().catch(() => ({}));
+        if (cancelled) return;
+        if (loomiRes.value.ok && Array.isArray(data.campaigns)) {
+          loomiCampaigns = data.campaigns as Campaign[];
+        }
+      }
+
+      setCampaigns([...loomiCampaigns, ...espCampaigns]);
+      // Only flag an ESP error if we have nothing to show at all —
+      // otherwise the user sees their Loomi campaigns and an
+      // 'integration not connected' warning would be misleading.
+      if (espErrorMessage && loomiCampaigns.length === 0) {
+        setApiError(espErrorMessage);
+      } else {
+        setApiError(null);
+      }
+      setLoading(false);
     }
 
     load();
@@ -694,7 +744,18 @@ function AccountCampaignsPage() {
     return result;
   }, [visibleCampaigns, bounds]);
 
+  const hasLoomiCampaigns = useMemo(
+    () =>
+      campaigns.some(
+        (c) => c.provider === 'loomi-email' || c.provider === 'loomi-sms',
+      ),
+    [campaigns],
+  );
+
   const accountNotIntegrated = useMemo(() => {
+    // If the user has Loomi-native campaigns, ESP connection state is
+    // irrelevant — Loomi is the engine and we have content to show.
+    if (hasLoomiCampaigns) return false;
     const message = (apiError || '').toLowerCase();
     const disconnectedConnection = accountData?.activeConnection?.connected === false;
     const missingConnectionMetadata =
@@ -710,7 +771,7 @@ function AccountCampaignsPage() {
       disconnectedConnection ||
       missingConnectionMetadata
     );
-  }, [accountData, apiError]);
+  }, [accountData, apiError, hasLoomiCampaigns]);
 
   const accountEmptyTitle =
     accountNotIntegrated
