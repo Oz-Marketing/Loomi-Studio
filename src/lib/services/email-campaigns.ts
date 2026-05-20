@@ -63,6 +63,7 @@ export interface EmailCampaignSummary {
   sourceFilter: string;
   htmlContent: string;
   textContent: string;
+  metadata: string;
   createdAt: string;
   updatedAt: string;
   error: string;
@@ -227,6 +228,7 @@ function toSummary(row: {
   sourceFilter: string | null;
   htmlContent: string;
   textContent: string | null;
+  metadata: string | null;
   createdAt: Date;
   updatedAt: Date;
   error: string | null;
@@ -249,6 +251,7 @@ function toSummary(row: {
     sourceFilter: row.sourceFilter || '',
     htmlContent: row.htmlContent || '',
     textContent: row.textContent || '',
+    metadata: row.metadata || '',
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     error: row.error || '',
@@ -273,6 +276,7 @@ const emailCampaignSummarySelect = {
   sourceFilter: true,
   htmlContent: true,
   textContent: true,
+  metadata: true,
   createdAt: true,
   updatedAt: true,
   error: true,
@@ -475,6 +479,7 @@ export async function updateEmailCampaignDraft(
     sourceType?: string;
     scheduledFor?: Date | null;
     status?: EmailCampaignStatus;
+    metadata?: string | null;
   },
 ): Promise<EmailCampaignSummary> {
   const data: Record<string, unknown> = {};
@@ -489,6 +494,7 @@ export async function updateEmailCampaignDraft(
   if (patch.sourceType !== undefined) data.sourceType = patch.sourceType;
   if (patch.scheduledFor !== undefined) data.scheduledFor = patch.scheduledFor;
   if (patch.status !== undefined) data.status = patch.status;
+  if (patch.metadata !== undefined) data.metadata = patch.metadata;
 
   const updated = await prisma.emailCampaign.update({
     where: { id: campaignId },

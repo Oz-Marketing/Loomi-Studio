@@ -43,6 +43,17 @@ interface DraftCampaign {
   previewText: string;
   htmlContent: string;
   sourceAudienceId: string;
+  metadata?: string | null;
+}
+
+function parseMetadata(raw: string | null | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 type SortKey = 'updated' | 'name';
@@ -79,16 +90,39 @@ export default function MessageStepPage({ params }: PageProps) {
     let cancelled = false;
     setDraftLoading(true);
     fetchDraft()
-      .then((campaign) => {
+      .then(async (campaign) => {
         if (cancelled) return;
         if (!campaign) {
           toast.error('Campaign not found');
           router.push('/campaigns');
           return;
         }
-        setDraft(campaign);
-        setSubject(campaign.subject || '');
-        setPreviewText(campaign.previewText || '');
+
+        // If the campaign references a template, re-fetch the latest content
+        // so edits made to the template (in the real editor) are reflected
+        // in this campaign. This is the cheap "snapshot on return" pattern.
+        const meta = parseMetadata(campaign.metadata);
+        const templateSlug = typeof meta.templateSlug === 'string' ? meta.templateSlug : '';
+        let synced = campaign;
+        if (templateSlug) {
+          try {
+            const rawRes = await fetch(
+              `/api/templates?design=${encodeURIComponent(templateSlug)}&format=raw`,
+            );
+            const rawData = await rawRes.json().catch(() => ({}));
+            const latest = String(rawData?.raw || '');
+            if (rawRes.ok && latest && latest !== campaign.htmlContent) {
+              const updated = await patchDraft({ htmlContent: latest });
+              if (updated) synced = updated;
+            }
+          } catch {
+            // Best-effort sync; if it fails we still have the old snapshot.
+          }
+        }
+
+        setDraft(synced);
+        setSubject(synced.subject || '');
+        setPreviewText(synced.previewText || '');
       })
       .finally(() => {
         if (!cancelled) setDraftLoading(false);
@@ -145,10 +179,14 @@ export default function MessageStepPage({ params }: PageProps) {
         const line = titleMatch[1].match(/^title:\s*(.+)$/m);
         if (line) newSubject = line[1].trim().replace(/^["']|["']$/g, '');
       }
+      // Record the template slug on the campaign so we can re-fetch the
+      // latest content when the user returns from the editor.
+      const meta = { ...parseMetadata(draft.metadata), templateSlug: design };
       const updated = await patchDraft({
         subject: newSubject || draft.name,
         htmlContent: raw,
         sourceType: 'template-library',
+        metadata: JSON.stringify(meta),
       });
       if (updated) {
         setDraft(updated);
@@ -156,8 +194,8 @@ export default function MessageStepPage({ params }: PageProps) {
       }
       setPreviewDesign(null);
       // Klaviyo pattern: selecting a template drops you straight into the
-      // editor so you can adjust before scheduling.
-      router.push(`/campaigns/${encodeURIComponent(id)}/edit`);
+      // existing template editor so the user can adjust before scheduling.
+      router.push(`/templates/editor?design=${encodeURIComponent(design)}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to apply template');
       setApplying(false);
@@ -235,7 +273,15 @@ export default function MessageStepPage({ params }: PageProps) {
           {hasTemplate ? (
             <SelectedTemplatePanel
               htmlContent={draft!.htmlContent}
-              onEdit={() => router.push(`/campaigns/${encodeURIComponent(id)}/edit`)}
+              onEdit={() => {
+                const meta = parseMetadata(draft?.metadata);
+                const slug = typeof meta.templateSlug === 'string' ? meta.templateSlug : '';
+                if (!slug) {
+                  toast.error("Can't open editor — this campaign has no template slug recorded.");
+                  return;
+                }
+                router.push(`/templates/editor?design=${encodeURIComponent(slug)}`);
+              }}
               onChangeTemplate={handleChangeTemplate}
             />
           ) : (

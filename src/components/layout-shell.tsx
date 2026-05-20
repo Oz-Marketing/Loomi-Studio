@@ -17,12 +17,8 @@ const BUILDER_STEPS = [
 type BuilderStepKey = (typeof BUILDER_STEPS)[number]['key'];
 
 function campaignBuilderStep(path: string): BuilderStepKey {
-  const match = path.match(/^\/campaigns\/[^/]+\/(recipients|template|edit|schedule)$/);
-  const raw = match?.[1];
-  // /edit is a sub-route of the Message step — progress bar shows
-  // 'Message' highlighted while the user is in the block editor.
-  if (raw === 'edit') return 'template';
-  return (raw as BuilderStepKey) || 'recipients';
+  const match = path.match(/^\/campaigns\/[^/]+\/(recipients|template|schedule)$/);
+  return (match?.[1] as BuilderStepKey) || 'recipients';
 }
 
 function CampaignBuilderProgress({ current }: { current: BuilderStepKey }) {
@@ -85,9 +81,10 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
 
   // Campaign builder steps run as a focused, full-screen flow with only
   // the logo and an exit affordance — no sidebar, no top utility bar.
-  // /edit is included so the block editor shares the same chrome.
+  // (The template editor at /templates/editor uses its own chrome via the
+  // existing isTemplateEditor branch.)
   const isCampaignBuilder =
-    /^\/campaigns\/[^/]+\/(recipients|template|edit|schedule)$/.test(normalizedPath);
+    /^\/campaigns\/[^/]+\/(recipients|template|schedule)$/.test(normalizedPath);
 
   useEffect(() => {
     if (isFullScreen || isTemplateEditor || isCampaignBuilder) {

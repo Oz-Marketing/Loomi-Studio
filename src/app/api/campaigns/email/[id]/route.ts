@@ -82,6 +82,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (typeof body?.sourceFilter === 'string' || body?.sourceFilter === null) {
     patch.sourceFilter = body.sourceFilter || null;
   }
+  if (typeof body?.metadata === 'string' || body?.metadata === null) {
+    patch.metadata = body.metadata || null;
+  }
   if (Array.isArray(body?.accountKeys)) {
     patch.accountKeys = (body.accountKeys as unknown[]).filter(
       (k): k is string => typeof k === 'string' && k.length > 0,
