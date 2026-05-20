@@ -9664,53 +9664,39 @@ export default function TemplateEditorPage() {
               {previewContactsError}
             </span>
           )}
-          {/* Ask Loomi */}
-          <button
-            onClick={() => setShowAiAssistant((prev) => !prev)}
-            className={`group relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition-all duration-200 ${
-              showAiAssistant
-                ? "ai-ed-btn-active"
-                : "ai-ed-btn-inactive"
-            }`}
-            title="Open AI assistant"
-          >
-            <SparklesIcon
-              className={`w-4 h-4 transition-transform ${showAiAssistant ? "scale-110" : "group-hover:scale-110 group-hover:rotate-6"}`}
-            />
-            Ask Loomi
-          </button>
-          {/* Send Test */}
-          <button
-            onClick={() => {
-              setSendTestSubject(
-                parsed?.frontmatter?.title || templateName || "",
-              );
-              setShowSendTest(true);
-            }}
-            disabled={!previewHtml}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[var(--muted)] hover:bg-[var(--accent)] disabled:opacity-40 transition-colors"
-            title="Send compiled HTML as test email"
-          >
-            <EnvelopeIcon className="w-4 h-4" />
-            Send Test
-          </button>
-          {campaignIdParam ? (
-            <>
-              {/* Manage template dropdown (campaign builder mode) */}
-              <div ref={manageTemplateMenuRef} className="relative">
+          {/* Secondary actions consolidated into a single 3-dot menu:
+              Send Test, Save as template, Change template (last two only
+              in campaign-builder mode). Ask Loomi removed at this level
+              per UX cleanup — it lives inside the editor pane already. */}
+          <div ref={manageTemplateMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setShowManageTemplateMenu((v) => !v)}
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[var(--muted)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors"
+              title="More actions"
+              aria-label="More actions"
+            >
+              <EllipsisVerticalIcon className="w-4 h-4" />
+            </button>
+            {showManageTemplateMenu && (
+              <div className="absolute right-0 top-full mt-1 z-30 min-w-[200px] glass-dropdown p-1 shadow-lg">
                 <button
                   type="button"
-                  onClick={() => setShowManageTemplateMenu((v) => !v)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[var(--muted)] hover:bg-[var(--accent)] transition-colors"
-                  title="Template actions"
+                  onClick={() => {
+                    setShowManageTemplateMenu(false);
+                    setSendTestSubject(
+                      parsed?.frontmatter?.title || templateName || "",
+                    );
+                    setShowSendTest(true);
+                  }}
+                  disabled={!previewHtml}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Manage template
-                  <ChevronDownIcon
-                    className={`w-3.5 h-3.5 transition-transform ${showManageTemplateMenu ? "rotate-180" : ""}`}
-                  />
+                  Send test
+                  <EnvelopeIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
                 </button>
-                {showManageTemplateMenu && (
-                  <div className="absolute right-0 top-full mt-1 z-30 min-w-[200px] glass-dropdown p-1 shadow-lg">
+                {campaignIdParam && (
+                  <>
                     <button
                       type="button"
                       onClick={() => {
@@ -9735,9 +9721,13 @@ export default function TemplateEditorPage() {
                     >
                       Change template
                     </button>
-                  </div>
+                  </>
                 )}
               </div>
+            )}
+          </div>
+          {campaignIdParam ? (
+            <>
               {/* In multi-channel mode the primary action is 'Done' →
                   back to the Message step, so the user still has to walk
                   through the SMS tab before the Message step's own
