@@ -259,8 +259,13 @@ const emailCampaignSummarySelect = {
   error: true,
 } as const;
 
-function getTransportConfig(): {
+interface AccountSenderIdentity {
   from: string;
+  replyTo: string | null;
+}
+
+function getTransporter(): {
+  defaultFrom: string;
   transporter: nodemailer.Transporter;
 } {
   const smtpHost = process.env.SMTP_HOST;
@@ -286,9 +291,48 @@ function getTransportConfig(): {
   });
 
   return {
-    from: smtpFrom,
+    defaultFrom: smtpFrom,
     transporter,
   };
+}
+
+function formatFromHeader(email: string, name: string | null | undefined): string {
+  const trimmedName = (name || '').trim();
+  if (!trimmedName) return email;
+  const safeName = trimmedName.replace(/["\\]/g, '');
+  return `"${safeName}" <${email}>`;
+}
+
+async function buildSenderMap(
+  accountKeys: string[],
+  defaultFrom: string,
+): Promise<Map<string, AccountSenderIdentity>> {
+  const map = new Map<string, AccountSenderIdentity>();
+  if (accountKeys.length === 0) return map;
+
+  const accounts = await prisma.account.findMany({
+    where: { key: { in: accountKeys } },
+    select: {
+      key: true,
+      senderEmail: true,
+      senderName: true,
+      replyToEmail: true,
+    },
+  });
+
+  const lookup = new Map(accounts.map((a) => [a.key, a]));
+  for (const key of accountKeys) {
+    const account = lookup.get(key);
+    if (account?.senderEmail) {
+      map.set(key, {
+        from: formatFromHeader(account.senderEmail, account.senderName),
+        replyTo: account.replyToEmail || null,
+      });
+    } else {
+      map.set(key, { from: defaultFrom, replyTo: null });
+    }
+  }
+  return map;
 }
 
 export async function createEmailCampaign(input: CreateEmailCampaignInput): Promise<EmailCampaignSummary> {
@@ -425,7 +469,7 @@ export async function processEmailCampaign(
     include: {
       recipients: {
         where: { status: 'pending' },
-        select: { id: true, email: true, fullName: true },
+        select: { id: true, email: true, fullName: true, accountKey: true },
       },
     },
   });
@@ -469,7 +513,9 @@ export async function processEmailCampaign(
     },
   });
 
-  const { transporter, from } = getTransportConfig();
+  const { transporter, defaultFrom } = getTransporter();
+  const uniqueAccountKeys = [...new Set(campaign.recipients.map((r) => r.accountKey))];
+  const senderByAccount = await buildSenderMap(uniqueAccountKeys, defaultFrom);
   const metadata = parseCampaignMetadata(campaign.metadata);
   const html = withPreviewText(campaign.htmlContent, campaign.previewText || '');
   const text = campaign.textContent?.trim() || stripHtml(campaign.htmlContent);
@@ -487,9 +533,15 @@ export async function processEmailCampaign(
       return;
     }
 
+    const sender = senderByAccount.get(recipient.accountKey) || {
+      from: defaultFrom,
+      replyTo: null,
+    };
+
     try {
       const info = await transporter.sendMail({
-        from,
+        from: sender.from,
+        ...(sender.replyTo ? { replyTo: sender.replyTo } : {}),
         to: recipientEmail,
         subject: campaign.subject,
         html,
