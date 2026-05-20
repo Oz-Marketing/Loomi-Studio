@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { useAccount } from '@/contexts/account-context';
 import { useCampaignsAggregate, useWorkflowsAggregate } from '@/hooks/use-dashboard-data';
 import { AdminOnly } from '@/components/route-guard';
@@ -12,22 +11,15 @@ import { CampaignFilterSidebar } from '@/components/filters/campaign-filter-side
 import { DashboardToolbar, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
 import { DEFAULT_DATE_RANGE, getDateRangeBounds, type DateRangeKey } from '@/lib/date-ranges';
 import { resolveAccountLocationId, resolveAccountProvider } from '@/lib/account-resolvers';
-import { providerDisplayName } from '@/lib/esp/provider-display';
-import {
-  getCampaignCreateLinks,
-  type CampaignCreateLinks,
-} from '@/lib/esp/provider-links';
 import {
   PaperAirplaneIcon,
-  EnvelopeIcon,
-  DevicePhoneMobileIcon,
   FunnelIcon,
   PlusIcon,
-  ChevronDownIcon,
 } from '@heroicons/react/24/outline';
 import { getAccountOems, industryHasBrands } from '@/lib/oems';
-import { FlowIcon } from '@/components/icon-map';
 import PrimaryButton from '@/components/primary-button';
+import { CreateCampaignModal } from '@/components/campaigns/create-campaign-modal';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 
 // ── Tab Icons (from icons8) ──
 
@@ -161,10 +153,9 @@ function normalizeCampaignStatus(status: string): string {
 // ── Inner Page ──
 
 function AdminCampaignsPage() {
-  const router = useRouter();
   const { data: aggData, error: aggError, isLoading: aggLoading } = useCampaignsAggregate();
   const { data: wfData, isLoading: wfLoading } = useWorkflowsAggregate();
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [localError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PageTab>('analytics');
   const [sideRailMounted, setSideRailMounted] = useState(false);
 
@@ -217,8 +208,7 @@ function AdminCampaignsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const activeFilterCount = [filters.account, filters.status, filters.oem, filters.industry, filters.rep]
     .filter((a) => a.length > 0).length;
-  const [showCreateMenu, setShowCreateMenu] = useState(false);
-  const createMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const workflows = (wfData?.workflows ?? []) as Workflow[];
 
@@ -290,17 +280,6 @@ function AdminCampaignsPage() {
     loadAccountMeta();
     return () => { cancelled = true; };
   }, [aggData]);
-
-  useEffect(() => {
-    if (!showCreateMenu) return;
-    function handleMouseDown(event: MouseEvent) {
-      if (createMenuRef.current && !createMenuRef.current.contains(event.target as Node)) {
-        setShowCreateMenu(false);
-      }
-    }
-    document.addEventListener('mousedown', handleMouseDown);
-    return () => document.removeEventListener('mousedown', handleMouseDown);
-  }, [showCreateMenu]);
 
   const bounds = useMemo(
     () =>
@@ -469,44 +448,6 @@ function AdminCampaignsPage() {
     );
   }, [selectedAccountLabel, accessibleAccountKeys, accountNames, accountMeta]);
 
-  const inferredProvider = useMemo(() => {
-    const providers = new Set(
-      accessibleAccountKeys
-        .map((key) => accountProviders[key])
-        .filter((provider): provider is string => Boolean(provider && provider.trim())),
-    );
-    if (providers.size === 1) return [...providers][0];
-    return null;
-  }, [accessibleAccountKeys, accountProviders]);
-
-  const selectedAccountProvider = selectedAccountKey
-    ? accountProviders[selectedAccountKey] || null
-    : null;
-  const campaignBuilderProvider = selectedAccountProvider || inferredProvider;
-  const campaignBuilderLabel = providerDisplayName(campaignBuilderProvider);
-  const selectedAccountLocationId =
-    (selectedAccountKey && accountMeta[selectedAccountKey]?.locationId) || null;
-  const createCampaignLinks = getCampaignCreateLinks(campaignBuilderProvider, selectedAccountLocationId);
-
-  function openCreateCampaignInProvider(target: keyof CampaignCreateLinks) {
-    setShowCreateMenu(false);
-
-    // Email blasts always go through Loomi's in-app builder. The schedule
-    // page itself decides whether to POST to the local Loomi pipeline or
-    // delegate to an ESP adapter based on the selected account's provider.
-    if (target === 'email') {
-      router.push('/campaigns/schedule');
-      return;
-    }
-
-    const href = createCampaignLinks[target];
-    if (!href) {
-      setLocalError(`${campaignBuilderLabel} campaign builder link is unavailable.`);
-      return;
-    }
-    window.open(href, '_blank', 'noopener,noreferrer');
-  }
-
   const campaignEmptyState = selectedAccountLabel
     ? {
         title: `No campaigns found for ${selectedAccountLabel}`,
@@ -605,66 +546,20 @@ function AdminCampaignsPage() {
                 </span>
               )}
             </button>
-            <div ref={createMenuRef} className="relative">
-              <PrimaryButton
-                type="button"
-                onClick={() => setShowCreateMenu((prev) => !prev)}
-              >
-                <PlusIcon className="w-4 h-4" />
-                Create Campaign
-                <ChevronDownIcon className={`w-4 h-4 transition-transform ${showCreateMenu ? 'rotate-180' : ''}`} />
-              </PrimaryButton>
-
-              {showCreateMenu && (
-                <div className="absolute top-full right-0 mt-2 z-[90] glass-dropdown min-w-[320px] p-1.5 shadow-lg">
-                  <button
-                    type="button"
-                    onClick={() => openCreateCampaignInProvider('email')}
-                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                  >
-                    <span className="inline-flex items-center gap-2 font-medium">
-                      <EnvelopeIcon className="w-3.5 h-3.5" />
-                      Email Blast
-                    </span>
-                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      Build and schedule in Loomi.
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openCreateCampaignInProvider('text')}
-                    disabled={!createCampaignLinks.text}
-                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="inline-flex items-center gap-2 font-medium">
-                      <DevicePhoneMobileIcon className="w-3.5 h-3.5" />
-                      Text Blast
-                    </span>
-                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      Send a one-time bulk SMS/MMS message.
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openCreateCampaignInProvider('drip')}
-                    disabled={!createCampaignLinks.drip}
-                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="inline-flex items-center gap-2 font-medium">
-                      <FlowIcon className="w-3.5 h-3.5" />
-                      Drip Campaign
-                    </span>
-                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      Build a multi-step automated workflow sequence.
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
+            <PrimaryButton type="button" onClick={() => setShowCreateModal(true)}>
+              <PlusIcon className="w-4 h-4" />
+              Create Campaign
+            </PrimaryButton>
 
           </div>
         </div>
       </div>
+
+      <CreateCampaignModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        accountKeys={selectedAccountKey ? [selectedAccountKey] : []}
+      />
 
       {/* Dashboard-style grid: content + inline filter side rail */}
       <div className={sideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
@@ -729,7 +624,7 @@ function AdminCampaignsPage() {
 // ── Account Campaigns Page (single-account, read-only) ──
 
 function AccountCampaignsPage() {
-  const accountRouter = useRouter();
+  const subHref = useSubaccountHref();
   const { accountKey, accountData } = useAccount();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -737,8 +632,7 @@ function AccountCampaignsPage() {
   const [activeTab, setActiveTab] = useState<PageTab>('analytics');
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
-  const [showCreateMenu, setShowCreateMenu] = useState(false);
-  const createMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     if (!accountKey) return;
@@ -769,17 +663,6 @@ function AccountCampaignsPage() {
     load();
     return () => { cancelled = true; };
   }, [accountKey]);
-
-  useEffect(() => {
-    if (!showCreateMenu) return;
-    function handleMouseDown(event: MouseEvent) {
-      if (createMenuRef.current && !createMenuRef.current.contains(event.target as Node)) {
-        setShowCreateMenu(false);
-      }
-    }
-    document.addEventListener('mousedown', handleMouseDown);
-    return () => document.removeEventListener('mousedown', handleMouseDown);
-  }, [showCreateMenu]);
 
   const bounds = useMemo(
     () =>
@@ -840,11 +723,6 @@ function AccountCampaignsPage() {
   const dealerName = accountData?.dealer || 'Your Sub-Account';
   const accountProvider = resolveAccountProvider(accountData, '');
   const accountLocationId = resolveAccountLocationId(accountData);
-  const accountProviderLabel = providerDisplayName(accountProvider);
-  const accountCampaignLinks = getCampaignCreateLinks(
-    accountProvider,
-    accountLocationId,
-  );
   const accountNames = useMemo(
     () => (accountKey ? { [accountKey]: dealerName } : {}),
     [accountKey, dealerName],
@@ -874,35 +752,15 @@ function AccountCampaignsPage() {
     () => ({
       title: accountEmptyTitle,
       subtitle: accountEmptySubtitle,
-      actionLabel: accountNotIntegrated
-        ? 'Open Integrations'
-        : accountCampaignLinks.email
-          ? `Create in ${accountProviderLabel}`
-          : undefined,
-      actionHref: accountNotIntegrated
-        ? '/settings/integrations'
-        : accountCampaignLinks.email || undefined,
+      actionLabel: accountNotIntegrated ? 'Open Integrations' : 'Create Campaign',
+      actionHref: accountNotIntegrated ? '/settings/integrations' : undefined,
+      onAction: accountNotIntegrated ? undefined : () => setShowCreateModal(true),
     }),
-    [accountCampaignLinks.email, accountEmptySubtitle, accountEmptyTitle, accountNotIntegrated, accountProviderLabel],
+    [accountEmptySubtitle, accountEmptyTitle, accountNotIntegrated],
   );
 
-  function openAccountCreateCampaignInProvider(target: keyof CampaignCreateLinks) {
-    setShowCreateMenu(false);
-
-    // Email blasts always go through Loomi's in-app builder. The schedule
-    // page itself decides whether to POST to the local Loomi pipeline or
-    // delegate to an ESP adapter based on the selected account's provider.
-    if (target === 'email') {
-      accountRouter.push('/campaigns/schedule');
-      return;
-    }
-
-    const href = accountCampaignLinks[target];
-    if (!href) {
-      setApiError(`${accountProviderLabel} campaign builder link is unavailable.`);
-      return;
-    }
-    window.open(href, '_blank', 'noopener,noreferrer');
+  function openCreateCampaignModal() {
+    setShowCreateModal(true);
   }
 
   return (
@@ -961,65 +819,20 @@ function AccountCampaignsPage() {
               onCustomRangeChange={setCustomRange}
             />
 
-            <div ref={createMenuRef} className="relative">
-              <PrimaryButton
-                type="button"
-                onClick={() => setShowCreateMenu((prev) => !prev)}
-              >
-                <PlusIcon className="w-4 h-4" />
-                Create Campaign
-                <ChevronDownIcon className={`w-4 h-4 transition-transform ${showCreateMenu ? 'rotate-180' : ''}`} />
-              </PrimaryButton>
-
-              {showCreateMenu && (
-                <div className="absolute top-full right-0 mt-2 z-[90] glass-dropdown min-w-[320px] p-1.5 shadow-lg">
-                  <button
-                    type="button"
-                    onClick={() => openAccountCreateCampaignInProvider('email')}
-                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                  >
-                    <span className="inline-flex items-center gap-2 font-medium">
-                      <EnvelopeIcon className="w-3.5 h-3.5" />
-                      Email Blast
-                    </span>
-                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      Build and schedule in Loomi.
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openAccountCreateCampaignInProvider('text')}
-                    disabled={!accountCampaignLinks.text}
-                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="inline-flex items-center gap-2 font-medium">
-                      <DevicePhoneMobileIcon className="w-3.5 h-3.5" />
-                      Text Blast
-                    </span>
-                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      Send a one-time bulk SMS/MMS message.
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openAccountCreateCampaignInProvider('drip')}
-                    disabled={!accountCampaignLinks.drip}
-                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="inline-flex items-center gap-2 font-medium">
-                      <FlowIcon className="w-3.5 h-3.5" />
-                      Drip Campaign
-                    </span>
-                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      Build a multi-step automated workflow sequence.
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
+            <PrimaryButton type="button" onClick={openCreateCampaignModal}>
+              <PlusIcon className="w-4 h-4" />
+              Create Campaign
+            </PrimaryButton>
           </div>
         </div>
       </div>
+
+      <CreateCampaignModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        accountKeys={accountKey ? [accountKey] : []}
+        redirectBase={subHref('/campaigns')}
+      />
 
       <div className="min-w-0">
         {apiError && !accountNotIntegrated && (

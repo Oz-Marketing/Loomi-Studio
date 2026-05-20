@@ -7,6 +7,7 @@ import {
 } from '@/lib/contact-hygiene';
 
 type EmailCampaignStatus =
+  | 'draft'
   | 'queued'
   | 'scheduled'
   | 'processing'
@@ -15,6 +16,8 @@ type EmailCampaignStatus =
   | 'failed'
   | 'canceled';
 
+// Drafts are NOT processable — they live until the user explicitly
+// schedules them, at which point status transitions to queued/scheduled.
 const PROCESSABLE_STATUSES: EmailCampaignStatus[] = ['queued', 'scheduled', 'processing'];
 const TERMINAL_STATUSES: EmailCampaignStatus[] = ['completed', 'partial', 'failed', 'canceled'];
 const INVALID_EMAIL_ERROR = 'Recipient email is missing or blocked by hygiene policy';
@@ -395,6 +398,45 @@ export async function createEmailCampaign(input: CreateEmailCampaignInput): Prom
     return campaign;
   });
 
+  return toSummary(created);
+}
+
+function defaultDraftName(now: Date): string {
+  return `Campaign ${now.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })}`;
+}
+
+/**
+ * Creates an empty EmailCampaign row in 'draft' status. The campaign-builder
+ * flow walks the user through the remaining steps (recipients, template,
+ * schedule) and PATCHes the same row at each step. The pg-boss worker
+ * ignores drafts — they only fire once status transitions to 'scheduled'.
+ */
+export async function createDraftEmailCampaign(input: {
+  name?: string;
+  accountKeys?: string[];
+  createdByUserId?: string;
+  createdByRole?: string;
+}): Promise<EmailCampaignSummary> {
+  const name = (input.name || '').trim() || defaultDraftName(new Date());
+  const created = await prisma.emailCampaign.create({
+    data: {
+      name,
+      subject: '',
+      htmlContent: '',
+      sourceType: 'drag-drop',
+      status: 'draft',
+      accountKeys: JSON.stringify(input.accountKeys || []),
+      createdByUserId: input.createdByUserId || null,
+      createdByRole: input.createdByRole || null,
+    },
+    select: emailCampaignSummarySelect,
+  });
   return toSummary(created);
 }
 
