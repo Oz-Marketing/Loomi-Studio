@@ -2,13 +2,11 @@
 
 import { use, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import {
   ArrowLeftIcon,
   ArrowPathIcon,
   ChatBubbleLeftRightIcon,
   EnvelopeIcon,
-  PencilSquareIcon,
   PhotoIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
@@ -16,6 +14,9 @@ import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
 import PrimaryButton from '@/components/primary-button';
 import { IphoneSmsPreview } from '@/components/campaigns/iphone-sms-preview';
+import { TemplateLibraryPanel } from '@/components/campaigns/template-library-panel';
+import { TemplatePreviewModal } from '@/components/campaigns/template-preview-modal';
+import { SelectedTemplatePanel } from '@/components/campaigns/selected-template-panel';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -92,6 +93,9 @@ export default function MultiMessageStepPage({ params }: PageProps) {
   const [smsUploading, setSmsUploading] = useState(false);
   const smsFileInputRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
+  // Email template picker state (embedded in the Email tab)
+  const [previewDesign, setPreviewDesign] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -175,6 +179,81 @@ export default function MultiMessageStepPage({ params }: PageProps) {
       if (updated) setEmailDraft(updated);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save preview text');
+    }
+  }
+
+  /**
+   * Compile template raw (v2 JSON for drag-and-drop, raw HTML for HTML-mode)
+   * to email-ready HTML via /api/preview. Mirrors the standalone email
+   * flow so both end up storing compiled HTML on the campaign.
+   */
+  async function compileTemplate(raw: string): Promise<string> {
+    const res = await fetch('/api/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html: raw, previewValues: {} }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.html) throw new Error(data?.error || 'Failed to compile template');
+    return String(data.html);
+  }
+
+  async function applyTemplate(design: string) {
+    if (!emailDraft) return;
+    setApplying(true);
+    try {
+      const rawRes = await fetch(`/api/templates?design=${encodeURIComponent(design)}&format=raw`);
+      const rawData = await rawRes.json().catch(() => ({}));
+      if (!rawRes.ok || !rawData?.raw) {
+        throw new Error(rawData?.error || 'Failed to load template');
+      }
+      const raw = String(rawData.raw);
+      const titleMatch = raw.match(/^---\s*\n([\s\S]*?)\n---/);
+      let newSubject = subject;
+      if (!newSubject && titleMatch) {
+        const line = titleMatch[1].match(/^title:\s*(.+)$/m);
+        if (line) newSubject = line[1].trim().replace(/^["']|["']$/g, '');
+      }
+      const compiled = await compileTemplate(raw);
+      // Preserve existing multi-channel metadata (multiChannel + linkedSmsCampaignId)
+      // while recording the chosen templateSlug.
+      let existingMeta: Record<string, unknown> = {};
+      try {
+        existingMeta = JSON.parse(emailDraft.metadata || '{}') as Record<string, unknown>;
+      } catch {
+        existingMeta = {};
+      }
+      const meta = JSON.stringify({ ...existingMeta, templateSlug: design });
+      const updated = await patchEmail({
+        subject: newSubject || emailDraft.name,
+        htmlContent: compiled,
+        sourceType: 'template-library',
+        metadata: meta,
+      });
+      if (updated) {
+        setEmailDraft(updated);
+        setSubject(updated.subject);
+      }
+      setPreviewDesign(null);
+      // Klaviyo pattern: jump into the editor with multi=1 so navigation
+      // from the editor goes back to /campaigns/multi/[id]/...
+      router.push(
+        `/templates/editor?design=${encodeURIComponent(design)}&campaignId=${encodeURIComponent(id)}&multi=1`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to apply template');
+      setApplying(false);
+    }
+  }
+
+  async function handleChangeTemplate() {
+    if (!emailDraft) return;
+    if (!confirm('Clear the current template and pick a different one?')) return;
+    try {
+      const updated = await patchEmail({ htmlContent: '' });
+      if (updated) setEmailDraft(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to change template');
     }
   }
 
@@ -369,50 +448,25 @@ export default function MultiMessageStepPage({ params }: PageProps) {
                 </div>
               </div>
 
-              {emailDraft?.htmlContent && templateSlug && (
-                <Link
-                  href={`/templates/editor?design=${encodeURIComponent(templateSlug)}&campaignId=${encodeURIComponent(id)}&multi=1`}
-                  className="block w-full text-center px-4 py-2.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/60"
-                >
-                  <PencilSquareIcon className="w-4 h-4 inline mr-1.5" />
-                  Edit template
-                </Link>
-              )}
             </div>
 
-            <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">
-              <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
-                <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
-                  Preview
-                </p>
-                {!emailDraft?.htmlContent && (
-                  <Link
-                    href={`/campaigns/${encodeURIComponent(id)}/template?multi=1`}
-                    className="text-xs text-[var(--primary)] hover:underline"
-                  >
-                    Pick a template →
-                  </Link>
-                )}
-              </div>
-              <div className="bg-[var(--muted)]/30 p-4 min-h-[500px]">
-                {emailDraft?.htmlContent ? (
-                  <iframe
-                    title="Email preview"
-                    srcDoc={emailDraft.htmlContent}
-                    sandbox=""
-                    className="w-full min-h-[480px] bg-white rounded-lg border border-[var(--border)]"
-                  />
-                ) : (
-                  <div className="h-full min-h-[480px] flex flex-col items-center justify-center text-center text-[var(--muted-foreground)]">
-                    <EnvelopeIcon className="w-10 h-10 mb-3 opacity-40" />
-                    <p className="text-sm font-medium">No template selected yet</p>
-                    <p className="text-xs mt-1.5 max-w-xs">
-                      Click <strong>Pick a template</strong> above to load one from your library.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
+            {emailDraft?.htmlContent ? (
+              <SelectedTemplatePanel
+                htmlContent={emailDraft.htmlContent}
+                onEdit={() => {
+                  if (!templateSlug) {
+                    toast.error("Can't open editor — no template slug recorded.");
+                    return;
+                  }
+                  router.push(
+                    `/templates/editor?design=${encodeURIComponent(templateSlug)}&campaignId=${encodeURIComponent(id)}&multi=1`,
+                  );
+                }}
+                onChangeTemplate={handleChangeTemplate}
+              />
+            ) : (
+              <TemplateLibraryPanel onSelect={setPreviewDesign} />
+            )}
           </div>
         )}
 
@@ -517,6 +571,15 @@ export default function MultiMessageStepPage({ params }: PageProps) {
           </div>
         )}
       </div>
+
+      {previewDesign && (
+        <TemplatePreviewModal
+          design={previewDesign}
+          onClose={() => !applying && setPreviewDesign(null)}
+          onUse={() => applyTemplate(previewDesign)}
+          applying={applying}
+        />
+      )}
 
       <div className="fixed bottom-0 left-0 right-0 bg-[var(--card)]/80 backdrop-blur-md border-t border-[var(--border)] z-40">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
