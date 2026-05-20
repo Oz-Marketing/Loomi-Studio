@@ -59,6 +59,10 @@ export interface EmailCampaignSummary {
   sentCount: number;
   failedCount: number;
   accountKeys: string[];
+  sourceAudienceId: string;
+  sourceFilter: string;
+  htmlContent: string;
+  textContent: string;
   createdAt: string;
   updatedAt: string;
   error: string;
@@ -219,6 +223,10 @@ function toSummary(row: {
   sentCount: number;
   failedCount: number;
   accountKeys: string;
+  sourceAudienceId: string | null;
+  sourceFilter: string | null;
+  htmlContent: string;
+  textContent: string | null;
   createdAt: Date;
   updatedAt: Date;
   error: string | null;
@@ -237,6 +245,10 @@ function toSummary(row: {
     sentCount: row.sentCount,
     failedCount: row.failedCount,
     accountKeys: parseAccountKeys(row.accountKeys),
+    sourceAudienceId: row.sourceAudienceId || '',
+    sourceFilter: row.sourceFilter || '',
+    htmlContent: row.htmlContent || '',
+    textContent: row.textContent || '',
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     error: row.error || '',
@@ -257,6 +269,10 @@ const emailCampaignSummarySelect = {
   sentCount: true,
   failedCount: true,
   accountKeys: true,
+  sourceAudienceId: true,
+  sourceFilter: true,
+  htmlContent: true,
+  textContent: true,
   createdAt: true,
   updatedAt: true,
   error: true,
@@ -438,6 +454,48 @@ export async function createDraftEmailCampaign(input: {
     select: emailCampaignSummarySelect,
   });
   return toSummary(created);
+}
+
+/**
+ * PATCH-style update for in-flight campaign drafts. Only the fields passed
+ * in `patch` are touched; unspecified fields keep their current values.
+ * Pass `null` to clear a column.
+ */
+export async function updateEmailCampaignDraft(
+  campaignId: string,
+  patch: {
+    name?: string;
+    subject?: string;
+    previewText?: string | null;
+    htmlContent?: string;
+    textContent?: string | null;
+    accountKeys?: string[];
+    sourceAudienceId?: string | null;
+    sourceFilter?: string | null;
+    sourceType?: string;
+    scheduledFor?: Date | null;
+    status?: EmailCampaignStatus;
+  },
+): Promise<EmailCampaignSummary> {
+  const data: Record<string, unknown> = {};
+  if (patch.name !== undefined) data.name = patch.name;
+  if (patch.subject !== undefined) data.subject = patch.subject;
+  if (patch.previewText !== undefined) data.previewText = patch.previewText;
+  if (patch.htmlContent !== undefined) data.htmlContent = patch.htmlContent;
+  if (patch.textContent !== undefined) data.textContent = patch.textContent;
+  if (patch.accountKeys !== undefined) data.accountKeys = JSON.stringify(patch.accountKeys);
+  if (patch.sourceAudienceId !== undefined) data.sourceAudienceId = patch.sourceAudienceId;
+  if (patch.sourceFilter !== undefined) data.sourceFilter = patch.sourceFilter;
+  if (patch.sourceType !== undefined) data.sourceType = patch.sourceType;
+  if (patch.scheduledFor !== undefined) data.scheduledFor = patch.scheduledFor;
+  if (patch.status !== undefined) data.status = patch.status;
+
+  const updated = await prisma.emailCampaign.update({
+    where: { id: campaignId },
+    data,
+    select: emailCampaignSummarySelect,
+  });
+  return toSummary(updated);
 }
 
 export async function getEmailCampaign(campaignId: string): Promise<EmailCampaignSummary | null> {
