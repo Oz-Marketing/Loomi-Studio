@@ -7,6 +7,8 @@ import {
   ArrowPathIcon,
   ArrowsRightLeftIcon,
   CheckCircleIcon,
+  ComputerDesktopIcon,
+  DevicePhoneMobileIcon,
   DocumentTextIcon,
   EllipsisVerticalIcon,
   MagnifyingGlassIcon,
@@ -632,6 +634,7 @@ function TemplatePreviewModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(design);
+  const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
 
   useEffect(() => {
     let cancelled = false;
@@ -677,9 +680,10 @@ function TemplatePreviewModal({
       onClick={onClose}
     >
       <div
-        className="glass-modal w-[800px] max-w-full max-h-[90vh] flex flex-col"
+        className="glass-modal w-[1100px] max-w-full h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] flex-shrink-0">
           <h3 className="text-base font-semibold truncate pr-4">{name}</h3>
           <button
@@ -692,7 +696,41 @@ function TemplatePreviewModal({
             <XMarkIcon className="w-5 h-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-hidden bg-[var(--muted)]/30 flex items-stretch p-4">
+
+        {/* Desktop / mobile toggle row */}
+        <div className="flex items-center justify-center px-6 py-2.5 border-b border-[var(--border)] flex-shrink-0">
+          <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-0.5">
+            <button
+              type="button"
+              onClick={() => setPreviewMode('desktop')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors ${
+                previewMode === 'desktop'
+                  ? 'bg-[var(--primary)]/15 text-[var(--primary)]'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+              aria-pressed={previewMode === 'desktop'}
+            >
+              <ComputerDesktopIcon className="w-4 h-4" />
+              Desktop
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewMode('mobile')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors ${
+                previewMode === 'mobile'
+                  ? 'bg-[var(--primary)]/15 text-[var(--primary)]'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+              aria-pressed={previewMode === 'mobile'}
+            >
+              <DevicePhoneMobileIcon className="w-4 h-4" />
+              Mobile
+            </button>
+          </div>
+        </div>
+
+        {/* Preview area */}
+        <div className="flex-1 min-h-0 overflow-auto bg-[var(--muted)]/30 p-4 flex justify-center">
           {loading ? (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-sm text-[var(--muted-foreground)] inline-flex items-center gap-2">
@@ -708,11 +746,15 @@ function TemplatePreviewModal({
             <iframe
               title="Template preview"
               srcDoc={html}
-              className="flex-1 bg-white rounded-lg border border-[var(--border)]"
               sandbox=""
+              className={`bg-white rounded-lg border border-[var(--border)] h-full ${
+                previewMode === 'mobile' ? 'w-[390px]' : 'w-full'
+              }`}
             />
           )}
         </div>
+
+        {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
           <button
             type="button"
