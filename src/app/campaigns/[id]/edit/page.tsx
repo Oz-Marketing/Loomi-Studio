@@ -81,9 +81,12 @@ export default function CampaignEditorPage({ params }: PageProps) {
     }
   }
 
-  async function handleContinueToSchedule() {
+  // After editing, return to the Message step so the user sees their
+  // changes reflected in the preview. They can then click 'Continue to
+  // Schedule' from there.
+  async function handleDone() {
     const ok = dirty ? await save() : true;
-    if (ok) router.push(`/campaigns/${encodeURIComponent(id)}/schedule`);
+    if (ok) router.push(`/campaigns/${encodeURIComponent(id)}/template`);
   }
 
   if (loading) {
@@ -118,9 +121,9 @@ export default function CampaignEditorPage({ params }: PageProps) {
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <PrimaryButton onClick={handleContinueToSchedule} disabled={saving}>
+          <PrimaryButton onClick={handleDone} disabled={saving}>
             <PaperAirplaneIcon className="w-4 h-4" />
-            Continue to Schedule
+            Done
           </PrimaryButton>
         </div>
       </div>

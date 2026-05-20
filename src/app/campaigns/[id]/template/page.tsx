@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeftIcon,
@@ -8,12 +8,13 @@ import {
   ArrowsRightLeftIcon,
   CheckCircleIcon,
   DocumentTextIcon,
+  EllipsisVerticalIcon,
   MagnifyingGlassIcon,
   PencilSquareIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
-import { useAccount } from '@/contexts/account-context';
+import { useAccount, type AccountData } from '@/contexts/account-context';
 import PrimaryButton from '@/components/primary-button';
 
 interface PageProps {
@@ -58,10 +59,10 @@ export default function MessageStepPage({ params }: PageProps) {
 
   const [draft, setDraft] = useState<DraftCampaign | null>(null);
   const [draftLoading, setDraftLoading] = useState(true);
-
-  // Editor state — kept local until persisted on blur or Continue.
   const [subject, setSubject] = useState('');
   const [previewText, setPreviewText] = useState('');
+  const [previewDesign, setPreviewDesign] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
   const [saving, setSaving] = useState(false);
 
   async function fetchDraft(): Promise<DraftCampaign | null> {
@@ -102,15 +103,12 @@ export default function MessageStepPage({ params }: PageProps) {
       body: JSON.stringify(patch),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data?.error || 'Failed to save');
-    }
+    if (!res.ok) throw new Error(data?.error || 'Failed to save');
     return data?.campaign || null;
   }
 
   async function handleSubjectBlur() {
-    if (!draft) return;
-    if (subject === draft.subject) return;
+    if (!draft || subject === draft.subject) return;
     try {
       const updated = await patchDraft({ subject });
       if (updated) setDraft(updated);
@@ -120,8 +118,7 @@ export default function MessageStepPage({ params }: PageProps) {
   }
 
   async function handlePreviewTextBlur() {
-    if (!draft) return;
-    if (previewText === draft.previewText) return;
+    if (!draft || previewText === draft.previewText) return;
     try {
       const updated = await patchDraft({ previewText });
       if (updated) setDraft(updated);
@@ -130,30 +127,44 @@ export default function MessageStepPage({ params }: PageProps) {
     }
   }
 
-  async function handleContinue() {
+  async function applyTemplate(design: string) {
     if (!draft) return;
-    setSaving(true);
+    setApplying(true);
     try {
-      // Persist any pending field changes before navigating.
-      const patch: Record<string, unknown> = {};
-      if (subject !== draft.subject) patch.subject = subject;
-      if (previewText !== draft.previewText) patch.previewText = previewText;
-      if (Object.keys(patch).length > 0) {
-        await patchDraft(patch);
+      const rawRes = await fetch(`/api/templates?design=${encodeURIComponent(design)}&format=raw`);
+      const rawData = await rawRes.json().catch(() => ({}));
+      if (!rawRes.ok || !rawData?.raw) {
+        throw new Error(rawData?.error || 'Failed to load template');
       }
-      router.push(`/campaigns/${encodeURIComponent(id)}/schedule`);
+      const raw = String(rawData.raw);
+      const titleMatch = raw.match(/^---\s*\n([\s\S]*?)\n---/);
+      let newSubject = subject;
+      if (!newSubject && titleMatch) {
+        const line = titleMatch[1].match(/^title:\s*(.+)$/m);
+        if (line) newSubject = line[1].trim().replace(/^["']|["']$/g, '');
+      }
+      const updated = await patchDraft({
+        subject: newSubject || draft.name,
+        htmlContent: raw,
+        sourceType: 'template-library',
+      });
+      if (updated) {
+        setDraft(updated);
+        setSubject(updated.subject);
+      }
+      setPreviewDesign(null);
+      // Klaviyo pattern: selecting a template drops you straight into the
+      // editor so you can adjust before scheduling.
+      router.push(`/campaigns/${encodeURIComponent(id)}/edit`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save');
-    } finally {
-      setSaving(false);
+      toast.error(err instanceof Error ? err.message : 'Failed to apply template');
+      setApplying(false);
     }
   }
 
   async function handleChangeTemplate() {
     if (!draft) return;
-    if (!confirm('Clear the current template and pick a different one? Your subject and preview text will be kept.')) {
-      return;
-    }
+    if (!confirm('Clear the current template and pick a different one?')) return;
     try {
       const updated = await patchDraft({ htmlContent: '' });
       if (updated) setDraft(updated);
@@ -162,8 +173,25 @@ export default function MessageStepPage({ params }: PageProps) {
     }
   }
 
+  async function handleContinue() {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      const patch: Record<string, unknown> = {};
+      if (subject !== draft.subject) patch.subject = subject;
+      if (previewText !== draft.previewText) patch.previewText = previewText;
+      if (Object.keys(patch).length > 0) await patchDraft(patch);
+      router.push(`/campaigns/${encodeURIComponent(id)}/schedule`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const accountKey = draft?.accountKeys[0] || '';
   const account = accountKey ? accounts[accountKey] : null;
+  const hasTemplate = Boolean(draft?.htmlContent);
 
   if (draftLoading) {
     return (
@@ -176,174 +204,161 @@ export default function MessageStepPage({ params }: PageProps) {
     );
   }
 
-  // State A: no template loaded → show picker
-  if (!draft?.htmlContent) {
-    return (
-      <TemplatePickerView
-        campaignId={id}
-        campaignName={draft?.name || 'Campaign'}
-        onApplied={async () => {
-          const next = await fetchDraft();
-          if (next) {
-            setDraft(next);
-            setSubject(next.subject || '');
-            setPreviewText(next.previewText || '');
-          }
-        }}
-      />
-    );
-  }
-
-  // State B: template loaded → Klaviyo-style editor (settings + preview)
   return (
     <div className="pb-32">
       <div className="max-w-7xl mx-auto py-8 px-6">
-        <div className="mb-6 flex items-start justify-between gap-6 flex-wrap">
-          <div className="min-w-0">
-            <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">
-              Message
-            </p>
-            <h1 className="text-2xl font-bold">{draft.name}</h1>
-            <p className="text-sm text-[var(--muted-foreground)] mt-1.5">
-              Set your subject and preview, then edit the content.
-            </p>
-          </div>
+        <div className="mb-6">
+          <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">
+            Message
+          </p>
+          <h1 className="text-2xl font-bold">{draft?.name || 'Campaign'}</h1>
+          <p className="text-sm text-[var(--muted-foreground)] mt-1.5">
+            {hasTemplate
+              ? 'Set your subject and preview text. Click Edit to adjust the content.'
+              : 'Set your subject and preview, then pick a template on the right.'}
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-5">
-          {/* Left: settings */}
-          <div className="space-y-5">
-            <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)] space-y-4">
-              <div>
-                <label className="block text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-1.5">
-                  Subject Line <span className="text-red-400">*</span>
-                </label>
-                <input
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  onBlur={handleSubjectBlur}
-                  placeholder="Your next service is due"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                />
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 items-start">
+          <SettingsPanel
+            subject={subject}
+            previewText={previewText}
+            account={account}
+            onSubjectChange={setSubject}
+            onPreviewTextChange={setPreviewText}
+            onSubjectBlur={handleSubjectBlur}
+            onPreviewTextBlur={handlePreviewTextBlur}
+          />
 
-              <div>
-                <label className="block text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-1.5">
-                  Preview Text
-                </label>
-                <input
-                  value={previewText}
-                  onChange={(e) => setPreviewText(e.target.value)}
-                  onBlur={handlePreviewTextBlur}
-                  placeholder="Lock in your appointment this week."
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                />
-                <p className="text-[11px] text-[var(--muted-foreground)] mt-1.5">
-                  Shown in the inbox preview after the subject.
-                </p>
-              </div>
-            </div>
-
-            <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)] space-y-3">
-              <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
-                Sender
-              </p>
-              <div>
-                <p className="text-xs text-[var(--muted-foreground)]">From name</p>
-                <p className="text-sm font-medium mt-0.5">
-                  {account?.senderName || account?.dealer || (
-                    <span className="text-[var(--muted-foreground)]">Not configured</span>
-                  )}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-[var(--muted-foreground)]">From email</p>
-                <p className="text-sm font-medium mt-0.5">
-                  {account?.senderEmail || (
-                    <span className="text-[var(--muted-foreground)]">Falls back to global SMTP_FROM</span>
-                  )}
-                </p>
-              </div>
-              {account?.replyToEmail && (
-                <div>
-                  <p className="text-xs text-[var(--muted-foreground)]">Reply-to</p>
-                  <p className="text-sm font-medium mt-0.5">{account.replyToEmail}</p>
-                </div>
-              )}
-              <p className="text-[11px] text-[var(--muted-foreground)] pt-2 border-t border-[var(--border)]">
-                Configure in Subaccount Settings → Sending.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleChangeTemplate}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-4 h-10 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--muted-foreground)]"
-            >
-              <ArrowsRightLeftIcon className="w-4 h-4" />
-              Change template
-            </button>
-          </div>
-
-          {/* Right: preview */}
-          <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-              <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
-                Preview
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  router.push(`/campaigns/${encodeURIComponent(id)}/edit`)
-                }
-                className="inline-flex items-center gap-1.5 px-3 h-8 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/60"
-              >
-                <PencilSquareIcon className="w-3.5 h-3.5" />
-                Edit
-              </button>
-            </div>
-            <div className="bg-[var(--muted)]/30 p-4 flex-1 min-h-[600px]">
-              <iframe
-                title="Campaign preview"
-                srcDoc={draft.htmlContent}
-                sandbox=""
-                className="w-full h-full min-h-[580px] bg-white rounded-lg border border-[var(--border)]"
-              />
-            </div>
-          </div>
+          {hasTemplate ? (
+            <SelectedTemplatePanel
+              htmlContent={draft!.htmlContent}
+              onEdit={() => router.push(`/campaigns/${encodeURIComponent(id)}/edit`)}
+              onChangeTemplate={handleChangeTemplate}
+            />
+          ) : (
+            <TemplateLibraryPanel onSelect={setPreviewDesign} />
+          )}
         </div>
       </div>
+
+      {previewDesign && (
+        <TemplatePreviewModal
+          design={previewDesign}
+          onClose={() => !applying && setPreviewDesign(null)}
+          onUse={() => applyTemplate(previewDesign)}
+          applying={applying}
+        />
+      )}
 
       <BottomBar
         onBack={() => router.push(`/campaigns/${encodeURIComponent(id)}/recipients`)}
         onContinue={handleContinue}
-        continueDisabled={!subject.trim() || saving}
         continueLabel={saving ? 'Saving…' : 'Continue to Schedule'}
+        continueDisabled={!hasTemplate || !subject.trim() || saving}
+        rightHint={
+          !hasTemplate
+            ? 'Pick a template to continue.'
+            : !subject.trim()
+              ? 'Add a subject line to continue.'
+              : undefined
+        }
       />
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────
-// State A: template picker (when no htmlContent)
+// Left: settings panel (always visible)
 // ─────────────────────────────────────────────────────
 
-function TemplatePickerView({
-  campaignId,
-  campaignName,
-  onApplied,
+function SettingsPanel({
+  subject,
+  previewText,
+  account,
+  onSubjectChange,
+  onPreviewTextChange,
+  onSubjectBlur,
+  onPreviewTextBlur,
 }: {
-  campaignId: string;
-  campaignName: string;
-  onApplied: () => Promise<void>;
+  subject: string;
+  previewText: string;
+  account: AccountData | null;
+  onSubjectChange: (v: string) => void;
+  onPreviewTextChange: (v: string) => void;
+  onSubjectBlur: () => void;
+  onPreviewTextBlur: () => void;
 }) {
-  const router = useRouter();
+  return (
+    <div className="space-y-5 lg:sticky lg:top-20">
+      <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)] space-y-4">
+        <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+          Email message
+        </p>
+        <div>
+          <label className="block text-[11px] text-[var(--muted-foreground)] mb-1.5">
+            Subject line <span className="text-red-400">*</span>
+          </label>
+          <input
+            value={subject}
+            onChange={(e) => onSubjectChange(e.target.value)}
+            onBlur={onSubjectBlur}
+            placeholder="Your next service is due"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] text-[var(--muted-foreground)] mb-1.5">
+            Preview text
+          </label>
+          <input
+            value={previewText}
+            onChange={(e) => onPreviewTextChange(e.target.value)}
+            onBlur={onPreviewTextBlur}
+            placeholder="Lock in your appointment this week."
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] text-[var(--muted-foreground)] mb-1.5">
+            Sender name <span className="text-red-400">*</span>
+          </label>
+          <input
+            value={account?.senderName || account?.dealer || ''}
+            readOnly
+            disabled
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2.5 text-sm text-[var(--foreground)] cursor-not-allowed"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] text-[var(--muted-foreground)] mb-1.5">
+            Sender email <span className="text-red-400">*</span>
+          </label>
+          <input
+            value={account?.senderEmail || ''}
+            readOnly
+            disabled
+            placeholder="Configure in Sending settings"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2.5 text-sm text-[var(--foreground)] cursor-not-allowed placeholder:text-[var(--muted-foreground)]"
+          />
+          <p className="text-[10px] text-[var(--muted-foreground)] mt-1.5">
+            Configure in Subaccount Settings → Sending.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────
+// Right (no template loaded): template library
+// ─────────────────────────────────────────────────────
+
+function TemplateLibraryPanel({ onSelect }: { onSelect: (design: string) => void }) {
   const [templates, setTemplates] = useState<TemplateLibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('updated');
-  const [previewDesign, setPreviewDesign] = useState<string | null>(null);
-  const [applying, setApplying] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -381,168 +396,234 @@ function TemplatePickerView({
     });
   }, [templates, search, sort]);
 
-  async function applyTemplate(design: string) {
-    setApplying(true);
-    try {
-      const rawRes = await fetch(`/api/templates?design=${encodeURIComponent(design)}&format=raw`);
-      const rawData = await rawRes.json().catch(() => ({}));
-      if (!rawRes.ok || !rawData?.raw) {
-        throw new Error(rawData?.error || 'Failed to load template');
+  return (
+    <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">
+      <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--border)] flex-wrap">
+        <p className="text-base font-semibold">Templates</p>
+        <div className="flex items-center gap-2 flex-1 min-w-[260px] max-w-[460px]">
+          <div className="relative flex-1">
+            <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] pointer-events-none" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search templates…"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+            />
+          </div>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+          >
+            <option value="updated">Recently updated</option>
+            <option value="name">Name (A–Z)</option>
+          </select>
+        </div>
+      </div>
+      <div className="p-5">
+        {loading ? (
+          <p className="text-sm text-[var(--muted-foreground)] inline-flex items-center gap-2 py-8">
+            <ArrowPathIcon className="w-4 h-4 animate-spin" />
+            Loading templates…
+          </p>
+        ) : filteredTemplates.length === 0 ? (
+          <div className="text-center py-12">
+            <DocumentTextIcon className="w-10 h-10 text-[var(--muted-foreground)] mx-auto mb-3 opacity-50" />
+            <p className="text-sm font-medium">
+              {search ? 'No templates match that search.' : 'No templates in the library yet.'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filteredTemplates.map((t) => (
+              <TemplateCard key={t.id} template={t} onClick={() => onSelect(t.design)} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Individual template card with live iframe thumbnail.
+function TemplateCard({
+  template,
+  onClick,
+}: {
+  template: TemplateLibraryItem;
+  onClick: () => void;
+}) {
+  const [thumbHtml, setThumbHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rawRes = await fetch(
+          `/api/templates?design=${encodeURIComponent(template.design)}&format=raw`,
+        );
+        const rawData = await rawRes.json().catch(() => ({}));
+        if (!rawRes.ok || !rawData?.raw) return;
+        const previewRes = await fetch('/api/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ html: String(rawData.raw), previewValues: {} }),
+        });
+        const previewData = await previewRes.json().catch(() => ({}));
+        if (!previewRes.ok || !previewData?.html) return;
+        if (!cancelled) setThumbHtml(String(previewData.html));
+      } catch {
+        // Thumbnail is decorative — silent failure is fine.
       }
-      const raw = String(rawData.raw);
-      // Pull subject from frontmatter title if present
-      const titleMatch = raw.match(/^---\s*\n([\s\S]*?)\n---/);
-      let subject = '';
-      if (titleMatch) {
-        const line = titleMatch[1].match(/^title:\s*(.+)$/m);
-        if (line) subject = line[1].trim().replace(/^["']|["']$/g, '');
-      }
-      const patchRes = await fetch(`/api/campaigns/email/${encodeURIComponent(campaignId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject: subject || campaignName,
-          htmlContent: raw,
-          sourceType: 'template-library',
-        }),
-      });
-      if (!patchRes.ok) {
-        const data = await patchRes.json().catch(() => ({}));
-        throw new Error(data?.error || 'Failed to apply template');
-      }
-      await onApplied();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to apply template');
-      setApplying(false);
-    }
-  }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [template.design]);
 
   return (
-    <div className="pb-32">
-      <div className="max-w-6xl mx-auto py-8 px-6">
-        <div className="mb-6">
-          <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider mb-1">
-            Message
-          </p>
-          <h1 className="text-2xl font-bold">{campaignName}</h1>
-          <p className="text-sm text-[var(--muted-foreground)] mt-1.5">
-            Pick a starting point. You&apos;ll customize the content in the next step.
-          </p>
-        </div>
-
-        <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">
-          <div className="flex items-center gap-3 p-4 border-b border-[var(--border)] flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
-              <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] pointer-events-none" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search templates…"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-              />
-            </div>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-            >
-              <option value="updated">Recently updated</option>
-              <option value="name">Name (A–Z)</option>
-            </select>
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-left rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden hover:border-[var(--primary)]/60 transition-colors group flex flex-col"
+    >
+      {/* Thumbnail */}
+      <div className="aspect-[3/4] relative overflow-hidden bg-white border-b border-[var(--border)]">
+        {thumbHtml ? (
+          <iframe
+            title=""
+            aria-hidden
+            srcDoc={thumbHtml}
+            sandbox=""
+            className="absolute top-0 left-0 origin-top-left pointer-events-none"
+            style={{
+              width: '600px',
+              height: '800px',
+              transform: 'scale(0.45)',
+              transformOrigin: 'top left',
+            }}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <ArrowPathIcon className="w-5 h-5 text-[var(--muted-foreground)] animate-spin opacity-50" />
           </div>
-          <div className="p-5">
-            {loading ? (
-              <p className="text-sm text-[var(--muted-foreground)] inline-flex items-center gap-2 py-8">
-                <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                Loading templates…
-              </p>
-            ) : filteredTemplates.length === 0 ? (
-              <div className="text-center py-12">
-                <DocumentTextIcon className="w-10 h-10 text-[var(--muted-foreground)] mx-auto mb-3 opacity-50" />
-                <p className="text-sm font-medium">
-                  {search ? 'No templates match that search.' : 'No templates in the library yet.'}
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filteredTemplates.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setPreviewDesign(t.design)}
-                    className="text-left rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 hover:border-[var(--primary)]/60 hover:bg-[var(--primary)]/[0.03] transition-all group"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-[var(--muted)] text-[var(--muted-foreground)] flex items-center justify-center flex-shrink-0 group-hover:bg-[var(--primary)]/10 group-hover:text-[var(--primary)]">
-                        <DocumentTextIcon className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-[var(--foreground)] truncate">
-                          {t.name || t.design}
-                        </p>
-                        <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5 truncate">
-                          {t.category || t.design}
-                        </p>
-                        <div className="flex items-center gap-2 mt-2">
-                          {t.published && (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-300/90">
-                              <CheckCircleIcon className="w-3 h-3" />
-                              Published
-                            </span>
-                          )}
-                          {t.updatedAt && (
-                            <span className="text-[10px] text-[var(--muted-foreground)]">
-                              Updated {formatUpdated(t.updatedAt)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+        )}
+      </div>
+      {/* Meta */}
+      <div className="p-3 flex-1">
+        <p className="text-sm font-medium text-[var(--foreground)] truncate">
+          {template.name || template.design}
+        </p>
+        <div className="flex items-center gap-2 mt-1">
+          {template.published && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-300/90">
+              <CheckCircleIcon className="w-3 h-3" />
+              Published
+            </span>
+          )}
+          {template.updatedAt && (
+            <span className="text-[10px] text-[var(--muted-foreground)]">
+              Updated {formatUpdated(template.updatedAt)}
+            </span>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────
+// Right (template loaded): preview + Edit + ... menu
+// ─────────────────────────────────────────────────────
+
+function SelectedTemplatePanel({
+  htmlContent,
+  onEdit,
+  onChangeTemplate,
+}: {
+  htmlContent: string;
+  onEdit: () => void;
+  onChangeTemplate: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [menuOpen]);
+
+  return (
+    <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden flex flex-col">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
+        <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+          Preview
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex items-center gap-1.5 px-3 h-8 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/60"
+          >
+            <PencilSquareIcon className="w-3.5 h-3.5" />
+            Edit
+          </button>
+          <div ref={menuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--muted-foreground)]"
+              aria-label="Template options"
+            >
+              <EllipsisVerticalIcon className="w-4 h-4" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-20 min-w-[180px] glass-dropdown p-1 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onChangeTemplate();
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)] inline-flex items-center gap-2"
+                >
+                  <ArrowsRightLeftIcon className="w-3.5 h-3.5" />
+                  Change template
+                </button>
               </div>
             )}
           </div>
         </div>
       </div>
-
-      {previewDesign && (
-        <TemplatePreviewModal
-          design={previewDesign}
-          name={templates.find((t) => t.design === previewDesign)?.name || previewDesign}
-          onClose={() => !applying && setPreviewDesign(null)}
-          onUse={() => applyTemplate(previewDesign)}
-          applying={applying}
+      <div className="bg-[var(--muted)]/30 p-4 flex-1 min-h-[600px]">
+        <iframe
+          title="Campaign preview"
+          srcDoc={htmlContent}
+          sandbox=""
+          className="w-full h-full min-h-[580px] bg-white rounded-lg border border-[var(--border)]"
         />
-      )}
-
-      <BottomBar
-        onBack={() =>
-          router.push(`/campaigns/${encodeURIComponent(campaignId)}/recipients`)
-        }
-        rightSlot={
-          <p className="text-xs text-[var(--muted-foreground)]">
-            Click a template to preview, then use it.
-          </p>
-        }
-      />
+      </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────
-// Preview modal (shown over the picker)
+// Template preview modal (used by library)
 // ─────────────────────────────────────────────────────
 
 function TemplatePreviewModal({
   design,
-  name,
   onClose,
   onUse,
   applying,
 }: {
   design: string;
-  name: string;
   onClose: () => void;
   onUse: () => void;
   applying: boolean;
@@ -550,6 +631,7 @@ function TemplatePreviewModal({
   const [html, setHtml] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState(design);
 
   useEffect(() => {
     let cancelled = false;
@@ -562,10 +644,16 @@ function TemplatePreviewModal({
         if (!rawRes.ok || !rawData?.raw) {
           throw new Error(rawData?.error || 'Failed to load template');
         }
+        const raw = String(rawData.raw);
+        const titleMatch = raw.match(/^---\s*\n([\s\S]*?)\n---/);
+        if (titleMatch) {
+          const line = titleMatch[1].match(/^title:\s*(.+)$/m);
+          if (line) setName(line[1].trim().replace(/^["']|["']$/g, ''));
+        }
         const previewRes = await fetch('/api/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ html: String(rawData.raw), previewValues: {} }),
+          body: JSON.stringify({ html: raw, previewValues: {} }),
         });
         const previewData = await previewRes.json().catch(() => ({}));
         if (!previewRes.ok || !previewData?.html) {
@@ -650,15 +738,15 @@ function TemplatePreviewModal({
 function BottomBar({
   onBack,
   onContinue,
-  continueLabel = 'Continue',
+  continueLabel,
   continueDisabled,
-  rightSlot,
+  rightHint,
 }: {
   onBack: () => void;
-  onContinue?: () => void;
-  continueLabel?: string;
+  onContinue: () => void;
+  continueLabel: string;
   continueDisabled?: boolean;
-  rightSlot?: React.ReactNode;
+  rightHint?: string;
 }) {
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-[var(--card)]/80 backdrop-blur-md border-t border-[var(--border)] z-40">
@@ -671,13 +759,14 @@ function BottomBar({
           <ArrowLeftIcon className="w-4 h-4" />
           Back
         </button>
-        {onContinue ? (
+        <div className="flex items-center gap-4">
+          {rightHint && (
+            <p className="text-xs text-[var(--muted-foreground)]">{rightHint}</p>
+          )}
           <PrimaryButton onClick={onContinue} disabled={continueDisabled}>
             {continueLabel}
           </PrimaryButton>
-        ) : (
-          rightSlot
-        )}
+        </div>
       </div>
     </div>
   );
