@@ -136,9 +136,8 @@ function normalizeCampaignStatus(status: string): string {
 // ── Inner Page ──
 
 function AdminCampaignsPage() {
-  const { data: aggData, error: aggError, isLoading: aggLoading } = useCampaignsAggregate();
+  const { data: aggData, isLoading: aggLoading } = useCampaignsAggregate();
   const { data: wfData, isLoading: wfLoading } = useWorkflowsAggregate();
-  const [localError] = useState<string | null>(null);
   const pathname = usePathname();
   // The sidebar drives view selection: /campaigns → list, /campaigns/analytics → analytics.
   // The in-page tab toggle is gone; navigation happens at the sidebar level.
@@ -169,27 +168,6 @@ function AdminCampaignsPage() {
     const espCampaigns = (aggData?.campaigns ?? []) as Campaign[];
     return [...loomiCampaigns, ...espCampaigns];
   }, [aggData, loomiCampaigns]);
-  const campaignError = useMemo(() => {
-    if (localError) return localError;
-    if (aggError) {
-      return withCampaignErrorHint(aggError instanceof Error ? aggError.message : 'Failed to fetch campaign data.');
-    }
-    if (aggData?.errors && Object.keys(aggData.errors).length > 0) {
-      const errorCount = Object.keys(aggData.errors).length;
-      const totalAccounts = Object.keys(aggData.perAccount || {}).length;
-      const firstError = Object.values(aggData.errors)[0];
-      const prefix = totalAccounts > errorCount
-        ? `${errorCount} of ${totalAccounts} account${errorCount > 1 ? 's' : ''} had campaign API errors.`
-        : 'All accounts returned campaign API errors.';
-      return withCampaignErrorHint(`${prefix} ${firstError}`);
-    }
-    const skippedCreds = (aggData?.meta as Record<string, unknown>)?.skippedNoCredentials;
-    if (typeof skippedCreds === 'number' && skippedCreds > 0) {
-      return `${skippedCreds} sub-account${skippedCreds === 1 ? '' : 's'} skipped — no ESP credentials found. Check that each sub-account has a linked location in its Integration settings.`;
-    }
-    return null;
-  }, [localError, aggError, aggData]);
-
   const accountNames = useMemo(() => {
     const names: Record<string, string> = {};
     if (aggData?.perAccount) {
@@ -560,15 +538,9 @@ function AdminCampaignsPage() {
       <div className={sideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
         {/* Main content column */}
         <div className="min-w-0">
-          {campaignError && (
-            <div className={`px-4 py-3 mb-4 rounded-xl border text-sm ${
-              campaigns.length > 0
-                ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
-                : 'border-red-500/20 bg-red-500/10 text-red-300'
-            }`}>
-              {campaignError}
-            </div>
-          )}
+          {/* ESP error banner removed — Loomi is the engine; missing ESP
+              credentials are expected for many sub-accounts and shouldn't
+              dominate the page. */}
 
           {activeTab === 'analytics' && (
             <CampaignPageAnalytics
