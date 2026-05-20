@@ -531,32 +531,66 @@ export default function ScheduleCampaignPage() {
         // Non-critical — adapter will create a fresh template from HTML
       }
 
-      // Step 3: Schedule the campaign
+      // Step 3: Schedule the campaign.
+      // Klaviyo accounts retain their native scheduling path (Klaviyo's
+      // API actually works). Everyone else (notably GHL, whose public
+      // campaign API is read-only) goes through Loomi's own pipeline:
+      // EmailCampaign rows are persisted in Postgres and the pg-boss
+      // worker fires them at scheduledFor.
       setScheduleStep('Creating campaign and audience list...');
-      const payload: Record<string, unknown> = {
-        accountKey: selectedAccountKey,
-        name: campaignName.trim() || subject.trim(),
-        subject: subject.trim(),
-        previewText: previewText.trim(),
-        html,
-        sendAt: parsedSendAt.toISOString(),
-        contactIds: recipientIds,
-      };
-      if (templateId) {
-        payload.templateId = templateId;
+      const useLoomiPipeline = selectedAccountProvider !== 'klaviyo';
+
+      let scheduledId = '';
+      if (useLoomiPipeline) {
+        const loomiPayload = {
+          name: campaignName.trim() || subject.trim(),
+          subject: subject.trim(),
+          previewText: previewText.trim(),
+          htmlContent: html,
+          sourceType: 'drag-drop',
+          scheduledFor: parsedSendAt.toISOString(),
+          recipients: recipientContacts.map((contact) => ({
+            contactId: String(contact.id).trim(),
+            accountKey: selectedAccountKey,
+            email: String(contact.email || '').trim(),
+            fullName: String(contact.fullName || '').trim(),
+          })),
+        };
+        const res = await fetch('/api/campaigns/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loomiPayload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || 'Failed to schedule this campaign.');
+        }
+        scheduledId = data?.campaign?.id || '';
+      } else {
+        const espPayload: Record<string, unknown> = {
+          accountKey: selectedAccountKey,
+          name: campaignName.trim() || subject.trim(),
+          subject: subject.trim(),
+          previewText: previewText.trim(),
+          html,
+          sendAt: parsedSendAt.toISOString(),
+          contactIds: recipientIds,
+        };
+        if (templateId) {
+          espPayload.templateId = templateId;
+        }
+        const res = await fetch('/api/esp/campaigns/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(espPayload),
+        });
+        const data: ScheduleResponse = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'Failed to schedule this campaign.');
+        }
+        scheduledId = data.scheduled?.scheduleId || data.scheduled?.id || '';
       }
 
-      const res = await fetch('/api/esp/campaigns/schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data: ScheduleResponse = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || 'Failed to schedule this campaign.');
-      }
-
-      const scheduledId = data.scheduled?.scheduleId || data.scheduled?.id || '';
       setScheduleStep('');
       setSuccess(
         `Campaign scheduled for ${recipientIds.length.toLocaleString()} recipients on ${formatDateTime(parsedSendAt.toISOString())}${

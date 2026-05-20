@@ -491,8 +491,10 @@ function AdminCampaignsPage() {
   function openCreateCampaignInProvider(target: keyof CampaignCreateLinks) {
     setShowCreateMenu(false);
 
-    // For Klaviyo email campaigns, route to the in-app schedule page
-    if (target === 'email' && campaignBuilderProvider === 'klaviyo') {
+    // Email blasts always go through Loomi's in-app builder. The schedule
+    // page itself decides whether to POST to the local Loomi pipeline or
+    // delegate to an ESP adapter based on the selected account's provider.
+    if (target === 'email') {
       router.push('/campaigns/schedule');
       return;
     }
@@ -508,14 +510,14 @@ function AdminCampaignsPage() {
   const campaignEmptyState = selectedAccountLabel
     ? {
         title: `No campaigns found for ${selectedAccountLabel}`,
-        subtitle: `Create a campaign in ${providerDisplayName(selectedAccountProvider)} to get started for this account.`,
-        actionLabel: createCampaignLinks.email ? `Create in ${providerDisplayName(selectedAccountProvider)}` : undefined,
-        actionHref: createCampaignLinks.email || undefined,
+        subtitle: 'Build and schedule a campaign in Loomi to get started for this account.',
+        actionLabel: 'Create Campaign',
+        actionHref: '/campaigns/schedule',
       }
     : filters.account.length > 1
       ? {
           title: 'No campaigns found for selected sub-accounts',
-          subtitle: 'Create campaigns in each sub-account\'s connected platform to get started.',
+          subtitle: 'Build and schedule campaigns in Loomi to get started.',
         }
     : null;
 
@@ -618,17 +620,14 @@ function AdminCampaignsPage() {
                   <button
                     type="button"
                     onClick={() => openCreateCampaignInProvider('email')}
-                    disabled={!createCampaignLinks.email && campaignBuilderProvider !== 'klaviyo'}
-                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
                     <span className="inline-flex items-center gap-2 font-medium">
                       <EnvelopeIcon className="w-3.5 h-3.5" />
                       Email Blast
                     </span>
                     <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      {campaignBuilderProvider === 'klaviyo'
-                        ? 'Build and schedule in Loomi.'
-                        : 'Send a one-time bulk email campaign.'}
+                      Build and schedule in Loomi.
                     </span>
                   </button>
                   <button
@@ -890,8 +889,10 @@ function AccountCampaignsPage() {
   function openAccountCreateCampaignInProvider(target: keyof CampaignCreateLinks) {
     setShowCreateMenu(false);
 
-    // For Klaviyo email campaigns, route to the in-app schedule page
-    if (target === 'email' && accountProvider === 'klaviyo') {
+    // Email blasts always go through Loomi's in-app builder. The schedule
+    // page itself decides whether to POST to the local Loomi pipeline or
+    // delegate to an ESP adapter based on the selected account's provider.
+    if (target === 'email') {
       accountRouter.push('/campaigns/schedule');
       return;
     }
@@ -975,17 +976,14 @@ function AccountCampaignsPage() {
                   <button
                     type="button"
                     onClick={() => openAccountCreateCampaignInProvider('email')}
-                    disabled={!accountCampaignLinks.email && accountProvider !== 'klaviyo'}
-                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
                     <span className="inline-flex items-center gap-2 font-medium">
                       <EnvelopeIcon className="w-3.5 h-3.5" />
                       Email Blast
                     </span>
                     <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      {accountProvider === 'klaviyo'
-                        ? 'Build and schedule in Loomi.'
-                        : 'Send a one-time bulk email campaign.'}
+                      Build and schedule in Loomi.
                     </span>
                   </button>
                   <button
