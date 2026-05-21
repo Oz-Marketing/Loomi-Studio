@@ -536,9 +536,59 @@ model EmailCampaignRecipient {
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 
+  events EmailEvent[]
+
   @@unique([campaignId, contactId, accountKey])
   @@index([campaignId, status])
   @@index([accountKey, status])
+}
+
+// One row per SendGrid Event Webhook entry. We retain the raw payload
+// so we can rebuild parsed columns if the schema evolves. recipientId
+// is nullable to accommodate events for SendGrid traffic that wasn't
+// produced by a Loomi campaign (e.g. transactional sends by the client
+// through the same API key) — they're still logged for audit.
+model EmailEvent {
+  id          String   @id @default(cuid())
+  campaignId  String?
+  recipientId String?
+  recipient   EmailCampaignRecipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  accountKey  String?
+  eventType   String // delivered | open | click | bounce | dropped | spamreport | unsubscribe | deferred | processed
+  sgEventId   String   @unique // SendGrid's sg_event_id; the idempotency key
+  sgMessageId String?
+  email       String?
+  timestamp   DateTime
+  url         String? // populated for click events
+  reason      String? // populated for bounce / dropped
+  userAgent   String?
+  ip          String?
+  raw         String // full event payload as JSON for forensics
+  createdAt   DateTime @default(now())
+
+  @@index([campaignId, eventType])
+  @@index([recipientId])
+  @@index([accountKey, eventType])
+  @@index([sgMessageId])
+  @@index([timestamp])
+}
+
+// Persistent per-account suppression list. The recipient resolver pulls
+// these emails out of every campaign batch before send. Bounce + spam
+// reports auto-populate from the webhook; unsubscribe + manual entries
+// flow through other surfaces.
+model EmailSuppression {
+  id         String   @id @default(cuid())
+  accountKey String
+  email      String
+  reason     String // bounce | spamreport | unsubscribe | manual
+  source     String   @default("sendgrid") // sendgrid | manual
+  raw        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([accountKey, email])
+  @@index([email])
 }
 
 // ─────────────────────────────────────────────────────

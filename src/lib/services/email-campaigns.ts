@@ -548,6 +548,13 @@ export async function updateEmailCampaignDraft(
  * 'queued' (send immediately). Creates EmailCampaignRecipient rows in the
  * same transaction so the pg-boss worker has everything it needs once
  * scheduledFor passes.
+ *
+ * Suppression filtering happens here too: recipients whose (accountKey,
+ * email) tuple is on EmailSuppression land in the recipient table with
+ * status='skipped' rather than 'pending'. They're preserved for audit
+ * but the worker won't try to send to them. Hard bounces and spam
+ * reports from the SendGrid Event webhook are the main producers of
+ * suppression rows.
  */
 export async function scheduleEmailCampaignDraft(
   campaignId: string,
@@ -565,6 +572,34 @@ export async function scheduleEmailCampaignDraft(
     throw new Error('No recipients with valid email addresses were provided');
   }
 
+  // Pull the suppression list for every (account, email) tuple that
+  // could appear in this batch in one query. Email comparisons are
+  // case-insensitive — we lower-case in the lookup map.
+  const accountKeysInBatch = [
+    ...new Set(sendableRecipients.map((r) => r.accountKey).filter(Boolean)),
+  ];
+  const emailsInBatch = [
+    ...new Set(
+      sendableRecipients
+        .map((r) => (r.email || '').toLowerCase().trim())
+        .filter(Boolean),
+    ),
+  ];
+  const suppressed = accountKeysInBatch.length > 0 && emailsInBatch.length > 0
+    ? await prisma.emailSuppression.findMany({
+        where: {
+          accountKey: { in: accountKeysInBatch },
+          email: { in: emailsInBatch },
+        },
+        select: { accountKey: true, email: true, reason: true },
+      })
+    : [];
+  const suppressionKey = (accountKey: string, email: string) =>
+    `${accountKey}|${email.toLowerCase().trim()}`;
+  const suppressedByKey = new Map(
+    suppressed.map((s) => [suppressionKey(s.accountKey, s.email), s.reason]),
+  );
+
   const now = Date.now();
   const isImmediate = !input.scheduledFor || input.scheduledFor.getTime() <= now;
   const status: EmailCampaignStatus = isImmediate ? 'queued' : 'scheduled';
@@ -575,15 +610,42 @@ export async function scheduleEmailCampaignDraft(
     await tx.emailCampaignRecipient.deleteMany({ where: { campaignId } });
 
     await tx.emailCampaignRecipient.createMany({
-      data: recipients.map((recipient) => ({
-        campaignId,
-        contactId: recipient.contactId,
-        accountKey: recipient.accountKey,
-        email: recipient.email || null,
-        fullName: recipient.fullName || null,
-        status: recipient.email ? 'pending' : 'failed',
-        error: recipient.email ? null : INVALID_EMAIL_ERROR,
-      })),
+      data: recipients.map((recipient) => {
+        if (!recipient.email) {
+          return {
+            campaignId,
+            contactId: recipient.contactId,
+            accountKey: recipient.accountKey,
+            email: null,
+            fullName: recipient.fullName || null,
+            status: 'failed',
+            error: INVALID_EMAIL_ERROR,
+          };
+        }
+        const suppressionReason = suppressedByKey.get(
+          suppressionKey(recipient.accountKey, recipient.email),
+        );
+        if (suppressionReason) {
+          return {
+            campaignId,
+            contactId: recipient.contactId,
+            accountKey: recipient.accountKey,
+            email: recipient.email,
+            fullName: recipient.fullName || null,
+            status: 'skipped',
+            error: `Suppressed (${suppressionReason})`,
+          };
+        }
+        return {
+          campaignId,
+          contactId: recipient.contactId,
+          accountKey: recipient.accountKey,
+          email: recipient.email,
+          fullName: recipient.fullName || null,
+          status: 'pending',
+          error: null,
+        };
+      }),
     });
 
     const accountKeys = [...new Set(recipients.map((r) => r.accountKey).filter(Boolean))];
