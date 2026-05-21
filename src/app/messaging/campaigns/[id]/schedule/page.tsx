@@ -10,6 +10,7 @@ import {
   ClockIcon,
   EnvelopeIcon,
   PaperAirplaneIcon,
+  PencilSquareIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
@@ -85,6 +86,33 @@ export default function ScheduleStepPage({ params }: PageProps) {
     toLocalDateTimeInputValue(new Date(Date.now() + 30 * 60_000)),
   );
   const [submitting, setSubmitting] = useState(false);
+
+  // Inline-edit state for subject + preview text. These persist back to
+  // the draft via PATCH on blur so users can tweak copy without bouncing
+  // back to the editor.
+  const [subjectDraft, setSubjectDraft] = useState('');
+  const [previewTextDraft, setPreviewTextDraft] = useState('');
+
+  useEffect(() => {
+    setSubjectDraft(draft?.subject || '');
+    setPreviewTextDraft(draft?.previewText || '');
+  }, [draft?.subject, draft?.previewText]);
+
+  async function persistField(patch: { subject?: string; previewText?: string }) {
+    if (!draft) return;
+    try {
+      const res = await fetch(`/api/campaigns/email/${encodeURIComponent(draft.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to save');
+      if (data?.campaign) setDraft(data.campaign as DraftCampaign);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save');
+    }
+  }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -231,79 +259,16 @@ export default function ScheduleStepPage({ params }: PageProps) {
           </p>
         </div>
 
-        {/* Two-column: scheduling details on the left, sticky preview on
-            the right so the user can keep eyes on the final email while
-            picking a send time. */}
+        {/* Two-column layout:
+            - Left:  When-to-send (top), Summary (bottom, inline-editable
+              subject + preview text, plus a Change audience shortcut).
+            - Right (sticky): Pre-flight checklist (top), Email preview
+              (bottom) — so the user can sanity-check while scheduling. */}
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(440px,540px)] gap-6 items-start">
-          {/* Left: summary + scheduling + checklist */}
           <div className="space-y-5 min-w-0">
-            <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
-              <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4">
-                Summary
-              </p>
-
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center flex-shrink-0">
-                    <UsersIcon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                      Recipients
-                    </p>
-                    <p className="text-2xl font-bold tabular-nums mt-0.5">
-                      {contactsLoading ? (
-                        <ArrowPathIcon className="w-5 h-5 inline animate-spin text-[var(--muted-foreground)]" />
-                      ) : (
-                        recipients.length.toLocaleString()
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 pt-3 border-t border-[var(--border)]">
-                  <div className="w-9 h-9 rounded-lg bg-[var(--muted)] text-[var(--muted-foreground)] flex items-center justify-center flex-shrink-0">
-                    <EnvelopeIcon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                      Subject
-                    </p>
-                    <p className="text-sm font-medium mt-0.5 truncate">
-                      {draft?.subject || (
-                        <span className="text-[var(--muted-foreground)] italic">Not set</span>
-                      )}
-                    </p>
-                    {draft?.previewText && (
-                      <p className="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">
-                        {draft.previewText}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-[var(--border)]">
-                  <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-1.5">
-                    From
-                  </p>
-                  <p className="text-sm font-medium">
-                    {fromName || <span className="text-[var(--muted-foreground)] italic">Not set</span>}
-                  </p>
-                  <p className="text-xs text-[var(--muted-foreground)]">
-                    {fromEmail || (
-                      <span className="italic">Configure in Sending settings</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: schedule controls */}
-          <div className="space-y-5">
+            {/* When should this send? */}
             <div className="glass-section-card rounded-2xl p-6 border border-[var(--border)]">
               <h3 className="text-base font-semibold mb-4">When should this send?</h3>
-
               <div className="space-y-3">
                 <SendModeOption
                   active={sendMode === 'now'}
@@ -343,6 +308,96 @@ export default function ScheduleStepPage({ params }: PageProps) {
               )}
             </div>
 
+            {/* Summary — recipients (with link back to Recipients step)
+                + inline-editable subject + preview text + from. */}
+            <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
+              <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4">
+                Summary
+              </p>
+
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center flex-shrink-0">
+                    <UsersIcon className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                        Recipients
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/messaging/campaigns/${encodeURIComponent(id)}/recipients`)}
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--primary)] hover:underline"
+                      >
+                        <PencilSquareIcon className="w-3 h-3" />
+                        Change
+                      </button>
+                    </div>
+                    <p className="text-2xl font-bold tabular-nums mt-0.5">
+                      {contactsLoading ? (
+                        <ArrowPathIcon className="w-5 h-5 inline animate-spin text-[var(--muted-foreground)]" />
+                      ) : (
+                        recipients.length.toLocaleString()
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-[var(--border)] space-y-2">
+                  <label className="block text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                    Subject
+                  </label>
+                  <input
+                    type="text"
+                    value={subjectDraft}
+                    onChange={(e) => setSubjectDraft(e.target.value)}
+                    onBlur={() => {
+                      const trimmed = subjectDraft.trim();
+                      if (trimmed !== (draft?.subject || '')) {
+                        void persistField({ subject: trimmed });
+                      }
+                    }}
+                    placeholder="Subject line"
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                  />
+                  <label className="block text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] pt-1">
+                    Preview text
+                  </label>
+                  <input
+                    type="text"
+                    value={previewTextDraft}
+                    onChange={(e) => setPreviewTextDraft(e.target.value)}
+                    onBlur={() => {
+                      const trimmed = previewTextDraft.trim();
+                      if (trimmed !== (draft?.previewText || '')) {
+                        void persistField({ previewText: trimmed });
+                      }
+                    }}
+                    placeholder="Optional inbox preview snippet"
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                  />
+                </div>
+
+                <div className="pt-3 border-t border-[var(--border)]">
+                  <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-1.5">
+                    From
+                  </p>
+                  <p className="text-sm font-medium">
+                    {fromName || <span className="text-[var(--muted-foreground)] italic">Not set</span>}
+                  </p>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    {fromEmail || (
+                      <span className="italic">Configure in Sending settings</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right (sticky): pre-flight checklist on top, preview below. */}
+          <div className="lg:sticky lg:top-20 space-y-5">
             <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
               <h3 className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">
                 Pre-flight checklist
@@ -366,11 +421,7 @@ export default function ScheduleStepPage({ params }: PageProps) {
                 />
               </ul>
             </div>
-          </div>
 
-          {/* Sticky preview column — keeps the final email visible
-              while the user picks a send time. */}
-          <div className="lg:sticky lg:top-20">
             <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--border)] flex items-center gap-2">
                 <EnvelopeIcon className="w-4 h-4 text-[var(--muted-foreground)]" />
@@ -397,7 +448,7 @@ export default function ScheduleStepPage({ params }: PageProps) {
                       srcDoc={draft.htmlContent}
                       sandbox=""
                       className="w-full bg-white border-0"
-                      style={{ height: 560 }}
+                      style={{ height: 480 }}
                     />
                   </div>
                 ) : (

@@ -308,10 +308,53 @@ export default function MultiScheduleStepPage({ params }: PageProps) {
           </p>
         </div>
 
-        {/* Two-column: scheduling details on the left, sticky tabbed
-            preview on the right. */}
+        {/* Two-column layout:
+            - Left:  When-to-send (top), Summary (bottom).
+            - Right (sticky): Pre-flight checklist (top), tabbed
+              Email / SMS preview (bottom). */}
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(440px,540px)] gap-6 items-start">
           <div className="space-y-5 min-w-0">
+            <div className="glass-section-card rounded-2xl p-6 border border-[var(--border)]">
+              <h3 className="text-base font-semibold mb-4">When should this send?</h3>
+              <div className="space-y-3">
+                <SendModeOption
+                  active={sendMode === 'now'}
+                  onClick={() => setSendMode('now')}
+                  icon={PaperAirplaneIcon}
+                  title="Send now"
+                  description="Queue both channels immediately. Sending starts within ~1 minute."
+                />
+                <SendModeOption
+                  active={sendMode === 'later'}
+                  onClick={() => setSendMode('later')}
+                  icon={ClockIcon}
+                  title="Schedule for later"
+                  description="Pick a specific date and time. Both channels fire together."
+                />
+              </div>
+
+              {sendMode === 'later' && (
+                <div className="mt-5 pt-5 border-t border-[var(--border)]">
+                  <label className="block text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-1.5">
+                    Send Date &amp; Time
+                  </label>
+                  <div className="relative">
+                    <CalendarDaysIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] pointer-events-none" />
+                    <input
+                      type="datetime-local"
+                      value={sendAtLocal}
+                      min={toLocalDateTimeInputValue(new Date())}
+                      onChange={(e) => setSendAtLocal(e.target.value)}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                    />
+                  </div>
+                  <p className="text-[11px] text-[var(--muted-foreground)] mt-2">
+                    Will send {sendAtLocal ? formatDateTime(new Date(sendAtLocal).toISOString()) : '—'}
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
               <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4">
                 Summary
@@ -375,48 +418,8 @@ export default function MultiScheduleStepPage({ params }: PageProps) {
             </div>
           </div>
 
-          <div className="space-y-5">
-            <div className="glass-section-card rounded-2xl p-6 border border-[var(--border)]">
-              <h3 className="text-base font-semibold mb-4">When should this send?</h3>
-              <div className="space-y-3">
-                <SendModeOption
-                  active={sendMode === 'now'}
-                  onClick={() => setSendMode('now')}
-                  icon={PaperAirplaneIcon}
-                  title="Send now"
-                  description="Queue both channels immediately. Sending starts within ~1 minute."
-                />
-                <SendModeOption
-                  active={sendMode === 'later'}
-                  onClick={() => setSendMode('later')}
-                  icon={ClockIcon}
-                  title="Schedule for later"
-                  description="Pick a specific date and time. Both channels fire together."
-                />
-              </div>
-
-              {sendMode === 'later' && (
-                <div className="mt-5 pt-5 border-t border-[var(--border)]">
-                  <label className="block text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-1.5">
-                    Send Date &amp; Time
-                  </label>
-                  <div className="relative">
-                    <CalendarDaysIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] pointer-events-none" />
-                    <input
-                      type="datetime-local"
-                      value={sendAtLocal}
-                      min={toLocalDateTimeInputValue(new Date())}
-                      onChange={(e) => setSendAtLocal(e.target.value)}
-                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                    />
-                  </div>
-                  <p className="text-[11px] text-[var(--muted-foreground)] mt-2">
-                    Will send {sendAtLocal ? formatDateTime(new Date(sendAtLocal).toISOString()) : '—'}
-                  </p>
-                </div>
-              )}
-            </div>
-
+          {/* Right (sticky): pre-flight checklist (top), tabbed preview (bottom). */}
+          <div className="lg:sticky lg:top-20 space-y-5">
             <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
               <h3 className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">
                 Pre-flight checklist
@@ -447,12 +450,7 @@ export default function MultiScheduleStepPage({ params }: PageProps) {
                 </p>
               )}
             </div>
-          </div>
 
-          {/* Sticky preview column with tabbed Email / SMS — pinned next
-              to the scheduling details so the user can switch channels
-              and sanity-check both before committing. */}
-          <div className="lg:sticky lg:top-20">
             <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">
               <div className="border-b border-[var(--border)] flex items-center gap-1 px-4">
                 <button

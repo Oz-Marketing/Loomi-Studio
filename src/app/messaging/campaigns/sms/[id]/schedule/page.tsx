@@ -10,6 +10,7 @@ import {
   CheckCircleIcon,
   ClockIcon,
   PaperAirplaneIcon,
+  PencilSquareIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
@@ -90,11 +91,34 @@ export default function SmsScheduleStepPage({ params }: PageProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
 
+  const [messageDraft, setMessageDraft] = useState('');
+
   const [sendMode, setSendMode] = useState<SendMode>('later');
   const [sendAtLocal, setSendAtLocal] = useState(
     toLocalDateTimeInputValue(new Date(Date.now() + 30 * 60_000)),
   );
   const [submitting, setSubmitting] = useState(false);
+
+  // Keep the inline-editable message text in sync with the loaded draft.
+  useEffect(() => {
+    setMessageDraft(draft?.message || '');
+  }, [draft?.message]);
+
+  async function persistMessage(next: string) {
+    if (!draft) return;
+    try {
+      const res = await fetch(`/api/campaigns/sms/${encodeURIComponent(draft.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to save');
+      if (data?.campaign) setDraft(data.campaign as DraftCampaign);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save');
+    }
+  }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -235,69 +259,13 @@ export default function SmsScheduleStepPage({ params }: PageProps) {
           </p>
         </div>
 
-        {/* Two-column: scheduling details on the left, sticky preview on
-            the right so the user can keep eyes on the final message
-            while picking a send time. */}
+        {/* Two-column layout:
+            - Left: When-to-send (top), Summary with inline-editable
+              message + Change audience shortcut (bottom).
+            - Right (sticky): Pre-flight checklist (top), iPhone-style
+              preview (bottom). */}
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6 items-start">
           <div className="space-y-5 min-w-0">
-            <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
-              <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4">
-                Summary
-              </p>
-
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center flex-shrink-0">
-                    <UsersIcon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                      Recipients
-                    </p>
-                    <p className="text-2xl font-bold tabular-nums mt-0.5">
-                      {contactsLoading ? (
-                        <ArrowPathIcon className="w-5 h-5 inline animate-spin text-[var(--muted-foreground)]" />
-                      ) : (
-                        recipients.length.toLocaleString()
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 pt-3 border-t border-[var(--border)]">
-                  <div className="w-9 h-9 rounded-lg bg-[var(--muted)] text-[var(--muted-foreground)] flex items-center justify-center flex-shrink-0">
-                    <ChatBubbleLeftRightIcon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                      Message
-                    </p>
-                    <p className="text-sm mt-0.5 line-clamp-3 whitespace-pre-wrap">
-                      {draft?.message || (
-                        <span className="text-[var(--muted-foreground)] italic">Not set</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-[var(--border)]">
-                  <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-1.5">
-                    From
-                  </p>
-                  <p className="text-sm font-medium">
-                    {account?.dealer || (
-                      <span className="text-[var(--muted-foreground)] italic">Not set</span>
-                    )}
-                  </p>
-                  <p className="text-xs text-[var(--muted-foreground)]">
-                    Routes through this subaccount&apos;s GHL connection.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-5">
             <div className="glass-section-card rounded-2xl p-6 border border-[var(--border)]">
               <h3 className="text-base font-semibold mb-4">When should this send?</h3>
               <div className="space-y-3">
@@ -340,6 +308,82 @@ export default function SmsScheduleStepPage({ params }: PageProps) {
             </div>
 
             <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
+              <p className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4">
+                Summary
+              </p>
+
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center flex-shrink-0">
+                    <UsersIcon className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                        Recipients
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/messaging/campaigns/sms/${encodeURIComponent(id)}/recipients`)}
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--primary)] hover:underline"
+                      >
+                        <PencilSquareIcon className="w-3 h-3" />
+                        Change
+                      </button>
+                    </div>
+                    <p className="text-2xl font-bold tabular-nums mt-0.5">
+                      {contactsLoading ? (
+                        <ArrowPathIcon className="w-5 h-5 inline animate-spin text-[var(--muted-foreground)]" />
+                      ) : (
+                        recipients.length.toLocaleString()
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-[var(--border)] space-y-2">
+                  <label className="block text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                    Message
+                  </label>
+                  <textarea
+                    value={messageDraft}
+                    onChange={(e) => setMessageDraft(e.target.value)}
+                    onBlur={() => {
+                      const next = messageDraft;
+                      if (next !== (draft?.message || '')) {
+                        void persistMessage(next);
+                      }
+                    }}
+                    rows={4}
+                    placeholder="Message text"
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 resize-y"
+                  />
+                  <p className="text-[11px] text-[var(--muted-foreground)]">
+                    {messageDraft.length} character{messageDraft.length === 1 ? '' : 's'}
+                  </p>
+                </div>
+
+                <div className="pt-3 border-t border-[var(--border)]">
+                  <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-1.5">
+                    From
+                  </p>
+                  <p className="text-sm font-medium">
+                    {account?.dealer || (
+                      <span className="text-[var(--muted-foreground)] italic">Not set</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    Routes through this subaccount&apos;s GHL connection.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right (sticky): pre-flight checklist on top, iPhone preview
+              below. */}
+          <div className="lg:sticky lg:top-20 space-y-5">
+            <div className="glass-section-card rounded-2xl p-5 border border-[var(--border)]">
               <h3 className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">
                 Pre-flight checklist
               </h3>
@@ -355,12 +399,7 @@ export default function SmsScheduleStepPage({ params }: PageProps) {
                 />
               </ul>
             </div>
-          </div>
 
-          {/* Sticky preview column — pinned next to the scheduling
-              controls so users can sanity-check the message while
-              choosing a send time. */}
-          <div className="lg:sticky lg:top-20">
             <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--border)] flex items-center gap-2">
                 <ChatBubbleLeftRightIcon className="w-4 h-4 text-[var(--muted-foreground)]" />
@@ -371,7 +410,7 @@ export default function SmsScheduleStepPage({ params }: PageProps) {
               <div className="bg-[var(--muted)]/30 p-4 py-6 flex justify-center">
                 <IphoneSmsPreview
                   dealerName={account?.dealer || 'Your dealership'}
-                  message={draft?.message || ''}
+                  message={messageDraft}
                   mediaUrls={smsMediaUrls}
                   isMms={smsMediaUrls.length > 0}
                 />
