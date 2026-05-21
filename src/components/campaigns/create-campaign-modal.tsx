@@ -77,7 +77,7 @@ export function CreateCampaignModal({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Failed to create campaign');
 
-      const base = redirectBase || '/campaigns';
+      const base = redirectBase || '/messaging/campaigns';
       let path = '';
       if (channel === 'both') {
         const groupId = data?.groupId;
