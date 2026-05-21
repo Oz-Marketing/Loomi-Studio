@@ -456,6 +456,41 @@ export async function deleteSmsCampaign(campaignId: string): Promise<void> {
 }
 
 /**
+ * Toggle archive flag on an SMS campaign. Stored as
+ * `metadata.archived = true` (no Prisma migration needed). List endpoint
+ * filters archived rows out by default. In-flight campaigns can't be
+ * archived.
+ */
+export async function setSmsCampaignArchived(
+  campaignId: string,
+  archived: boolean,
+): Promise<SmsCampaignSummary> {
+  const existing = await prisma.smsCampaign.findUnique({
+    where: { id: campaignId },
+    select: { status: true, metadata: true },
+  });
+  if (!existing) throw new Error('Campaign not found');
+  if (existing.status === 'queued' || existing.status === 'processing') {
+    throw new Error('Cannot archive a campaign that is currently sending.');
+  }
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = existing.metadata ? (JSON.parse(existing.metadata) as Record<string, unknown>) : {};
+    if (typeof meta !== 'object' || meta === null) meta = {};
+  } catch {
+    meta = {};
+  }
+  if (archived) meta.archived = true;
+  else delete meta.archived;
+  const updated = await prisma.smsCampaign.update({
+    where: { id: campaignId },
+    data: { metadata: JSON.stringify(meta) },
+    select: smsCampaignSummarySelect,
+  });
+  return toSummary(updated);
+}
+
+/**
  * Clone an SMS campaign into a new draft. Status resets, recipient rows
  * are not copied — the user re-picks an audience in the Recipients step.
  */

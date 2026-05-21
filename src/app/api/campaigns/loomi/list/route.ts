@@ -77,14 +77,20 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Archived campaigns are hidden by default. Pass ?includeArchived=1 to
+  // surface them (future "Archived" view can use this).
+  const includeArchived = req.nextUrl.searchParams.get('includeArchived') === '1';
+
   const campaigns = [
     ...emails
       .filter((c) => matchesAccount(c.accountKeys))
       .filter((c) => matchesStatusForRole(c.status))
+      .filter((c) => includeArchived || !isArchived(c.metadata))
       .map((c) => mapEmail(c)),
     ...sms
       .filter((c) => matchesAccount(c.accountKeys))
       .filter((c) => matchesStatusForRole(c.status))
+      .filter((c) => includeArchived || !isArchived(c.metadata))
       // Drop SMS rows that are the SMS half of a linked multi-channel pair.
       .filter((c) => !linkedSmsIdsOnEmails.has(c.id))
       .map((c) => mapSms(c)),
@@ -96,7 +102,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ campaigns });
 }
 
-function parseMeta(raw: string | null | undefined): { multiChannel?: boolean; linkedSmsCampaignId?: string } | null {
+function parseMeta(raw: string | null | undefined): { multiChannel?: boolean; linkedSmsCampaignId?: string; archived?: boolean } | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
@@ -104,6 +110,10 @@ function parseMeta(raw: string | null | undefined): { multiChannel?: boolean; li
   } catch {
     return null;
   }
+}
+
+function isArchived(metadata: string | null | undefined): boolean {
+  return Boolean(parseMeta(metadata)?.archived);
 }
 
 function mapEmail(c: EmailCampaignSummary) {

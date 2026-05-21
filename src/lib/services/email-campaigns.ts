@@ -596,6 +596,42 @@ export async function deleteEmailCampaign(campaignId: string): Promise<void> {
 }
 
 /**
+ * Toggle the archive flag on a campaign. Archive is stored as
+ * `metadata.archived = true` so we can ship it without a Prisma
+ * migration. The list endpoint filters archived rows out by default.
+ * In-flight campaigns (queued/processing) can't be archived to keep the
+ * worker's state machine simple.
+ */
+export async function setEmailCampaignArchived(
+  campaignId: string,
+  archived: boolean,
+): Promise<EmailCampaignSummary> {
+  const existing = await prisma.emailCampaign.findUnique({
+    where: { id: campaignId },
+    select: { status: true, metadata: true },
+  });
+  if (!existing) throw new Error('Campaign not found');
+  if (existing.status === 'queued' || existing.status === 'processing') {
+    throw new Error('Cannot archive a campaign that is currently sending.');
+  }
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = existing.metadata ? (JSON.parse(existing.metadata) as Record<string, unknown>) : {};
+    if (typeof meta !== 'object' || meta === null) meta = {};
+  } catch {
+    meta = {};
+  }
+  if (archived) meta.archived = true;
+  else delete meta.archived;
+  const updated = await prisma.emailCampaign.update({
+    where: { id: campaignId },
+    data: { metadata: JSON.stringify(meta) },
+    select: emailCampaignSummarySelect,
+  });
+  return toSummary(updated);
+}
+
+/**
  * Create a new draft email campaign by cloning an existing one. Status
  * resets to 'draft', schedule + timestamps clear, name gets a "(Copy)"
  * suffix, and recipient rows are NOT copied — the user will reselect the

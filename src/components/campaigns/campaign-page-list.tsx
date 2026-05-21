@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   MagnifyingGlassIcon,
   ArrowTopRightOnSquareIcon,
@@ -23,6 +24,8 @@ import {
   TrashIcon,
   DocumentDuplicateIcon,
   ChatBubbleLeftRightIcon,
+  PencilSquareIcon,
+  ArchiveBoxIcon,
 } from '@heroicons/react/24/outline';
 import { AccountAvatar as SharedAccountAvatar } from '@/components/account-avatar';
 import BulkActionDock from '@/components/bulk-action-dock';
@@ -324,6 +327,31 @@ function getVisiblePages(currentPage: number, totalPages: number, maxVisible = 5
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
+// ── Loomi edit URL ──
+
+/**
+ * Resolve the in-app edit URL for a Loomi-native campaign. Returns null
+ * for ESP-imported rows (they're edited externally) and for sent
+ * campaigns (no in-app re-editing once it's gone out).
+ */
+function getLoomiEditUrl(c: Campaign): string | null {
+  const provider = (c.provider || '').toLowerCase();
+  if (provider !== 'loomi-email' && provider !== 'loomi-sms') return null;
+  const status = c.status?.toLowerCase() || '';
+  const isTerminal =
+    status === 'completed' ||
+    status === 'partial' ||
+    status === 'failed' ||
+    status === 'sent' ||
+    status === 'canceled';
+  if (isTerminal) return null;
+  const id = encodeURIComponent(c.campaignId || c.id);
+  const channel = c.channel;
+  if (channel === 'multi') return `/messaging/campaigns/multi/${id}/recipients`;
+  if (channel === 'sms' || provider === 'loomi-sms') return `/messaging/campaigns/sms/${id}/recipients`;
+  return `/messaging/campaigns/${id}/recipients`;
+}
+
 // ── Channel inference + badge ──
 
 /**
@@ -416,6 +444,9 @@ function CampaignTableRow({
   onPreview,
   onDownload,
   onToggleSelect,
+  onEdit,
+  onArchive,
+  onDelete,
 }: {
   item: Campaign;
   accountMeta?: Record<string, AccountMeta>;
@@ -428,6 +459,9 @@ function CampaignTableRow({
   onPreview: (item: Campaign) => void;
   onDownload: (item: Campaign) => void;
   onToggleSelect: (item: Campaign) => void;
+  onEdit: (item: Campaign) => void;
+  onArchive: (item: Campaign) => void;
+  onDelete: (item: Campaign) => void;
 }) {
   const accountKey = campaignAccountKey(item);
   const provider = resolveProviderId(item, accountProviders, '');
@@ -437,6 +471,7 @@ function CampaignTableRow({
     locationId,
     editId: getCampaignEditId(item),
   });
+  const loomiEditUrl = getLoomiEditUrl(item);
   const providerStatsUrl = getCampaignStatsUrl({
     provider,
     locationId,
@@ -449,12 +484,26 @@ function CampaignTableRow({
   const updatedParts = getLastUpdatedDateParts(item);
   const StatusIcon = STATUS_ICON[normalizedStatus];
   const canPreview = Boolean(accountKey && getCampaignScheduleId(item));
+  const isLoomi = (item.provider || '').toLowerCase().startsWith('loomi-');
+  // Archive/Delete only operate on Loomi-native rows; ESP rows are read-only.
+  // In-flight statuses are blocked server-side too — we mirror that here so
+  // the button doesn't dangle uselessly.
+  const canMutate = isLoomi && normalizedStatus !== 'scheduled' && item.status !== 'queued' && item.status !== 'processing';
+  const rowClickable = !selectMode && Boolean(loomiEditUrl);
+
+  function handleRowClick() {
+    if (selectMode) {
+      onToggleSelect(item);
+      return;
+    }
+    if (loomiEditUrl) onEdit(item);
+  }
 
   return (
     <tr
-      onClick={selectMode ? () => onToggleSelect(item) : undefined}
+      onClick={rowClickable || selectMode ? handleRowClick : undefined}
       className={`border-b border-[var(--border)] last:border-b-0 transition-colors ${
-        selectMode ? 'cursor-pointer' : ''
+        rowClickable || selectMode ? 'cursor-pointer' : ''
       } ${selected ? 'bg-[var(--primary)]/10' : 'hover:bg-[var(--muted)]/50'}`}
     >
       {selectMode && (
@@ -518,7 +567,16 @@ function CampaignTableRow({
 
             {isMenuOpen && (
               <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown shadow-lg p-1.5">
-                {providerUrl ? (
+                {loomiEditUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(item)}
+                    className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    Edit
+                    <PencilSquareIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                  </button>
+                ) : providerUrl ? (
                   <a
                     href={providerUrl}
                     target="_blank"
@@ -568,6 +626,32 @@ function CampaignTableRow({
                     View Analytics
                     <ChartBarIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
                   </a>
+                )}
+
+                {isLoomi && <div className="my-1 border-t border-[var(--border)]" />}
+
+                {isLoomi && (
+                  <button
+                    type="button"
+                    onClick={() => onArchive(item)}
+                    disabled={!canMutate}
+                    className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Archive
+                    <ArchiveBoxIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                  </button>
+                )}
+
+                {isLoomi && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(item)}
+                    disabled={!canMutate}
+                    className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Delete
+                    <TrashIcon className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
             )}
@@ -670,6 +754,7 @@ export function CampaignPageList({
   singleAccountMode = false,
 }: CampaignPageListProps) {
   const { alert, confirm } = useLoomiDialog();
+  const router = useRouter();
 
   // Search
   const [search, setSearch] = useState('');
@@ -1080,6 +1165,69 @@ export function CampaignPageList({
     if (typeof window !== 'undefined') window.location.reload();
   }
 
+  // ── Single-row handlers (Edit / Archive / Delete from the row's
+  //    overflow menu or row click). They mirror the bulk equivalents
+  //    but operate on one campaign. ──
+
+  function handleEditCampaign(campaign: Campaign) {
+    setOpenMenuId(null);
+    const url = getLoomiEditUrl(campaign);
+    if (url) router.push(url);
+  }
+
+  async function handleArchiveCampaign(campaign: Campaign) {
+    setOpenMenuId(null);
+    if (!isLoomiCampaign(campaign)) return;
+    const id = campaign.campaignId || campaign.id;
+    const path = isLoomiEmail(campaign) ? 'email' : 'sms';
+    try {
+      const res = await fetch(`/api/campaigns/${path}/${encodeURIComponent(id)}/archive`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      await alert({
+        title: 'Archive failed',
+        message: err instanceof Error ? err.message : 'Failed to archive campaign.',
+      });
+      return;
+    }
+    if (typeof window !== 'undefined') window.location.reload();
+  }
+
+  async function handleDeleteCampaign(campaign: Campaign) {
+    setOpenMenuId(null);
+    if (!isLoomiCampaign(campaign)) return;
+    const confirmed = await confirm({
+      title: 'Delete this campaign?',
+      message: `This will permanently delete "${campaign.name || '(Untitled)'}" and any draft recipient data. This cannot be undone.`,
+      destructive: true,
+      confirmLabel: 'Delete',
+    });
+    if (!confirmed) return;
+    const id = campaign.campaignId || campaign.id;
+    const path = isLoomiEmail(campaign) ? 'email' : 'sms';
+    try {
+      const res = await fetch(`/api/campaigns/${path}/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      await alert({
+        title: 'Delete failed',
+        message: err instanceof Error ? err.message : 'Failed to delete campaign.',
+      });
+      return;
+    }
+    if (typeof window !== 'undefined') window.location.reload();
+  }
+
   async function handleBulkDelete() {
     const targets = getSelectedCampaigns().filter(isLoomiCampaign);
     const skipped = selectedKeys.size - targets.length;
@@ -1429,6 +1577,9 @@ export function CampaignPageList({
                           onPreview={handlePreview}
                           onDownload={handleDownload}
                           onToggleSelect={toggleSelectCampaign}
+                          onEdit={handleEditCampaign}
+                          onArchive={handleArchiveCampaign}
+                          onDelete={handleDeleteCampaign}
                         />
                       );
                     })}
