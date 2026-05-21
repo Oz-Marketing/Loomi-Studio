@@ -1228,7 +1228,7 @@ function ManagementRoleDashboard({
           : errors.campaignsAggregate
             ? errors.campaignsAggregate
             : `${espCampaigns.length.toLocaleString()} campaigns`,
-        href: '/campaigns',
+        href: '/messaging/campaigns',
       },
       {
         label: 'ESP Workflows',
@@ -1244,13 +1244,13 @@ function ManagementRoleDashboard({
         label: 'Loomi Email Campaigns',
         ok: !errors.loomiEmail,
         detail: errors.loomiEmail ? errors.loomiEmail : `${loomiEmailCampaigns.length.toLocaleString()} campaigns`,
-        href: '/campaigns',
+        href: '/messaging/campaigns',
       },
       {
         label: 'Loomi SMS Campaigns',
         ok: !errors.loomiSms,
         detail: errors.loomiSms ? errors.loomiSms : `${loomiSmsCampaigns.length.toLocaleString()} campaigns`,
-        href: '/campaigns',
+        href: '/messaging/campaigns',
       },
     ];
   }, [
@@ -2391,7 +2391,7 @@ function ManagementRoleDashboard({
                     { href: '/users', label: 'Users', icon: UsersIcon },
                     { href: '/subaccounts', label: 'Sub-Accounts', icon: BuildingStorefrontIcon },
                     { href: '/settings/subaccounts', label: 'Integrations', icon: ArrowPathIcon },
-                    { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
+                    { href: '/messaging/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
                     { href: '/flows', label: 'Flows', icon: FlowIcon },
                     { href: '/media', label: 'Media', icon: PhotoIcon },
                   ].map((item) => (

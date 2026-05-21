@@ -102,7 +102,7 @@ export default function MessageStepPage({ params }: PageProps) {
         // view (State B) is only the right home for single-channel
         // email campaigns.
         if (fromMulti && campaign.htmlContent) {
-          router.replace(`/campaigns/multi/${encodeURIComponent(id)}/message`);
+          router.replace(`/messaging/campaigns/multi/${encodeURIComponent(id)}/message`);
           return;
         }
 
@@ -244,8 +244,8 @@ export default function MessageStepPage({ params }: PageProps) {
       if (Object.keys(patch).length > 0) await patchDraft(patch);
       router.push(
         fromMulti
-          ? `/campaigns/multi/${encodeURIComponent(id)}/schedule`
-          : `/campaigns/${encodeURIComponent(id)}/schedule`,
+          ? `/messaging/campaigns/multi/${encodeURIComponent(id)}/schedule`
+          : `/messaging/campaigns/${encodeURIComponent(id)}/schedule`,
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save');
@@ -330,8 +330,8 @@ export default function MessageStepPage({ params }: PageProps) {
         onBack={() =>
           router.push(
             fromMulti
-              ? `/campaigns/multi/${encodeURIComponent(id)}/message`
-              : `/campaigns/${encodeURIComponent(id)}/recipients`,
+              ? `/messaging/campaigns/multi/${encodeURIComponent(id)}/message`
+              : `/messaging/campaigns/${encodeURIComponent(id)}/recipients`,
           )
         }
         onContinue={handleContinue}

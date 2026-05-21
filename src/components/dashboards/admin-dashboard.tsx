@@ -270,7 +270,7 @@ export function AdminDashboard() {
       label: 'Templates',
       value: templates.length,
       sub: `${components.length} sections`,
-      href: '/templates',
+      href: '/email/templates',
       icon: BookOpenIcon,
       color: iconColorClass('general'),
     },

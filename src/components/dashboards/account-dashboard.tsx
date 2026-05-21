@@ -158,21 +158,21 @@ export function AccountDashboard() {
       label: 'Active Emails',
       value: activeEmails,
       sub: draftEmails > 0 ? `${draftEmails} draft` : undefined,
-      href: href('/templates'),
+      href: href('/email/templates'),
       icon: CheckCircleIcon,
       color: 'text-green-400',
     },
     {
       label: 'Total Emails',
       value: emails.length,
-      href: href('/templates'),
+      href: href('/email/templates'),
       icon: EnvelopeIcon,
       color: 'text-blue-400',
     },
     {
       label: 'Templates',
       value: templates.length,
-      href: '/templates',
+      href: '/email/templates',
       icon: BookOpenIcon,
       color: iconColorClass('general'),
     },
@@ -261,7 +261,7 @@ export function AccountDashboard() {
               <EnvelopeIcon className="w-3.5 h-3.5" />
               Email Analytics
             </h3>
-            <Link href={href('/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
+            <Link href={href('/email/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
               View all emails
             </Link>
           </div>
@@ -308,7 +308,7 @@ export function AccountDashboard() {
           Browse Templates
         </Link>
         <Link
-          href={href('/templates')}
+          href={href('/email/templates')}
           className="flex-1 flex items-center justify-center gap-2 py-3 px-4 glass-card rounded-xl font-medium text-sm"
         >
           <EnvelopeIcon className="w-4 h-4" />
@@ -333,7 +333,7 @@ export function AccountDashboard() {
           <ClockIcon className="w-3.5 h-3.5" />
           Recent Emails
         </h3>
-        <Link href={href('/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
+        <Link href={href('/email/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
           View all
         </Link>
       </div>

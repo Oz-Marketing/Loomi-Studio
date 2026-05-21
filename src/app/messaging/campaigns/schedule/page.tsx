@@ -267,7 +267,7 @@ export default function ScheduleCampaignPage() {
   const scheduleProviderLabel = providerDisplayName(selectedAccountProvider);
 
   const editorHref = useMemo(() => {
-    if (!design) return '/campaigns';
+    if (!design) return '/messaging/campaigns';
     const next = new URLSearchParams();
     if (builder) next.set('builder', builder);
     if (isCampaignDraft) next.set('campaignDraft', '1');
@@ -753,7 +753,7 @@ export default function ScheduleCampaignPage() {
                     type="button"
                     onClick={() =>
                       router.push(
-                        `/campaigns/schedule?design=${encodeURIComponent(item.design)}`,
+                        `/messaging/campaigns/schedule?design=${encodeURIComponent(item.design)}`,
                       )
                     }
                     className="text-left rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 hover:border-[var(--primary)]/60 hover:bg-[var(--primary)]/[0.03] transition-all group"
