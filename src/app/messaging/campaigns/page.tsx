@@ -16,7 +16,9 @@ import {
   PaperAirplaneIcon,
   FunnelIcon,
   PlusIcon,
+  Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
+import Link from 'next/link';
 import { getAccountOems, industryHasBrands } from '@/lib/oems';
 import PrimaryButton from '@/components/primary-button';
 import { CreateCampaignModal } from '@/components/campaigns/create-campaign-modal';
@@ -854,10 +856,23 @@ function AccountCampaignsPage() {
 
             {/* Create Campaign lives on the list view; analytics is read-only. */}
             {activeTab !== 'analytics' && (
-              <PrimaryButton type="button" onClick={openCreateCampaignModal}>
-                <PlusIcon className="w-4 h-4" />
-                Create Campaign
-              </PrimaryButton>
+              <>
+                {/* Cog → Sending settings tab on this sub-account. Lets
+                    the user set global sender defaults that apply to
+                    every campaign sent from this sub-account. */}
+                <Link
+                  href={subHref('/settings/sending')}
+                  aria-label="Email sending settings"
+                  title="Email sending settings"
+                  className="inline-flex items-center justify-center h-10 w-10 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] transition-colors"
+                >
+                  <Cog6ToothIcon className="w-4 h-4" />
+                </Link>
+                <PrimaryButton type="button" onClick={openCreateCampaignModal}>
+                  <PlusIcon className="w-4 h-4" />
+                  Create Campaign
+                </PrimaryButton>
+              </>
             )}
           </div>
         </div>
