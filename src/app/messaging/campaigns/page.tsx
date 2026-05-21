@@ -6,6 +6,7 @@ import { useAccount } from '@/contexts/account-context';
 import { useCampaignsAggregate, useWorkflowsAggregate } from '@/hooks/use-dashboard-data';
 import { AdminOnly } from '@/components/route-guard';
 import { CampaignPageAnalytics } from '@/components/campaigns/campaign-page-analytics';
+import { EngagementSection } from '@/components/campaigns/engagement-section';
 import { CampaignPageList, type AccountMeta } from '@/components/campaigns/campaign-page-list';
 import type { CampaignFilterState, CampaignFilterOptions, RepFilterOption } from '@/components/filters/campaign-toolbar';
 import { CampaignFilterSidebar } from '@/components/filters/campaign-filter-sidebar';
@@ -548,17 +549,23 @@ function AdminCampaignsPage() {
               dominate the page. */}
 
           {activeTab === 'analytics' && (
-            <CampaignPageAnalytics
-              campaigns={filteredCampaigns}
-              loading={loading}
-              showAccountBreakdown
-              accountNames={accountNames}
-              emptyTitle={adminEmptyTitle}
-              emptySubtitle={adminEmptySubtitle}
-              dateRange={dateRange}
-              customRange={customRange}
-              workflows={filteredWorkflows}
-            />
+            <div className="space-y-6">
+              {/* Loomi-native engagement: sourced from EmailEvent rows
+                  populated by the SendGrid webhook. Renders an empty
+                  state when no events yet. */}
+              <EngagementSection dateRange={dateRange} customRange={customRange} />
+              <CampaignPageAnalytics
+                campaigns={filteredCampaigns}
+                loading={loading}
+                showAccountBreakdown
+                accountNames={accountNames}
+                emptyTitle={adminEmptyTitle}
+                emptySubtitle={adminEmptySubtitle}
+                dateRange={dateRange}
+                customRange={customRange}
+                workflows={filteredWorkflows}
+              />
+            </div>
           )}
 
           {activeTab === 'list' && (
@@ -893,16 +900,26 @@ function AccountCampaignsPage() {
         )}
 
         {activeTab === 'analytics' && (
-          <CampaignPageAnalytics
-            campaigns={dateFiltered}
-            loading={loading}
-            showAccountBreakdown={false}
-            accountNames={accountNames}
-            emptyTitle={accountEmptyTitle}
-            emptySubtitle={accountEmptySubtitle}
-            dateRange={dateRange}
-            customRange={customRange}
-          />
+          <div className="space-y-6">
+            {/* Sub-account-scoped engagement — same component as the
+                admin view, but the API call is filtered to this
+                account's events only. */}
+            <EngagementSection
+              accountKey={accountKey || undefined}
+              dateRange={dateRange}
+              customRange={customRange}
+            />
+            <CampaignPageAnalytics
+              campaigns={dateFiltered}
+              loading={loading}
+              showAccountBreakdown={false}
+              accountNames={accountNames}
+              emptyTitle={accountEmptyTitle}
+              emptySubtitle={accountEmptySubtitle}
+              dateRange={dateRange}
+              customRange={customRange}
+            />
+          </div>
         )}
 
         {activeTab === 'list' && (
