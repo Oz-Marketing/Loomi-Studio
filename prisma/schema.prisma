@@ -353,7 +353,7 @@ model Audience {
 }
 
 // ─────────────────────────────────────────────────────
-// Contacts (Loomi-native; replaces GHL/Klaviyo contact reads).
+// Contacts (Loomi-native; canonical source for the filter engine + UI).
 //
 // Schema mirrors the Contact shape the filter engine + UI already
 // expect (see src/lib/smart-list-types.ts FILTERABLE_FIELDS). Two
@@ -406,9 +406,8 @@ model Contact {
   // it for now but the API surfaces it on the contact detail page.
   customFields Json?
 
-  // Minimal DND state: { email?: bool, sms?: bool }. Replaces the
-  // 7-channel GHL grid; only Email + SMS survive the cut because
-  // those are the only channels Loomi actually sends on.
+  // Minimal DND state: { email?: bool, sms?: bool } — Email and SMS
+  // are the only channels Loomi sends on.
   dnd          Json?
 
   createdAt    DateTime @default(now())

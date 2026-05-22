@@ -396,7 +396,7 @@ export default function RecipientsStepPage({ params }: PageProps) {
             </p>
           </div>
 
-          {/* Klaviyo-style large sendable count */}
+          {/* Large sendable count */}
           <div className="text-right flex-shrink-0">
             <p className="text-4xl sm:text-5xl font-bold tabular-nums leading-none">
               {contactsLoading || listMemberLoading ? (
