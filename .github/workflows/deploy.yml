@@ -245,6 +245,37 @@ jobs:
             pm2 stop loomi-studio || true
             pm2 delete loomi-studio || true
 
+            # Loomi-native send-engine worker. Singleton (not blue/green) —
+            # a brief restart is fine since pg-boss persists jobs in
+            # Postgres and the worker re-scans on boot. Delete + start (vs
+            # reload) so pm2 re-resolves the `current` symlink to the new
+            # release path. `--update-env` is load-bearing: the pm2 daemon
+            # was almost certainly started at droplet boot before any
+            # .env.local was sourced, so its cached env is empty and
+            # children would inherit that emptiness without an explicit
+            # refresh. Without it, Prisma silently falls back to the dev
+            # default `127.0.0.1:5432/loomi_studio` and every job throws
+            # P1001 even though pg-boss itself (lazy-init in main()) works
+            # fine.
+            echo "=== Restarting loomi-studio-worker on new release ==="
+            pm2 stop loomi-studio-worker 2>/dev/null || true
+            pm2 delete loomi-studio-worker 2>/dev/null || true
+            pm2 start "$CURRENT_LINK/ecosystem.config.js" --only loomi-studio-worker --update-env
+
+            echo "=== Worker health: waiting for pg-boss ==="
+            WORKER_OK=0
+            for i in $(seq 1 15); do
+              if pm2 logs loomi-studio-worker --nostream --lines 50 2>/dev/null | grep -q "\[worker\] pg-boss started"; then
+                WORKER_OK=1
+                break
+              fi
+              sleep 1
+            done
+            if [ "$WORKER_OK" -ne 1 ]; then
+              echo "WARN: worker did not log 'pg-boss started' within 15s; check pm2 logs loomi-studio-worker"
+              pm2 logs loomi-studio-worker --nostream --lines 40 || true
+            fi
+
             echo "=== PM2 process status ==="
             pm2 save
             pm2 list
