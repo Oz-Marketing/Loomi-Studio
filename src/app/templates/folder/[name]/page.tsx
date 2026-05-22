@@ -7,5 +7,5 @@ import { redirect } from 'next/navigation';
 // future enhancement could resolve <name> → folder ID and redirect to
 // /templates?folder=<id> to preserve the folder context in the URL.)
 export default function TemplatesFolderRedirect() {
-  redirect('/templates');
+  redirect('/email/templates');
 }

@@ -10,14 +10,10 @@ import {
   CheckCircleIcon,
   ClockIcon,
   UserGroupIcon,
-  PaperAirplaneIcon,
 } from '@heroicons/react/24/outline';
-import { FlowIcon } from '@/components/icon-map';
 import { ContactAnalytics } from '@/components/contacts/contact-analytics';
 import { ContactListCompact } from '@/components/contacts/contact-list-compact';
 import { EmailAnalytics } from '@/components/analytics/email-analytics';
-import { CampaignAnalytics } from '@/components/campaigns/campaign-analytics';
-import { FlowAnalytics } from '@/components/flows/flow-analytics';
 import { DashboardToolbar, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
 import {
   type DateRangeKey,
@@ -77,9 +73,6 @@ export function AccountDashboard() {
   const [contactCount, setContactCount] = useState<number | null>(null);
   const [allContacts, setAllContacts] = useState<AnalyticsContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(true);
-  const [espCampaigns, setEspCampaigns] = useState<{ id: string; name: string; status: string }[]>([]);
-  const [espWorkflows, setEspWorkflows] = useState<{ id: string; name: string; status: string }[]>([]);
-  const [campaignsLoading, setCampaignsLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
@@ -97,7 +90,7 @@ export function AccountDashboard() {
 
     // Fetch all contacts for analytics
     setContactsLoading(true);
-    fetch(`/api/esp/contacts?accountKey=${accountKey}&all=true`)
+    fetch(`/api/contacts?accountKey=${accountKey}&all=true`)
       .then(r => r.json())
       .then(data => {
         if (data.contacts) {
@@ -107,17 +100,6 @@ export function AccountDashboard() {
         setContactsLoading(false);
       })
       .catch(() => setContactsLoading(false));
-
-    // Fetch ESP campaigns + workflows for this account
-    setCampaignsLoading(true);
-    Promise.all([
-      fetch(`/api/esp/campaigns?accountKey=${accountKey}`).then(r => r.json()),
-      fetch(`/api/esp/workflows?accountKey=${accountKey}`).then(r => r.json()),
-    ]).then(([campaignData, workflowData]) => {
-      if (campaignData.campaigns) setEspCampaigns(campaignData.campaigns);
-      if (workflowData.workflows) setEspWorkflows(workflowData.workflows);
-      setCampaignsLoading(false);
-    }).catch(() => setCampaignsLoading(false));
   }, [accountKey]);
 
   // Filter data by selected date range for analytics sections
@@ -158,21 +140,21 @@ export function AccountDashboard() {
       label: 'Active Emails',
       value: activeEmails,
       sub: draftEmails > 0 ? `${draftEmails} draft` : undefined,
-      href: href('/templates'),
+      href: href('/email/templates'),
       icon: CheckCircleIcon,
       color: 'text-green-400',
     },
     {
       label: 'Total Emails',
       value: emails.length,
-      href: href('/templates'),
+      href: href('/email/templates'),
       icon: EnvelopeIcon,
       color: 'text-blue-400',
     },
     {
       label: 'Templates',
       value: templates.length,
-      href: '/templates',
+      href: '/email/templates',
       icon: BookOpenIcon,
       color: iconColorClass('general'),
     },
@@ -261,7 +243,7 @@ export function AccountDashboard() {
               <EnvelopeIcon className="w-3.5 h-3.5" />
               Email Analytics
             </h3>
-            <Link href={href('/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
+            <Link href={href('/email/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
               View all emails
             </Link>
           </div>
@@ -269,46 +251,17 @@ export function AccountDashboard() {
         </div>
       )}
 
-      {/* ESP Campaign Analytics */}
-      {(espCampaigns.length > 0 || campaignsLoading) && (
-        <div id="campaigns" className="mb-8">
-          <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5 mb-4">
-            <PaperAirplaneIcon className={`w-3.5 h-3.5 ${iconColorClass('campaigns')}`} />
-            ESP Campaigns
-          </h3>
-          <CampaignAnalytics
-            campaigns={espCampaigns}
-            workflows={[]}
-            loading={campaignsLoading}
-          />
-        </div>
-      )}
-
-      {/* Flow Analytics (ESP Workflows) */}
-      {(espWorkflows.length > 0 || campaignsLoading) && (
-        <div id="flows" className="mb-8">
-          <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5 mb-4">
-            <FlowIcon className={`w-3.5 h-3.5 ${iconColorClass('flows')}`} />
-            Flows
-          </h3>
-          <FlowAnalytics
-            workflows={espWorkflows}
-            loading={campaignsLoading}
-          />
-        </div>
-      )}
-
       {/* Quick actions */}
       <div className="flex gap-3 mb-8">
         <Link
-          href="/templates"
+          href="/email/templates"
           className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[var(--primary)] text-white font-medium text-sm hover:opacity-90 transition-opacity"
         >
           <BookOpenIcon className="w-4 h-4" />
           Browse Templates
         </Link>
         <Link
-          href={href('/templates')}
+          href={href('/email/templates')}
           className="flex-1 flex items-center justify-center gap-2 py-3 px-4 glass-card rounded-xl font-medium text-sm"
         >
           <EnvelopeIcon className="w-4 h-4" />
@@ -333,14 +286,14 @@ export function AccountDashboard() {
           <ClockIcon className="w-3.5 h-3.5" />
           Recent Emails
         </h3>
-        <Link href={href('/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
+        <Link href={href('/email/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
           View all
         </Link>
       </div>
       {recentEmails.length === 0 ? (
         <div className="text-center py-12 border border-dashed border-[var(--border)] rounded-xl">
           <p className="text-[var(--muted-foreground)] text-sm">No emails yet.</p>
-          <Link href="/templates" className="text-[var(--primary)] text-sm mt-2 inline-block hover:underline">
+          <Link href="/email/templates" className="text-[var(--primary)] text-sm mt-2 inline-block hover:underline">
             Browse templates to get started
           </Link>
         </div>

@@ -169,7 +169,7 @@ export function EmailFolderPage() {
     const nf = { ...folders };
     delete nf[folderName];
     await saveFolders(nf);
-    router.push('/templates');
+    router.push('/email/templates');
   };
 
   const handleCreateFolder = async () => {
@@ -371,7 +371,7 @@ export function EmailFolderPage() {
     return (
       <div className="text-center py-12">
         <p className="text-[var(--muted-foreground)]">Folder not found.</p>
-        <button onClick={() => router.push('/templates')} className="mt-4 text-sm text-[var(--primary)] hover:underline">{`Back to ${backLabel}`}</button>
+        <button onClick={() => router.push('/email/templates')} className="mt-4 text-sm text-[var(--primary)] hover:underline">{`Back to ${backLabel}`}</button>
       </div>
     );
   }
@@ -383,7 +383,7 @@ export function EmailFolderPage() {
       {/* Header */}
       <div className="page-sticky-header flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/templates')} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors">
+          <button onClick={() => router.push('/email/templates')} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors">
             <ArrowLeftIcon className="w-4 h-4" />
           </button>
           <FolderIcon className="w-5 h-5 text-[var(--muted-foreground)]" />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Contact } from '@/components/contacts/contacts-table';
+import type { Contact } from '@/lib/contacts/types';
 import { evaluateFilter } from '@/lib/smart-list-engine';
 import { LIFECYCLE_PRESETS } from '@/lib/smart-list-presets';
 import type { FilterDefinition } from '@/lib/smart-list-types';
@@ -578,7 +578,7 @@ export function EmailCampaignModal({
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/15 px-3 py-2.5 text-xs text-[var(--muted-foreground)]">
                   Use this starter scaffold, then customize the HTML below. You can also build a full visual template in
                   {' '}
-                  <a href="/templates" className="text-[var(--primary)] hover:underline">
+                  <a href="/email/templates" className="text-[var(--primary)] hover:underline">
                     Templates
                   </a>
                   {' '}

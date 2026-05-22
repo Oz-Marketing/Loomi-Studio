@@ -10,30 +10,6 @@ export interface AccountData {
   category?: string;
   oem?: string;
   oems?: string[];
-  espProvider?: string;
-  activeEspProvider?: string;
-  activeLocationId?: string | null;
-  activeConnection?: {
-    provider: string;
-    connected: boolean;
-    connectionType: 'oauth' | 'api-key' | 'none';
-    locationId?: string | null;
-    accountId?: string | null;
-    accountName?: string | null;
-  };
-  connectedProviders?: string[];
-  oauthConnections?: Array<{
-    provider: string;
-    locationId?: string | null;
-    locationName?: string | null;
-    installedAt?: string | null;
-  }>;
-  espConnections?: Array<{
-    provider: string;
-    accountId?: string | null;
-    accountName?: string | null;
-    installedAt?: string | null;
-  }>;
   email?: string;
   phone?: string;
   salesPhone?: string;
@@ -82,6 +58,12 @@ export interface AccountData {
   // When null/undefined, the calculator falls back to the global default
   // (0.77). Actual spend = client gross × markup.
   markup?: number | null;
+  // Loomi-native sending identity. Used by EmailCampaign sends when set;
+  // otherwise the global SMTP_FROM env var is used.
+  senderEmail?: string | null;
+  senderName?: string | null;
+  sendingDomain?: string | null;
+  replyToEmail?: string | null;
 }
 
 export type AccountType =

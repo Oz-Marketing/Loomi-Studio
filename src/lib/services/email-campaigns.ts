@@ -1,12 +1,47 @@
 import nodemailer from 'nodemailer';
 import { prisma } from '@/lib/prisma';
-import { withConcurrencyLimit } from '@/lib/esp/utils';
 import {
   isLikelyDeliverableEmail,
   normalizeEmailAddress,
 } from '@/lib/contact-hygiene';
+import { decryptToken } from '@/lib/crypto/encryption';
+import { sendEmailViaSendGrid, SendGridError } from '@/lib/sending/sendgrid';
+import { buildUnsubscribeFooter } from '@/lib/sending/unsubscribe-footer';
+
+/**
+ * Run async tasks with a concurrency limit. Inlined here (was previously
+ * in a shared utils module) so the email worker has no cross-module deps.
+ */
+async function withConcurrencyLimit<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number,
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function runNext(): Promise<void> {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex++;
+      try {
+        const value = await tasks[index]();
+        results[index] = { status: 'fulfilled', value };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(limit, tasks.length) },
+    () => runNext(),
+  );
+  await Promise.all(workers);
+
+  return results;
+}
 
 type EmailCampaignStatus =
+  | 'draft'
   | 'queued'
   | 'scheduled'
   | 'processing'
@@ -15,6 +50,8 @@ type EmailCampaignStatus =
   | 'failed'
   | 'canceled';
 
+// Drafts are NOT processable — they live until the user explicitly
+// schedules them, at which point status transitions to queued/scheduled.
 const PROCESSABLE_STATUSES: EmailCampaignStatus[] = ['queued', 'scheduled', 'processing'];
 const TERMINAL_STATUSES: EmailCampaignStatus[] = ['completed', 'partial', 'failed', 'canceled'];
 const INVALID_EMAIL_ERROR = 'Recipient email is missing or blocked by hygiene policy';
@@ -56,6 +93,12 @@ export interface EmailCampaignSummary {
   sentCount: number;
   failedCount: number;
   accountKeys: string[];
+  sourceAudienceId: string;
+  sourceFilter: string;
+  sourceListId: string;
+  htmlContent: string;
+  textContent: string;
+  metadata: string;
   createdAt: string;
   updatedAt: string;
   error: string;
@@ -216,6 +259,12 @@ function toSummary(row: {
   sentCount: number;
   failedCount: number;
   accountKeys: string;
+  sourceAudienceId: string | null;
+  sourceFilter: string | null;
+  sourceListId: string | null;
+  htmlContent: string;
+  textContent: string | null;
+  metadata: string | null;
   createdAt: Date;
   updatedAt: Date;
   error: string | null;
@@ -234,6 +283,12 @@ function toSummary(row: {
     sentCount: row.sentCount,
     failedCount: row.failedCount,
     accountKeys: parseAccountKeys(row.accountKeys),
+    sourceAudienceId: row.sourceAudienceId || '',
+    sourceFilter: row.sourceFilter || '',
+    sourceListId: row.sourceListId || '',
+    htmlContent: row.htmlContent || '',
+    textContent: row.textContent || '',
+    metadata: row.metadata || '',
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     error: row.error || '',
@@ -254,15 +309,44 @@ const emailCampaignSummarySelect = {
   sentCount: true,
   failedCount: true,
   accountKeys: true,
+  sourceAudienceId: true,
+  sourceFilter: true,
+  sourceListId: true,
+  htmlContent: true,
+  textContent: true,
+  metadata: true,
   createdAt: true,
   updatedAt: true,
   error: true,
 } as const;
 
-function getTransportConfig(): {
+interface AccountSenderIdentity {
   from: string;
+  replyTo: string | null;
+  /** Raw sender email (without name wrapping) for providers that take
+   *  separate name + email fields like SendGrid. */
+  senderEmail: string | null;
+  senderName: string | null;
+  /** Decrypted SendGrid API key when this sub-account has one configured;
+   *  null = fall back to nodemailer SMTP. */
+  sendgridApiKey: string | null;
+  /** Pre-built CAN-SPAM unsubscribe footer (HTML + text). Null when the
+   *  account hasn't filled in any address/dealer info; the worker still
+   *  sends in that case but skips the subscription_tracking block. */
+  unsubscribeFooter: { html: string; text: string } | null;
+}
+
+/**
+ * Resolve the SMTP transport when env vars are present. Returns null
+ * when SMTP isn't configured so callers can route through SendGrid
+ * exclusively if every sub-account has its own key. The worker only
+ * errors out if BOTH SMTP and SendGrid are missing for a given
+ * recipient's account.
+ */
+function getTransporter(): {
+  defaultFrom: string;
   transporter: nodemailer.Transporter;
-} {
+} | null {
   const smtpHost = process.env.SMTP_HOST;
   const smtpPort = Number(process.env.SMTP_PORT || '587');
   const smtpUser = process.env.SMTP_USER;
@@ -270,9 +354,7 @@ function getTransportConfig(): {
   const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
   if (!smtpHost || !smtpUser || !smtpPass || !smtpFrom) {
-    throw new Error(
-      'Email sending is not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS, and optionally SMTP_FROM.',
-    );
+    return null;
   }
 
   const transporter = nodemailer.createTransport({
@@ -286,9 +368,94 @@ function getTransportConfig(): {
   });
 
   return {
-    from: smtpFrom,
+    defaultFrom: smtpFrom,
     transporter,
   };
+}
+
+function formatFromHeader(email: string, name: string | null | undefined): string {
+  const trimmedName = (name || '').trim();
+  if (!trimmedName) return email;
+  const safeName = trimmedName.replace(/["\\]/g, '');
+  return `"${safeName}" <${email}>`;
+}
+
+async function buildSenderMap(
+  accountKeys: string[],
+  defaultFrom: string,
+): Promise<Map<string, AccountSenderIdentity>> {
+  const map = new Map<string, AccountSenderIdentity>();
+  if (accountKeys.length === 0) return map;
+
+  const accounts = await prisma.account.findMany({
+    where: { key: { in: accountKeys } },
+    select: {
+      key: true,
+      dealer: true,
+      senderEmail: true,
+      senderName: true,
+      replyToEmail: true,
+      sendgridApiKey: true,
+      // CAN-SPAM physical-address fields. Falsy values get filtered out
+      // of the footer copy in buildUnsubscribeFooter.
+      address: true,
+      city: true,
+      state: true,
+      postalCode: true,
+    },
+  });
+
+  const lookup = new Map(accounts.map((a) => [a.key, a]));
+  for (const key of accountKeys) {
+    const account = lookup.get(key);
+    let sendgridApiKey: string | null = null;
+    if (account?.sendgridApiKey) {
+      try {
+        sendgridApiKey = decryptToken(account.sendgridApiKey);
+      } catch (err) {
+        // Bad ciphertext is a clear misconfiguration — log and treat
+        // as "no SendGrid" so this account falls back to SMTP instead
+        // of silently failing every recipient.
+        console.error(
+          `[email-campaigns] Failed to decrypt SendGrid key for ${key}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    // Build the unsubscribe footer once per account — same copy applies
+    // to every recipient in this batch.
+    const unsubscribeFooter = account
+      ? buildUnsubscribeFooter({
+          dealer: account.dealer || '',
+          address: account.address,
+          city: account.city,
+          state: account.state,
+          postalCode: account.postalCode,
+        })
+      : null;
+
+    if (account?.senderEmail) {
+      map.set(key, {
+        from: formatFromHeader(account.senderEmail, account.senderName),
+        replyTo: account.replyToEmail || null,
+        senderEmail: account.senderEmail,
+        senderName: account.senderName || null,
+        sendgridApiKey,
+        unsubscribeFooter,
+      });
+    } else {
+      map.set(key, {
+        from: defaultFrom,
+        replyTo: null,
+        senderEmail: null,
+        senderName: null,
+        sendgridApiKey,
+        unsubscribeFooter,
+      });
+    }
+  }
+  return map;
 }
 
 export async function createEmailCampaign(input: CreateEmailCampaignInput): Promise<EmailCampaignSummary> {
@@ -354,12 +521,317 @@ export async function createEmailCampaign(input: CreateEmailCampaignInput): Prom
   return toSummary(created);
 }
 
+function defaultDraftName(now: Date): string {
+  return `Campaign ${now.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })}`;
+}
+
+/**
+ * Creates an empty EmailCampaign row in 'draft' status. The campaign-builder
+ * flow walks the user through the remaining steps (recipients, template,
+ * schedule) and PATCHes the same row at each step. The pg-boss worker
+ * ignores drafts — they only fire once status transitions to 'scheduled'.
+ */
+export async function createDraftEmailCampaign(input: {
+  name?: string;
+  accountKeys?: string[];
+  createdByUserId?: string;
+  createdByRole?: string;
+}): Promise<EmailCampaignSummary> {
+  const name = (input.name || '').trim() || defaultDraftName(new Date());
+  const created = await prisma.emailCampaign.create({
+    data: {
+      name,
+      subject: '',
+      htmlContent: '',
+      sourceType: 'drag-drop',
+      status: 'draft',
+      accountKeys: JSON.stringify(input.accountKeys || []),
+      createdByUserId: input.createdByUserId || null,
+      createdByRole: input.createdByRole || null,
+    },
+    select: emailCampaignSummarySelect,
+  });
+  return toSummary(created);
+}
+
+/**
+ * PATCH-style update for in-flight campaign drafts. Only the fields passed
+ * in `patch` are touched; unspecified fields keep their current values.
+ * Pass `null` to clear a column.
+ */
+export async function updateEmailCampaignDraft(
+  campaignId: string,
+  patch: {
+    name?: string;
+    subject?: string;
+    previewText?: string | null;
+    htmlContent?: string;
+    textContent?: string | null;
+    accountKeys?: string[];
+    sourceAudienceId?: string | null;
+    sourceFilter?: string | null;
+    sourceListId?: string | null;
+    sourceType?: string;
+    scheduledFor?: Date | null;
+    status?: EmailCampaignStatus;
+    metadata?: string | null;
+  },
+): Promise<EmailCampaignSummary> {
+  const data: Record<string, unknown> = {};
+  if (patch.name !== undefined) data.name = patch.name;
+  if (patch.subject !== undefined) data.subject = patch.subject;
+  if (patch.previewText !== undefined) data.previewText = patch.previewText;
+  if (patch.htmlContent !== undefined) data.htmlContent = patch.htmlContent;
+  if (patch.textContent !== undefined) data.textContent = patch.textContent;
+  if (patch.accountKeys !== undefined) data.accountKeys = JSON.stringify(patch.accountKeys);
+  if (patch.sourceAudienceId !== undefined) data.sourceAudienceId = patch.sourceAudienceId;
+  if (patch.sourceFilter !== undefined) data.sourceFilter = patch.sourceFilter;
+  if (patch.sourceListId !== undefined) data.sourceListId = patch.sourceListId;
+  if (patch.sourceType !== undefined) data.sourceType = patch.sourceType;
+  if (patch.scheduledFor !== undefined) data.scheduledFor = patch.scheduledFor;
+  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.metadata !== undefined) data.metadata = patch.metadata;
+
+  const updated = await prisma.emailCampaign.update({
+    where: { id: campaignId },
+    data,
+    select: emailCampaignSummarySelect,
+  });
+  return toSummary(updated);
+}
+
+/**
+ * Transitions a draft EmailCampaign into 'scheduled' (future send time) or
+ * 'queued' (send immediately). Creates EmailCampaignRecipient rows in the
+ * same transaction so the pg-boss worker has everything it needs once
+ * scheduledFor passes.
+ *
+ * Suppression filtering happens here too: recipients whose (accountKey,
+ * email) tuple is on EmailSuppression land in the recipient table with
+ * status='skipped' rather than 'pending'. They're preserved for audit
+ * but the worker won't try to send to them. Hard bounces and spam
+ * reports from the SendGrid Event webhook are the main producers of
+ * suppression rows.
+ */
+export async function scheduleEmailCampaignDraft(
+  campaignId: string,
+  input: {
+    recipients: EmailRecipientInput[];
+    scheduledFor: Date | null; // null = send immediately
+  },
+): Promise<EmailCampaignSummary> {
+  const recipients = dedupeRecipients(input.recipients);
+  if (recipients.length === 0) {
+    throw new Error('At least one recipient is required');
+  }
+  const sendableRecipients = recipients.filter((r) => Boolean(r.email));
+  if (sendableRecipients.length === 0) {
+    throw new Error('No recipients with valid email addresses were provided');
+  }
+
+  // Pull the suppression list for every (account, email) tuple that
+  // could appear in this batch in one query. Email comparisons are
+  // case-insensitive — we lower-case in the lookup map.
+  const accountKeysInBatch = [
+    ...new Set(sendableRecipients.map((r) => r.accountKey).filter(Boolean)),
+  ];
+  const emailsInBatch = [
+    ...new Set(
+      sendableRecipients
+        .map((r) => (r.email || '').toLowerCase().trim())
+        .filter(Boolean),
+    ),
+  ];
+  const suppressed = accountKeysInBatch.length > 0 && emailsInBatch.length > 0
+    ? await prisma.emailSuppression.findMany({
+        where: {
+          accountKey: { in: accountKeysInBatch },
+          email: { in: emailsInBatch },
+        },
+        select: { accountKey: true, email: true, reason: true },
+      })
+    : [];
+  const suppressionKey = (accountKey: string, email: string) =>
+    `${accountKey}|${email.toLowerCase().trim()}`;
+  const suppressedByKey = new Map(
+    suppressed.map((s) => [suppressionKey(s.accountKey, s.email), s.reason]),
+  );
+
+  const now = Date.now();
+  const isImmediate = !input.scheduledFor || input.scheduledFor.getTime() <= now;
+  const status: EmailCampaignStatus = isImmediate ? 'queued' : 'scheduled';
+
+  const updated = await prisma.$transaction(async (tx) => {
+    // Clear any pre-existing recipient rows so re-scheduling a draft
+    // starts from a clean slate.
+    await tx.emailCampaignRecipient.deleteMany({ where: { campaignId } });
+
+    await tx.emailCampaignRecipient.createMany({
+      data: recipients.map((recipient) => {
+        if (!recipient.email) {
+          return {
+            campaignId,
+            contactId: recipient.contactId,
+            accountKey: recipient.accountKey,
+            email: null,
+            fullName: recipient.fullName || null,
+            status: 'failed',
+            error: INVALID_EMAIL_ERROR,
+          };
+        }
+        const suppressionReason = suppressedByKey.get(
+          suppressionKey(recipient.accountKey, recipient.email),
+        );
+        if (suppressionReason) {
+          return {
+            campaignId,
+            contactId: recipient.contactId,
+            accountKey: recipient.accountKey,
+            email: recipient.email,
+            fullName: recipient.fullName || null,
+            status: 'skipped',
+            error: `Suppressed (${suppressionReason})`,
+          };
+        }
+        return {
+          campaignId,
+          contactId: recipient.contactId,
+          accountKey: recipient.accountKey,
+          email: recipient.email,
+          fullName: recipient.fullName || null,
+          status: 'pending',
+          error: null,
+        };
+      }),
+    });
+
+    const accountKeys = [...new Set(recipients.map((r) => r.accountKey).filter(Boolean))];
+
+    return tx.emailCampaign.update({
+      where: { id: campaignId },
+      data: {
+        status,
+        scheduledFor: isImmediate ? null : input.scheduledFor,
+        totalRecipients: recipients.length,
+        accountKeys: JSON.stringify(accountKeys),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      },
+      select: emailCampaignSummarySelect,
+    });
+  });
+
+  return toSummary(updated);
+}
+
 export async function getEmailCampaign(campaignId: string): Promise<EmailCampaignSummary | null> {
   const row = await prisma.emailCampaign.findUnique({
     where: { id: campaignId },
     select: emailCampaignSummarySelect,
   });
   return row ? toSummary(row) : null;
+}
+
+/**
+ * Delete a campaign + its recipient rows. We block deletion of in-flight
+ * campaigns (queued/processing) so the worker never finds itself running
+ * a job whose campaign row has vanished mid-loop.
+ */
+export async function deleteEmailCampaign(campaignId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.emailCampaign.findUnique({
+      where: { id: campaignId },
+      select: { status: true },
+    });
+    if (!row) return;
+    if (row.status === 'queued' || row.status === 'processing') {
+      throw new Error('Cannot delete a campaign that is currently sending.');
+    }
+    await tx.emailCampaignRecipient.deleteMany({ where: { campaignId } });
+    await tx.emailCampaign.delete({ where: { id: campaignId } });
+  });
+}
+
+/**
+ * Toggle the archive flag on a campaign. Archive is stored as
+ * `metadata.archived = true` so we can ship it without a Prisma
+ * migration. The list endpoint filters archived rows out by default.
+ * In-flight campaigns (queued/processing) can't be archived to keep the
+ * worker's state machine simple.
+ */
+export async function setEmailCampaignArchived(
+  campaignId: string,
+  archived: boolean,
+): Promise<EmailCampaignSummary> {
+  const existing = await prisma.emailCampaign.findUnique({
+    where: { id: campaignId },
+    select: { status: true, metadata: true },
+  });
+  if (!existing) throw new Error('Campaign not found');
+  if (existing.status === 'queued' || existing.status === 'processing') {
+    throw new Error('Cannot archive a campaign that is currently sending.');
+  }
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = existing.metadata ? (JSON.parse(existing.metadata) as Record<string, unknown>) : {};
+    if (typeof meta !== 'object' || meta === null) meta = {};
+  } catch {
+    meta = {};
+  }
+  if (archived) meta.archived = true;
+  else delete meta.archived;
+  const updated = await prisma.emailCampaign.update({
+    where: { id: campaignId },
+    data: { metadata: JSON.stringify(meta) },
+    select: emailCampaignSummarySelect,
+  });
+  return toSummary(updated);
+}
+
+/**
+ * Create a new draft email campaign by cloning an existing one. Status
+ * resets to 'draft', schedule + timestamps clear, name gets a "(Copy)"
+ * suffix, and recipient rows are NOT copied — the user will reselect the
+ * audience in the Recipients step.
+ */
+export async function duplicateEmailCampaign(
+  campaignId: string,
+  options?: { createdByUserId?: string; createdByRole?: string },
+): Promise<EmailCampaignSummary> {
+  const source = await prisma.emailCampaign.findUnique({
+    where: { id: campaignId },
+    select: emailCampaignSummarySelect,
+  });
+  if (!source) {
+    throw new Error('Source campaign not found');
+  }
+
+  const created = await prisma.emailCampaign.create({
+    data: {
+      name: source.name ? `${source.name} (Copy)` : defaultDraftName(new Date()),
+      subject: source.subject || '',
+      previewText: source.previewText || null,
+      htmlContent: source.htmlContent || '',
+      textContent: source.textContent || null,
+      sourceType: source.sourceType || 'drag-drop',
+      status: 'draft',
+      accountKeys: source.accountKeys || JSON.stringify([]),
+      sourceAudienceId: source.sourceAudienceId || null,
+      sourceFilter: source.sourceFilter || null,
+      metadata: source.metadata || null,
+      createdByUserId: options?.createdByUserId || null,
+      createdByRole: options?.createdByRole || null,
+    },
+    select: emailCampaignSummarySelect,
+  });
+  return toSummary(created);
 }
 
 export async function listEmailCampaigns(options?: {
@@ -425,7 +897,7 @@ export async function processEmailCampaign(
     include: {
       recipients: {
         where: { status: 'pending' },
-        select: { id: true, email: true, fullName: true },
+        select: { id: true, email: true, fullName: true, accountKey: true },
       },
     },
   });
@@ -469,7 +941,10 @@ export async function processEmailCampaign(
     },
   });
 
-  const { transporter, from } = getTransportConfig();
+  const smtp = getTransporter();
+  const defaultFrom = smtp?.defaultFrom || '';
+  const uniqueAccountKeys = [...new Set(campaign.recipients.map((r) => r.accountKey))];
+  const senderByAccount = await buildSenderMap(uniqueAccountKeys, defaultFrom);
   const metadata = parseCampaignMetadata(campaign.metadata);
   const html = withPreviewText(campaign.htmlContent, campaign.previewText || '');
   const text = campaign.textContent?.trim() || stripHtml(campaign.htmlContent);
@@ -487,30 +962,97 @@ export async function processEmailCampaign(
       return;
     }
 
-    try {
-      const info = await transporter.sendMail({
-        from,
-        to: recipientEmail,
-        subject: campaign.subject,
-        html,
-        text,
+    const sender = senderByAccount.get(recipient.accountKey) || {
+      from: defaultFrom,
+      replyTo: null,
+      senderEmail: null,
+      senderName: null,
+      sendgridApiKey: null,
+      unsubscribeFooter: null,
+    };
+
+    // Dispatch: SendGrid first (per-sub-account API key), then SMTP fallback.
+    // If neither is configured for this account, fail the recipient with
+    // a clear message rather than throwing — keeps the rest of the batch
+    // alive and the user sees what went wrong on the failed row.
+    const useSendGrid = Boolean(sender.sendgridApiKey && sender.senderEmail);
+
+    if (!useSendGrid && !smtp) {
+      await prisma.emailCampaignRecipient.update({
+        where: { id: recipient.id },
+        data: {
+          status: 'failed',
+          error:
+            'No sending transport configured for this sub-account. Add a SendGrid API key in Sending settings, or set SMTP_* env vars for a fallback.',
+        },
       });
+      return;
+    }
+
+    try {
+      let messageId: string | null = null;
+
+      if (useSendGrid) {
+        const result = await sendEmailViaSendGrid({
+          apiKey: sender.sendgridApiKey!,
+          from: { email: sender.senderEmail!, name: sender.senderName || undefined },
+          replyTo: sender.replyTo ? { email: sender.replyTo } : undefined,
+          to: { email: recipientEmail, name: recipient.fullName || undefined },
+          subject: campaign.subject,
+          html,
+          text,
+          categories: ['loomi', `campaign:${campaign.id}`],
+          // Carry these through to the Event webhook so we can correlate
+          // opens/clicks/bounces back to the originating row.
+          customArgs: {
+            campaignId: campaign.id,
+            recipientId: recipient.id,
+            accountKey: recipient.accountKey,
+          },
+          // CAN-SPAM: SendGrid appends an unsubscribe link + sets the
+          // List-Unsubscribe header. Footer copy is built per-account in
+          // buildSenderMap. Skipped when the account has no dealer name
+          // configured (extremely rare) — the worker still sends but the
+          // recipient won't see a Loomi-rendered footer (their template
+          // might already include one).
+          ...(sender.unsubscribeFooter
+            ? { unsubscribe: sender.unsubscribeFooter }
+            : {}),
+        });
+        messageId = result.messageId || null;
+      } else {
+        const info = await smtp!.transporter.sendMail({
+          from: sender.from,
+          ...(sender.replyTo ? { replyTo: sender.replyTo } : {}),
+          to: recipientEmail,
+          subject: campaign.subject,
+          html,
+          text,
+        });
+        messageId = info.messageId || null;
+      }
 
       await prisma.emailCampaignRecipient.update({
         where: { id: recipient.id },
         data: {
           status: 'sent',
-          messageId: info.messageId || null,
+          messageId,
           sentAt: new Date(),
           error: null,
         },
       });
     } catch (err) {
+      const errorMessage =
+        err instanceof SendGridError
+          ? `SendGrid: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : 'Failed to send email';
       await prisma.emailCampaignRecipient.update({
         where: { id: recipient.id },
         data: {
           status: 'failed',
-          error: err instanceof Error ? err.message : 'Failed to send email',
+          error: errorMessage,
         },
       });
     }
