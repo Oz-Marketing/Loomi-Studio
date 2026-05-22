@@ -5,7 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { ContactsTable } from '@/components/contacts/contacts-table';
-import type { Contact } from '@/lib/contacts/types';
+import type { Contact, ContactAccountRef } from '@/lib/contacts/types';
+import { normalisePhone } from '@/lib/contacts/normalize';
 import { ContactsToolbar, ContactsAccountFilter } from '@/components/contacts/contacts-toolbar';
 import { AddContactModal } from '@/components/contacts/add-contact-modal';
 import {
@@ -24,6 +25,120 @@ interface SingleAccountResponse {
 // call; 8 in flight keeps total round-trip time low even with 30+
 // sub-accounts without overwhelming the dev server or pg pool.
 const ADMIN_CONTACTS_FETCH_CONCURRENCY = 8;
+
+/**
+ * Identity key used to deduplicate contacts that appear in multiple
+ * sub-accounts (e.g. one shopper who's signed up at 3 dealers under the
+ * same agency). Lowercase email wins when present — emails are the
+ * cleanest unique handle. Falls back to E.164-normalised phone so we
+ * still catch SMS-only contacts. Returns null when the row has neither;
+ * those rows stay un-merged.
+ */
+function contactIdentityKey(c: Contact): string | null {
+  const email = (c.email || '').trim().toLowerCase();
+  if (email) return `email:${email}`;
+  const phone = normalisePhone(c.phone || '');
+  if (phone) return `phone:${phone}`;
+  return null;
+}
+
+/**
+ * Pull the avatar-stack-relevant fields off the account-context dict
+ * for one sub-account. Returns null when the key isn't known to the
+ * client (e.g. a contact references a deleted account), in which case
+ * the caller falls back to a minimal {key, dealer: key} record so the
+ * avatar still renders something instead of a hole.
+ */
+function buildAccountRef(
+  key: string,
+  accountMap: Record<string, {
+  dealer?: string;
+  storefrontImage?: string | null;
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
+  city?: string | null;
+  state?: string | null;
+  category?: string | null;
+}>,
+): ContactAccountRef {
+  const acc = accountMap[key];
+  if (!acc) return { key, dealer: key };
+  return {
+    key,
+    dealer: acc.dealer || key,
+    storefrontImage: acc.storefrontImage ?? null,
+    logos: acc.logos ?? null,
+    city: acc.city ?? null,
+    state: acc.state ?? null,
+    category: acc.category ?? null,
+  };
+}
+
+/**
+ * Collapse contacts that share an identity key (same email or phone)
+ * across sub-accounts into a single row whose `_accounts` array carries
+ * every sub-account membership. Single-membership contacts still get a
+ * 1-element `_accounts` array so the contacts-table can render avatars
+ * uniformly regardless of cardinality.
+ *
+ * For each merged group the first contact (fetch order) supplies the
+ * primary row data; we sort `_accounts` alphabetically by dealer name
+ * and set `_accountKey`/`_dealer` to the alphabetically-first one so
+ * the table's existing sort-by-dealer column behaves predictably.
+ */
+function mergeContactsByIdentity(
+  contacts: Contact[],
+  accountMap: Record<string, {
+  dealer?: string;
+  storefrontImage?: string | null;
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
+  city?: string | null;
+  state?: string | null;
+  category?: string | null;
+}>,
+): Contact[] {
+  const groups = new Map<string, Contact[]>();
+  const ungrouped: Contact[] = [];
+
+  for (const c of contacts) {
+    const k = contactIdentityKey(c);
+    if (!k) {
+      ungrouped.push(c);
+      continue;
+    }
+    const arr = groups.get(k);
+    if (arr) arr.push(c);
+    else groups.set(k, [c]);
+  }
+
+  const out: Contact[] = [];
+
+  for (const arr of groups.values()) {
+    const first = arr[0];
+    const seenKeys = new Set<string>();
+    const refs: ContactAccountRef[] = [];
+    for (const c of arr) {
+      const key = c._accountKey || '';
+      if (!key || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      refs.push(buildAccountRef(key, accountMap));
+    }
+    refs.sort((a, b) => a.dealer.localeCompare(b.dealer));
+    out.push({
+      ...first,
+      _accountKey: refs[0]?.key || first._accountKey,
+      _dealer: refs[0]?.dealer || first._dealer,
+      _accounts: refs,
+    });
+  }
+
+  for (const c of ungrouped) {
+    const key = c._accountKey || '';
+    const refs = key ? [buildAccountRef(key, accountMap)] : undefined;
+    out.push({ ...c, _accounts: refs });
+  }
+
+  return out;
+}
 
 export default function ContactsPage() {
   const { isAdmin, accountKey, accounts } = useAccount();
@@ -60,7 +175,17 @@ function useContactFilters(rawContacts: Contact[], initialAccountFilter = '') {
     let result = rawContacts;
 
     if (accountFilters.length > 0) {
-      result = result.filter((c) => Boolean(c._accountKey && accountFilters.includes(c._accountKey)));
+      // After dedupe, a contact may belong to multiple sub-accounts via
+      // `_accounts`. Match if ANY membership intersects the filter, so
+      // narrowing to one rooftop still shows cross-rooftop contacts that
+      // also live there (with their full avatar stack visible for
+      // context).
+      result = result.filter((c) => {
+        if (c._accounts && c._accounts.length > 0) {
+          return c._accounts.some((a) => accountFilters.includes(a.key));
+        }
+        return Boolean(c._accountKey && accountFilters.includes(c._accountKey));
+      });
     }
 
     if (search) {
@@ -185,7 +310,11 @@ function AdminContactsView() {
       }
     }
 
-    setContacts(nextContacts);
+    // Dedupe contacts that exist in multiple sub-accounts (one shopper
+    // signed up at multiple rooftops). Merge their sub-account
+    // membership into `_accounts` so the table renders one row with a
+    // stacked avatar instead of N duplicate rows.
+    setContacts(mergeContactsByIdentity(nextContacts, accountMap));
     if (failures.length === 0) {
       setFetchError(null);
     } else if (failures.length === accountKeysToFetch.length) {

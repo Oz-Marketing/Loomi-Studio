@@ -17,7 +17,8 @@ import {
   TagIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
-import type { Contact } from '@/lib/contacts/types';
+import type { Contact, ContactAccountRef } from '@/lib/contacts/types';
+import { AccountAvatar } from '@/components/account-avatar';
 import BulkActionDock, { type BulkActionDockItem } from '@/components/bulk-action-dock';
 import { AddToListModal, DndModal, TagsModal } from '@/components/contacts/bulk-action-modals';
 import { toast } from '@/lib/toast';
@@ -825,10 +826,13 @@ function ContactRow({
       <td className="px-4 py-3 text-sm text-[var(--muted-foreground)] whitespace-nowrap">
         {contact.dateAdded ? formatRelativeDate(contact.dateAdded) : '—'}
       </td>
-      {/* Account */}
+      {/* Account — avatar+name for single membership, stacked avatars
+          with hover tooltips for 2+. Mirrors the pattern in
+          components/settings/users-tab.tsx so the two admin tables
+          share visual language. */}
       {showAccountColumn && (
-        <td className="px-4 py-3 text-sm font-medium truncate max-w-[150px]">
-          {contact._dealer || '—'}
+        <td className="px-4 py-3 max-w-[180px]">
+          <SubAccountCell accounts={contact._accounts} fallbackDealer={contact._dealer} />
         </td>
       )}
       {/* Expand indicator */}
@@ -836,5 +840,116 @@ function ContactRow({
         <ChevronRightIcon className={`w-4 h-4 ${canOpenDetail ? 'text-[var(--muted-foreground)]' : 'text-[var(--muted)]'}`} />
       </td>
     </tr>
+  );
+}
+
+// ── Sub-Account Cell ──
+//
+// Renders the Sub-Account column for the admin view. One sub-account →
+// small avatar + dealer name. Multiple sub-accounts (same contact lives
+// in multiple rooftops, dedupe-merged upstream) → stacked avatars with
+// per-avatar hover tooltips for dealer name + city/state + key. Mirrors
+// the agency-style stack used by components/settings/users-tab.tsx so
+// the two admin tables share visual language.
+//
+// Click handling: the parent <tr> still routes to the primary sub-
+// account's contact detail page. Avatars themselves are non-navigable
+// in this v1 to keep the row's single click target predictable.
+
+const MAX_AVATARS_VISIBLE = 4;
+
+function SubAccountCell({
+  accounts,
+  fallbackDealer,
+}: {
+  accounts: ContactAccountRef[] | undefined;
+  fallbackDealer: string | undefined;
+}) {
+  // No dedup ran (pre-merge data, or single-account views that don't
+  // populate _accounts). Fall back to plain dealer text so we don't
+  // break per-account views.
+  if (!accounts || accounts.length === 0) {
+    return <span className="text-sm font-medium truncate block">{fallbackDealer || '—'}</span>;
+  }
+
+  // Single sub-account — show avatar + name inline. Most readable form
+  // for the common case where dedup didn't merge anything.
+  if (accounts.length === 1) {
+    const acc = accounts[0];
+    return (
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="inline-flex rounded-full bg-[var(--background)] p-[1px] shadow-sm flex-shrink-0">
+          <AccountAvatar
+            name={acc.dealer}
+            accountKey={acc.key}
+            storefrontImage={acc.storefrontImage || null}
+            logos={acc.logos || undefined}
+            size={28}
+            className="rounded-full"
+            alt={`${acc.dealer} (${acc.key})`}
+          />
+        </span>
+        <span className="text-sm font-medium truncate">{acc.dealer}</span>
+      </div>
+    );
+  }
+
+  // 2+ sub-accounts — stacked avatars with hover tooltips.
+  const visible = accounts.slice(0, MAX_AVATARS_VISIBLE);
+  const extra = accounts.length - visible.length;
+
+  return (
+    <div className="account-avatar-stack flex items-center pl-2">
+      {visible.map((acc) => {
+        const cityState = [acc.city, acc.state].filter(Boolean).join(', ') || 'Location unavailable';
+        const industry = acc.category || 'Unknown industry';
+        return (
+          <span
+            key={acc.key}
+            aria-label={`${acc.dealer} • ${cityState} • ${industry} • Key: ${acc.key}`}
+            className="relative inline-flex items-center group account-avatar-stack-item"
+          >
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-[90] mb-2 hidden -translate-x-1/2 group-hover:block">
+              <span className="relative block account-tooltip-popover rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 shadow-xl whitespace-nowrap">
+                <span className="block text-[11px] font-medium leading-4 text-[var(--foreground)]">
+                  {acc.dealer}
+                </span>
+                <span className="block text-[10px] leading-4 text-[var(--muted-foreground)]">
+                  {cityState}
+                </span>
+                <span className="block text-[10px] leading-4 text-[var(--muted-foreground)]">
+                  {industry}
+                </span>
+                <span className="mt-1 block text-[10px] font-mono leading-4 text-[var(--muted-foreground)]">
+                  Key: {acc.key}
+                </span>
+                <span className="absolute left-1/2 top-full -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-t-[7px] border-t-[var(--background)]" />
+              </span>
+            </span>
+
+            <span className="inline-flex rounded-full bg-[var(--background)] p-[1px] shadow-sm">
+              <AccountAvatar
+                name={acc.dealer}
+                accountKey={acc.key}
+                storefrontImage={acc.storefrontImage || null}
+                logos={acc.logos || undefined}
+                size={28}
+                className="rounded-full"
+                alt={`${acc.dealer} (${acc.key})`}
+              />
+            </span>
+          </span>
+        );
+      })}
+
+      {extra > 0 && (
+        <span
+          title={`${extra} more sub-account${extra === 1 ? '' : 's'}: ${accounts.slice(MAX_AVATARS_VISIBLE).map((a) => a.dealer).join(', ')}`}
+          className="account-avatar-stack-item inline-flex items-center justify-center w-[30px] h-[30px] rounded-full border border-[var(--background)] bg-[var(--background)] text-[10px] font-medium text-[var(--muted-foreground)] shadow-sm"
+        >
+          +{extra}
+        </span>
+      )}
+    </div>
   );
 }
