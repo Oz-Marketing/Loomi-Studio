@@ -12,6 +12,13 @@
 //   - `_accountKey` / `_dealer` are injected by aggregate / admin
 //     views that flatten contacts across multiple sub-accounts; they
 //     stay optional so single-account responses don't need them.
+//   - `_accounts` carries the full list of sub-accounts a contact
+//     appears in when the admin view deduplicates by email/phone.
+//     One entry when the contact lives in a single sub-account;
+//     multiple entries when the same email/phone exists across rooftops
+//     (e.g. one customer who's shopped at multiple dealers). The
+//     contacts-table renders this as an avatar stack with hover tooltips
+//     for 2+ entries.
 
 export interface Contact {
   id: string;
@@ -44,4 +51,21 @@ export interface Contact {
   lastMessageDate: string;
   _accountKey?: string;
   _dealer?: string;
+  _accounts?: ContactAccountRef[];
+}
+
+/**
+ * One sub-account reference attached to a deduplicated contact row in
+ * admin/aggregate views. Carries just the fields the contacts-table's
+ * avatar stack needs to render itself + populate its hover tooltip.
+ */
+export interface ContactAccountRef {
+  key: string;
+  dealer: string;
+  storefrontImage?: string | null;
+  /** Matches AccountAvatar's prop shape — see components/account-avatar.tsx. */
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
+  city?: string | null;
+  state?: string | null;
+  category?: string | null;
 }
