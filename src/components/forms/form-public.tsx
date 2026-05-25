@@ -88,7 +88,7 @@ export function FormPublic({ slug, template, embed }: FormPublicProps) {
 
     let res: Response;
     try {
-      res = await fetch(`/api/forms/${slug}/submit`, {
+      res = await fetch(`/api/f/${slug}/submit`, {
         method: 'POST',
         body: formData,
       });

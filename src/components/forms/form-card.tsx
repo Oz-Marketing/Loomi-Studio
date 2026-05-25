@@ -9,6 +9,7 @@ import {
   InboxStackIcon,
 } from '@heroicons/react/24/outline';
 import type { FormSummary } from '@/lib/services/forms';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 
 function formatRelativeDate(dateStr: string): string {
   if (!dateStr) return '—';
@@ -33,10 +34,11 @@ export function FormCard({
 }) {
   const published = form.status === 'published';
   const StatusIcon = published ? CheckCircleIcon : DocumentTextIcon;
+  const subHref = useSubaccountHref();
 
   return (
     <Link
-      href={`/websites/forms/${form.id}`}
+      href={subHref(`/websites/forms/${form.id}`)}
       className="glass-card group block rounded-xl p-4 transition-all hover:border-[var(--primary)]/40 hover:shadow-lg"
     >
       <div className="flex items-start justify-between gap-3">

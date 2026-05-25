@@ -8,6 +8,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { useFormDetail } from '@/components/forms/form-detail-context';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 
 interface ContactListOption {
   id: string;
@@ -22,6 +23,7 @@ function publicHost(): string {
 
 export function FormSettingsForm() {
   const router = useRouter();
+  const subHref = useSubaccountHref();
   const { form, setForm } = useFormDetail();
   const [draft, setDraft] = React.useState({
     name: form.name,
@@ -109,7 +111,7 @@ export function FormSettingsForm() {
       return;
     }
     toast.success('Form deleted.');
-    router.push('/websites/forms');
+    router.push(subHref('/websites/forms'));
   }
 
   const previewUrl = `${publicHost()}/f/${draft.slug || form.slug}`;

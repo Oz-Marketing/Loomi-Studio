@@ -7,6 +7,7 @@ import {
   InboxStackIcon,
   PencilSquareIcon,
 } from '@heroicons/react/24/outline';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 
 const TABS = [
   { key: 'builder', label: 'Builder', href: '', Icon: PencilSquareIcon },
@@ -16,7 +17,8 @@ const TABS = [
 
 export function FormDetailTabs({ formId }: { formId: string }) {
   const pathname = usePathname();
-  const base = `/websites/forms/${formId}`;
+  const subHref = useSubaccountHref();
+  const base = subHref(`/websites/forms/${formId}`);
 
   return (
     <div className="flex items-center gap-1 border-b border-[var(--border)] bg-[var(--card)]/80 px-4">
