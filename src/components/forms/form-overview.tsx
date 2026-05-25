@@ -20,6 +20,7 @@ import { useFormDetail } from '@/components/forms/form-detail-context';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { FormRenderer } from '@/lib/forms/render';
 import { SubmissionsTable } from '@/components/forms/submissions-table';
+import { HelpTip } from '@/components/ui/help-tip';
 import type { FormSubmissionRow } from '@/lib/services/forms';
 
 const fetcher = async (url: string) => {
@@ -289,7 +290,40 @@ export function FormOverview() {
 
         <section className="glass-card rounded-2xl p-4 h-fit">
           <div className="flex items-center justify-between gap-3 mb-2">
-            <h3 className="font-semibold">Embed</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-semibold">Embed</h3>
+              <HelpTip title="How to embed this form">
+                <p>
+                  Copy the snippet below and paste it into your site&rsquo;s
+                  HTML wherever you want the form to appear.
+                </p>
+                <ol>
+                  <li>
+                    Click the copy icon to grab the{' '}
+                    <code>&lt;script&gt;</code> tag.
+                  </li>
+                  <li>
+                    In your page editor, add an HTML / embed block and paste
+                    the snippet. Most builders (Webflow, WordPress, Wix,
+                    Framer, plain HTML) accept script tags directly.
+                  </li>
+                  <li>
+                    Publish the page. The form renders inline and auto-resizes
+                    to fit its content.
+                  </li>
+                </ol>
+                <p>
+                  Need a different format?{' '}
+                  <strong>More options</strong> includes an{' '}
+                  <code>&lt;iframe&gt;</code> fallback (for hosts that strip
+                  scripts) and a direct shareable link.
+                </p>
+                <p>
+                  The form must be <strong>Published</strong> for visitors to
+                  submit — draft forms return a 404 on the public URL.
+                </p>
+              </HelpTip>
+            </div>
             <button
               type="button"
               onClick={openSettings}
