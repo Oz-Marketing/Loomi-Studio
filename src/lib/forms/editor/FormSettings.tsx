@@ -20,26 +20,14 @@ const FONT_FAMILY_OPTIONS = [
 ];
 
 export function FormSettings() {
-  const { template, updateSettings, updateTitle } = useEditor();
+  const { template, updateSettings } = useEditor();
   const { settings } = template;
 
   return (
     <div>
-      {/* General */}
-      <SectionHeader name="General" />
-      <div className="px-4 py-3 space-y-3">
-        <StackedField label="Form Name">
-          <input
-            type="text"
-            value={template.title || ''}
-            onChange={(e) => updateTitle(e.target.value)}
-            placeholder="Untitled form"
-            className={inputClass}
-          />
-        </StackedField>
-      </div>
-
-      {/* Background */}
+      {/* Background — first section. Form name is edited via the
+          click-to-edit title in the top toolbar, so we don't duplicate
+          it here. */}
       <SectionHeader name="Background" />
       <div className="px-4 py-3 space-y-3">
         <StackedField label="Page Background">
