@@ -264,6 +264,18 @@ export async function getPublishedFormBySlug(slug: string): Promise<FormDetail |
   return toDetail(row);
 }
 
+/**
+ * Public-render lookup by id: returns a form only if it's published.
+ * Used by the landing-page server renderer to pre-fetch the schema of
+ * `embedded_form` blocks so they render inline (no client round-trip,
+ * no auth required on the public LP).
+ */
+export async function getPublishedFormById(id: string): Promise<FormDetail | null> {
+  const row = await prisma.form.findUnique({ where: { id } });
+  if (!row || row.status !== 'published') return null;
+  return toDetail(row);
+}
+
 export async function updateForm(
   id: string,
   accountKeys: string[] | null,

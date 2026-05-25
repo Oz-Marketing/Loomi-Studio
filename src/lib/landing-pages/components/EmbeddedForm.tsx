@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { FormRenderer } from '@/lib/forms/render';
 import { parseFormTemplate } from '@/lib/forms/types';
 import type { FormDetail } from '@/lib/services/forms';
+import { usePreloadedForm } from '../render';
 
 export interface EmbeddedFormProps {
   formId?: string;
@@ -20,22 +21,30 @@ const fetcher = async (url: string) => {
 
 /**
  * EmbeddedForm — renders one of the user's Forms inline using the
- * same FormRenderer the public /f/[slug] page uses. Submissions go to
- * the form's own submission endpoint, NOT the landing page; this block
- * is just a presentational wrapper that points at a form by id.
+ * same FormRenderer the public /f/[slug] page uses. Submissions go
+ * to the form's own submission endpoint, NOT the landing page.
  *
- * In the editor the form schema is fetched via SWR so live edits to
- * the embedded form show up in the LP canvas. On the public LP page
- * (PR4) the schema is fetched server-side and hydrated into props so
- * no client fetch is needed.
+ * Two render modes:
+ *  - Public LP (server): the renderer wraps us in a PreloadedForms
+ *    context with form schemas already fetched server-side. We use
+ *    those directly — no client fetch, no auth dependency, works for
+ *    anonymous visitors.
+ *  - Editor preview (client): no context preload, so we fall back to
+ *    SWR-fetching /api/forms/[id]. Live edits to the embedded form
+ *    show up in the LP canvas.
  */
 export const EmbeddedFormBlock: React.FC<EmbeddedFormProps> = ({
   formId,
   maxWidth = 640,
   align = 'center',
 }) => {
+  const preloaded = usePreloadedForm(formId);
+
+  // Only fire the SWR fetch when no preloaded schema is available
+  // AND we have a formId to fetch. Passing `null` to useSWR disables
+  // the request entirely.
   const { data, isLoading } = useSWR<{ form: FormDetail }>(
-    formId ? `/api/forms/${formId}` : null,
+    !preloaded && formId ? `/api/forms/${formId}` : null,
     fetcher,
   );
 
@@ -54,6 +63,15 @@ export const EmbeddedFormBlock: React.FC<EmbeddedFormProps> = ({
     );
   }
 
+  // Server-preloaded path — preferred for the public LP page.
+  if (preloaded) {
+    return (
+      <div style={wrapperStyle}>
+        <FormRenderer template={preloaded.schema} />
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div style={wrapperStyle}>
@@ -65,7 +83,7 @@ export const EmbeddedFormBlock: React.FC<EmbeddedFormProps> = ({
   if (!data?.form) {
     return (
       <div style={wrapperStyle}>
-        <Placeholder hint="Form not found (was it deleted?)" />
+        <Placeholder hint="Form not found (was it deleted or unpublished?)" />
       </div>
     );
   }

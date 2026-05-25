@@ -1,28 +1,46 @@
 /**
- * Render a v1 LandingPageTemplate to a React tree. Used by the public
- * /lp/[slug] page (PR4) and the editor preview thumbnail (PR3).
+ * Render a v1 LandingPageTemplate to a React tree. Used by:
+ *   - the editor canvas + preview thumbnails (client, no preload)
+ *   - the public /lp/[slug] page (server, with preloaded form schemas)
  *
  * Like the FormRenderer, this walks the block tree and renders each
- * block's React component directly — no server-side HTML stringification
- * required (LPs live in the browser, not in email clients).
- *
- * PR1 ships a structural skeleton against the placeholder components.
- * PR2 fills in the real block implementations.
+ * block's React component directly. The optional `preloadedForms` map
+ * is consumed by the EmbeddedForm block via context — when a form's
+ * schema is already in the map, the block renders inline server-side
+ * with no client fetch (which matters for anonymous LP visitors who
+ * don't have auth to hit /api/forms/[id]).
  */
 import * as React from 'react';
 import type { Block, LandingPageTemplate } from './types';
 import { BLOCK_COMPONENTS } from './components';
+import type { FormTemplate } from '@/lib/forms/types';
+
+export interface PreloadedForm {
+  schema: FormTemplate;
+}
+
+/** Map of form id → its parsed schema, supplied by the public LP
+ *  renderer. EmbeddedForm reads this first; missing entries fall
+ *  through to the client SWR fetch (editor mode). */
+const PreloadedFormsContext = React.createContext<Map<string, PreloadedForm> | null>(null);
+
+export function usePreloadedForm(formId: string | undefined): PreloadedForm | null {
+  const map = React.useContext(PreloadedFormsContext);
+  if (!map || !formId) return null;
+  return map.get(formId) ?? null;
+}
 
 export interface LandingPageRendererProps {
   template: LandingPageTemplate;
+  preloadedForms?: Map<string, PreloadedForm>;
 }
 
-export function LandingPageRenderer({ template }: LandingPageRendererProps) {
+export function LandingPageRenderer({ template, preloadedForms }: LandingPageRendererProps) {
   const s = template.settings;
   const margin = `${s.contentMarginTop ?? 0}px ${s.contentMarginRight ?? 0}px ${s.contentMarginBottom ?? 0}px ${s.contentMarginLeft ?? 0}px`;
   const padding = `${s.contentPaddingTop ?? 0}px ${s.contentPaddingRight ?? 0}px ${s.contentPaddingBottom ?? 0}px ${s.contentPaddingLeft ?? 0}px`;
 
-  return (
+  const inner = (
     <div
       className="loomi-lp-root"
       style={{
@@ -52,6 +70,15 @@ export function LandingPageRenderer({ template }: LandingPageRendererProps) {
       </div>
     </div>
   );
+
+  if (preloadedForms) {
+    return (
+      <PreloadedFormsContext.Provider value={preloadedForms}>
+        {inner}
+      </PreloadedFormsContext.Provider>
+    );
+  }
+  return inner;
 }
 
 function RenderedBlock({ block }: { block: Block }) {
