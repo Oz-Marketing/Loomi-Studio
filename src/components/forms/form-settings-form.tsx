@@ -8,6 +8,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { useFormDetail } from '@/components/forms/form-detail-context';
+import { HelpTip } from '@/components/ui/help-tip';
 
 interface ContactListOption {
   id: string;
@@ -232,7 +233,37 @@ export function FormSettingsForm() {
         <aside className="space-y-4">
           <section className="glass-card rounded-2xl p-5">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">Embed</h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="text-lg font-semibold">Embed</h2>
+                <HelpTip title="How to embed this form">
+                  <p>
+                    Copy the snippet below and paste it into your site&rsquo;s
+                    HTML wherever you want the form to appear.
+                  </p>
+                  <ol>
+                    <li>
+                      Click <strong>Copy</strong> to grab the{' '}
+                      <code>&lt;iframe&gt;</code> tag.
+                    </li>
+                    <li>
+                      In your page editor, add an HTML / embed block and paste
+                      the snippet in. Most builders (Webflow, WordPress, Wix,
+                      Framer, plain HTML) accept iframes directly.
+                    </li>
+                    <li>
+                      Publish the page. The form renders inline at full width
+                      and auto-loads from{' '}
+                      <code>studio.loomilm.com</code>.
+                    </li>
+                  </ol>
+                  <p>
+                    The form must be <strong>Published</strong> for visitors to
+                    submit — draft forms return a 404 on the public URL.
+                    Submissions appear under the <strong>Submissions</strong>{' '}
+                    tab on this form.
+                  </p>
+                </HelpTip>
+              </div>
               <button
                 type="button"
                 onClick={copySnippet}
