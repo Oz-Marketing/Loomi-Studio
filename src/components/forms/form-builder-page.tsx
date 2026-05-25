@@ -15,6 +15,22 @@ export function FormBuilderPage() {
   const [past, setPast] = React.useState<FormTemplate[]>([]);
   const [future, setFuture] = React.useState<FormTemplate[]>([]);
   const initialRender = React.useRef(true);
+  // Tracks the latest template (what the user sees) vs. the last
+  // version we've successfully persisted. Used to flush unsaved edits
+  // when the builder unmounts — e.g. the Back button — so quick
+  // tweaks like a slider drag immediately before navigating aren't
+  // lost when the debounce timer is cancelled by React cleanup.
+  const latestTemplateRef = React.useRef<FormTemplate>(form.schema);
+  const savedTemplateRef = React.useRef<FormTemplate>(form.schema);
+  const formIdRef = React.useRef(form.id);
+
+  React.useEffect(() => {
+    latestTemplateRef.current = template;
+  }, [template]);
+
+  React.useEffect(() => {
+    formIdRef.current = form.id;
+  }, [form.id]);
 
   // Clear the autosave indicator if we leave the builder so the
   // shared header doesn't keep showing a stale "Saved just now".
@@ -36,6 +52,7 @@ export function FormBuilderPage() {
         toast.error(payload.error || 'Form autosave failed');
         return;
       }
+      savedTemplateRef.current = schema;
       setForm(payload.form);
       setSaveState('saved');
     },
@@ -52,6 +69,52 @@ export function FormBuilderPage() {
     }, AUTOSAVE_MS);
     return () => window.clearTimeout(handle);
   }, [template, patchSchema]);
+
+  // Unmount: if we have edits the debounced save never got to flush,
+  // fire one final PATCH with `keepalive` so the request survives the
+  // page transition. This catches the "drag slider, immediately click
+  // Back" scenario that otherwise drops the change.
+  React.useEffect(() => {
+    return () => {
+      const pending = latestTemplateRef.current;
+      if (pending === savedTemplateRef.current) return;
+      try {
+        fetch(`/api/forms/${formIdRef.current}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ schema: pending }),
+          keepalive: true,
+        }).catch(() => {
+          /* keepalive saves are best-effort; nothing useful to do here */
+        });
+      } catch {
+        /* ignore — best-effort flush */
+      }
+    };
+  }, []);
+
+  // Page-level safety net: if the user closes the tab or hard-navigates
+  // while edits are pending, the same keepalive flush runs from the
+  // pagehide event. (beforeunload would also work but pagehide fires
+  // more reliably on iOS Safari + bfcache.)
+  React.useEffect(() => {
+    const flush = () => {
+      const pending = latestTemplateRef.current;
+      if (pending === savedTemplateRef.current) return;
+      try {
+        fetch(`/api/forms/${formIdRef.current}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ schema: pending }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, []);
 
   const handleChange = React.useCallback((next: FormTemplate) => {
     setPast((items) => [...items.slice(-(HISTORY_LIMIT - 1)), template]);
