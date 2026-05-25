@@ -82,14 +82,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Blank → drop into builder. Preset → land on overview so the user
-  // can see what they got before opening the editor.
+  // can see what they got before opening the editor. Both paths run
+  // preset.build() — the blank preset seeds a small default form
+  // (heading + email + submit) so the editor isn't a literal empty
+  // rectangle. Passing undefined here would skip the seed.
   const isBlank = preset.id === 'blank';
 
   try {
     const form = await createForm({
       accountKey,
       name: name || preset.name,
-      schema: isBlank ? undefined : preset.build(),
+      schema: preset.build(),
       createdByUserId: session!.user.id,
     });
     const redirect = withSubaccountPrefix(
