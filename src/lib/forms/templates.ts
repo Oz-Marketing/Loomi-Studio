@@ -34,48 +34,100 @@ function makeId(prefix: string, idx: number): string {
 
 // ── Blank ────────────────────────────────────────────────────────
 //
-// "From scratch" — minimal but not empty. Seeds a heading + email
-// field + submit button so the canvas isn't a blank rectangle when
-// the user lands in the builder. The user can wipe it and drag from
-// the palette, or tweak it from here. Keeping the seed tight (3
-// blocks) so it still reads as a starting point, not a template.
+// "From scratch" — minimal but not empty. Seeds a small but real
+// baseline (heading, intro text, name, email, phone, submit) so the
+// canvas isn't a blank rectangle when the user lands in the builder.
+// They can wipe it, drag from the palette, or just tweak the seed.
 
 const BLANK: FormTemplatePreset = {
   id: 'blank',
   name: 'Start from scratch',
-  description: 'Heading + email + submit. A clean starting point to build on.',
-  fieldCount: 1,
+  description: 'A small starter form (heading, name, email, phone, submit). Tweak to taste.',
+  fieldCount: 3,
   icon: 'sparkles',
   build: () => ({
     version: '1',
-    settings: { ...DEFAULT_FORM_SETTINGS },
+    settings: {
+      ...DEFAULT_FORM_SETTINGS,
+      contentWidth: 560,
+    },
     blocks: [
       {
         id: makeId('h', 1),
         type: 'heading',
         props: {
           text: 'Your form title',
-          level: 2,
-          fontSize: 26,
+          level: 1,
+          fontSize: 30,
           fontWeight: 700,
           align: 'left',
-          marginBottom: 16,
+          color: '#0f172a',
+          marginBottom: 8,
+        },
+      },
+      {
+        id: makeId('t', 1),
+        type: 'text',
+        props: {
+          text: "Short intro line — tell visitors what this form is for and they'll fill it out.",
+          fontSize: 15,
+          lineHeight: 1.55,
+          color: '#475569',
+          align: 'left',
+          marginBottom: 28,
         },
       },
       {
         id: makeId('f', 1),
+        type: 'field_text',
+        props: {
+          label: 'Full name',
+          placeholder: 'Jane Doe',
+          required: true,
+          name: 'name',
+          inputBorderRadius: 8,
+          inputPaddingY: 11,
+          marginBottom: 18,
+        },
+      },
+      {
+        id: makeId('f', 2),
         type: 'field_email',
         props: {
           label: 'Email',
           placeholder: 'you@example.com',
           required: true,
           name: 'email',
+          inputBorderRadius: 8,
+          inputPaddingY: 11,
+          marginBottom: 18,
+        },
+      },
+      {
+        id: makeId('f', 3),
+        type: 'field_phone',
+        props: {
+          label: 'Phone',
+          placeholder: '(555) 555-5555',
+          required: false,
+          name: 'phone',
+          inputBorderRadius: 8,
+          inputPaddingY: 11,
+          marginBottom: 28,
         },
       },
       {
         id: makeId('s', 1),
         type: 'submit_button',
-        props: { text: 'Submit', fullWidth: false, align: 'left' },
+        props: {
+          text: 'Submit',
+          fullWidth: false,
+          align: 'left',
+          paddingY: 12,
+          paddingX: 28,
+          borderRadius: 8,
+          fontWeight: 600,
+        },
       },
     ],
   }),
