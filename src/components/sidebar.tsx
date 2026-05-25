@@ -95,6 +95,10 @@ const flowsNavItem: NavItem = {
   href: '/flows',
   label: 'Flows',
   icon: FlowIcon as IconComponent,
+  children: [
+    { href: '/flows', label: 'Flows', icon: ListBulletIcon },
+    { href: '/flows/analytics', label: 'Analytics', icon: ChartBarSquareIcon },
+  ],
 };
 
 const messagingNav: NavItem = {

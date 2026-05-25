@@ -112,8 +112,14 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
     /^\/messaging\/campaigns\/sms\/[^/]+\/(recipients|message|schedule)$/.test(builderProbe) ||
     /^\/messaging\/campaigns\/multi\/[^/]+\/(recipients|message|schedule)$/.test(builderProbe);
 
+  // Flow builder owns its own chrome (its own top bar lives in
+  // FlowBuilder.tsx) so we hide the sidebar + TopUtilityBar entirely.
+  // Matches /flows/<id> but explicitly NOT /flows/analytics or the list page.
+  const isFlowBuilder =
+    /^\/flows\/[^/]+$/.test(builderProbe) && builderProbe !== '/flows/analytics';
+
   useEffect(() => {
-    if (isFullScreen || isTemplateEditor || isCampaignBuilder) {
+    if (isFullScreen || isTemplateEditor || isCampaignBuilder || isFlowBuilder) {
       setIsMainScrolled(false);
       return;
     }
@@ -128,10 +134,14 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
     handleScroll();
     main.addEventListener('scroll', handleScroll, { passive: true });
     return () => main.removeEventListener('scroll', handleScroll);
-  }, [pathname, isFullScreen, isTemplateEditor, isCampaignBuilder]);
+  }, [pathname, isFullScreen, isTemplateEditor, isCampaignBuilder, isFlowBuilder]);
 
   if (isFullScreen) {
     return <div className="flex-1">{children}</div>;
+  }
+
+  if (isFlowBuilder) {
+    return <div className="flex-1 min-w-0">{children}</div>;
   }
 
   if (isCampaignBuilder) {

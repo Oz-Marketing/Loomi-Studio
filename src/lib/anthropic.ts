@@ -13,6 +13,13 @@ export function getAnthropicClient(): Anthropic {
 
 export const ANTHROPIC_MODEL = 'claude-sonnet-4-5-20250929';
 
+// Opus 4.7 for the flow builder's "Iris" assistant — the model
+// orchestrates multi-tool graph edits (add node → connect → configure)
+// in a single turn, where the extra reasoning headroom is worth it.
+// Note: Opus 4.7 rejects temperature/top_p/top_k and budget_tokens —
+// callers must use adaptive thinking + effort instead.
+export const ANTHROPIC_FLOW_MODEL = 'claude-opus-4-7';
+
 /** Attempt to parse JSON from an AI response, stripping markdown fences if needed. */
 export function parseAiJson(raw: string): unknown {
   try {

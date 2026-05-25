@@ -376,12 +376,24 @@ function WorkflowRow({
 
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--muted)] transition-colors group">
-      <span className="flex-1 min-w-0 flex items-center gap-2">
-        <BoltIcon className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
-        <span className="min-w-0">
-          <span className="text-sm font-medium truncate block">{item.name || '(Untitled)'}</span>
+      {isLoomiFlow ? (
+        <Link
+          href={`/flows/${item.id}`}
+          className="flex-1 min-w-0 flex items-center gap-2 hover:text-[var(--primary)] transition-colors"
+        >
+          <BoltIcon className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
+          <span className="min-w-0">
+            <span className="text-sm font-medium truncate block">{item.name || '(Untitled)'}</span>
+          </span>
+        </Link>
+      ) : (
+        <span className="flex-1 min-w-0 flex items-center gap-2">
+          <BoltIcon className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
+          <span className="min-w-0">
+            <span className="text-sm font-medium truncate block">{item.name || '(Untitled)'}</span>
+          </span>
         </span>
-      </span>
+      )}
       {showAccount && accountKey && (
         <span className="w-36">
           <AccountAvatar
@@ -611,7 +623,7 @@ export function FlowList({
 
   if (loading) {
     return (
-      <div className="glass-card rounded-xl p-6 animate-pulse">
+      <div className="py-6 animate-pulse">
         <div className="w-40 h-5 bg-[var(--muted)] rounded mb-4" />
         <div className="space-y-3">
           {[...Array(5)].map((_, i) => (
@@ -628,9 +640,12 @@ export function FlowList({
   }
 
   return (
-    <div className="glass-card rounded-xl overflow-hidden animate-fade-in-up animate-stagger-3">
+    // No wrapping card — page-level chrome lives in flows/page.tsx;
+    // this component just renders the toolbar row + list inline so it
+    // matches the contacts-page rhythm.
+    <div className="animate-fade-in-up animate-stagger-3">
       {/* Header + Search */}
-      <div className="flex items-center justify-between gap-4 px-4 pt-4 pb-3">
+      <div className="flex items-center justify-between gap-4 pb-3">
         <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]">
           <FlowIcon className="w-3.5 h-3.5" />
           Flows
@@ -702,7 +717,7 @@ export function FlowList({
       </div>
 
       {/* List */}
-      <div className="px-4 pb-4">
+      <div className="pb-4">
         {filteredWorkflows.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-sm text-[var(--muted-foreground)]">

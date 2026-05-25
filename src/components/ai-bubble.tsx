@@ -49,6 +49,12 @@ export function AiBubble() {
     /^\/templates\/folder\/[^/]+$/.test(pathname) ||
     /^\/components\/[^/]+$/.test(pathname) ||
     /^\/components\/folder\/[^/]+$/.test(pathname);
+  // The flow builder ships its own embedded AI ("Iris" panel on the
+  // left rail) — hide the global bubble so we don't end up with two
+  // entry points stacked on the canvas.
+  const isFlowBuilder =
+    /^\/flows\/[^/]+$/.test(pathname) ||
+    /^\/subaccount\/[^/]+\/flows\/[^/]+$/.test(pathname);
   const isFullScreen =
     pathname.startsWith('/preview') || pathname.startsWith('/login');
 
@@ -213,6 +219,7 @@ export function AiBubble() {
 
   // Don't render on hidden pages or when template sidebar is open
   if (isFullScreen) return null;
+  if (isFlowBuilder) return null;
   if (isTemplateEditor && isTemplateAiSidebarOpen) return null;
 
   // On template editor pages, show only the bubble that opens the sidebar
@@ -225,8 +232,8 @@ export function AiBubble() {
             new CustomEvent(TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT, { detail: { open: true } }),
           );
         }}
-        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full text-white hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center ai-horizon-fab"
-        title="Ask Loomi (⌘J)"
+        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full text-zinc-900 hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center ai-horizon-fab"
+        title="Ask Iris (⌘J)"
       >
         <SparklesIcon className="w-5 h-5" />
       </button>
@@ -249,13 +256,13 @@ export function AiBubble() {
           }}
         >
           {/* Header */}
-          <div className="px-4 py-3 border-b border-[var(--ai-assist-border)] flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-full ai-horizon-orb flex items-center justify-center">
-                <SparklesIcon className="w-3.5 h-3.5 text-white" />
+                <SparklesIcon className="w-3.5 h-3.5 text-zinc-900" />
               </div>
               <span className="text-sm font-semibold text-[var(--foreground)]">
-                Ask Loomi
+                Ask Iris
               </span>
               <span className="text-[10px] text-[var(--muted-foreground)] bg-[var(--muted)] px-1.5 py-0.5 rounded">
                 ⌘J
@@ -282,7 +289,7 @@ export function AiBubble() {
           </div>
 
           {/* Context bar */}
-          <div className="px-3 py-1.5 border-b border-[var(--ai-assist-border)] ai-assist-context text-[10px] text-[var(--muted-foreground)] flex items-center gap-2">
+          <div className="px-3 py-1.5 border-b border-[var(--border)] ai-assist-context text-[10px] text-[var(--muted-foreground)] flex items-center gap-2">
             <span className="truncate">
               {accountData?.dealer || (isAdmin ? 'Admin mode' : 'No account')}
             </span>
@@ -299,11 +306,11 @@ export function AiBubble() {
             {history.length === 0 && !loading && (
               <div className="text-center py-6 space-y-3">
                 <div className="w-10 h-10 mx-auto rounded-full ai-horizon-orb-soft flex items-center justify-center">
-                  <SparklesIcon className="w-5 h-5 text-[var(--ai-hz-chip-text)]" />
+                  <SparklesIcon className="w-5 h-5 text-zinc-900" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-[var(--foreground)] mb-1">
-                    Hey! I&apos;m Loomi.
+                    Hey! I&apos;m Iris.
                   </p>
                   <p className="text-xs text-[var(--muted-foreground)]">
                     Ask me anything about Loomi Studio
@@ -314,7 +321,7 @@ export function AiBubble() {
                     <button
                       key={preset}
                       onClick={() => setPrompt(preset)}
-                      className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border border-[var(--ai-assist-border)] text-[var(--ai-ed-text-muted)] hover:text-[var(--ai-ed-text)] hover:bg-[var(--ai-ed-hover)] transition-colors"
+                      className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                     >
                       {preset}
                     </button>
@@ -328,13 +335,17 @@ export function AiBubble() {
               <div key={`chat-${idx}`}>
                 {msg.role === 'user' ? (
                   <div className="flex justify-end">
-                    <div className="max-w-[85%] bg-[linear-gradient(90deg,var(--ai-hz-start),var(--ai-hz-mid),var(--ai-hz-end))] text-white rounded-xl rounded-br-sm px-3 py-2">
+                    {/* Neutral primary-tinted bubble for user messages.
+                        Earlier this was a pink gradient with white text;
+                        the brand surface is now the panel outline, not
+                        each message. */}
+                    <div className="max-w-[85%] bg-[var(--primary)] text-white rounded-xl rounded-br-sm px-3 py-2">
                       <p className="text-xs whitespace-pre-wrap">{msg.content}</p>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="max-w-[90%] border border-[var(--ai-assist-border)] rounded-xl rounded-bl-sm px-3 py-2 ai-assist-assistant-message">
+                    <div className="max-w-[90%] border border-[var(--border)] rounded-xl rounded-bl-sm px-3 py-2 ai-assist-assistant-message">
                       <p className="text-xs leading-relaxed whitespace-pre-wrap text-[var(--foreground)]">
                         {msg.content}
                       </p>
@@ -346,7 +357,7 @@ export function AiBubble() {
                           <button
                             key={`sug-${idx}-${sIdx}`}
                             onClick={() => setPrompt(s)}
-                            className="px-2 py-1 rounded-lg text-[10px] border border-[var(--ai-assist-border)] text-[var(--ai-ed-text-muted)] hover:text-[var(--ai-ed-text)] hover:bg-[var(--ai-ed-hover)] transition-colors"
+                            className="px-2 py-1 rounded-lg text-[10px] border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                           >
                             {s}
                           </button>
@@ -363,15 +374,15 @@ export function AiBubble() {
               <div className="flex items-center gap-2 px-1">
                 <div className="flex gap-1">
                   <span
-                    className="w-1.5 h-1.5 rounded-full bg-[var(--ai-ed-dot)] animate-bounce"
+                    className="w-1.5 h-1.5 rounded-full bg-[var(--muted-foreground)] animate-bounce"
                     style={{ animationDelay: '0ms' }}
                   />
                   <span
-                    className="w-1.5 h-1.5 rounded-full bg-[var(--ai-ed-dot)] animate-bounce"
+                    className="w-1.5 h-1.5 rounded-full bg-[var(--muted-foreground)] animate-bounce"
                     style={{ animationDelay: '150ms' }}
                   />
                   <span
-                    className="w-1.5 h-1.5 rounded-full bg-[var(--ai-ed-dot)] animate-bounce"
+                    className="w-1.5 h-1.5 rounded-full bg-[var(--muted-foreground)] animate-bounce"
                     style={{ animationDelay: '300ms' }}
                   />
                 </div>
@@ -390,7 +401,7 @@ export function AiBubble() {
           </div>
 
           {/* Input area */}
-          <div className="p-3 border-t border-[var(--ai-assist-border)]">
+          <div className="p-3 border-t border-[var(--border)]">
             <div className="flex items-end gap-2">
               <textarea
                 ref={inputRef}
@@ -404,7 +415,7 @@ export function AiBubble() {
                 }}
                 placeholder="Ask anything..."
                 rows={1}
-                className="flex-1 resize-none bg-[var(--ai-ed-input)] border border-[var(--ai-assist-border)] rounded-lg px-3 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none focus:border-[var(--ai-ed-focus)] focus:ring-1 focus:ring-[var(--ai-ed-focus)] transition-colors max-h-20"
+                className="flex-1 resize-none bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] transition-colors max-h-20"
               />
               <button
                 onClick={sendMessage}
@@ -423,12 +434,12 @@ export function AiBubble() {
       <button
         ref={bubbleRef}
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full text-white hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center ${
+        className={`fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center ${
           isOpen
             ? 'bg-[var(--muted)] text-[var(--muted-foreground)] shadow-none hover:shadow-none'
-            : 'ai-horizon-fab'
+            : 'ai-horizon-fab text-zinc-900'
         }`}
-        title="Ask Loomi (⌘J)"
+        title="Ask Iris (⌘J)"
       >
         {isOpen ? (
           <XMarkIcon className="w-5 h-5" />

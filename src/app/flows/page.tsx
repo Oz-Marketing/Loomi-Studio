@@ -1,56 +1,78 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
+import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import useSWR from 'swr';
+import { toast } from 'sonner';
 import { AdminOnly } from '@/components/route-guard';
 import { useAccount } from '@/contexts/account-context';
-import { useSubaccountHref } from '@/hooks/use-subaccount-href';
-import { FlowAnalytics } from '@/components/flows/flow-analytics';
-import { FlowList } from '@/components/flows/flow-list';
 import {
-  ChartBarIcon,
-  ListBulletIcon,
+  FlowsTable,
+  type FlowsTableRow,
+  type BulkActionContext,
+} from '@/components/flows/flows-table';
+import type { BulkActionDockItem } from '@/components/bulk-action-dock';
+import Link from 'next/link';
+import {
   PlusIcon,
+  PlayIcon,
+  PauseIcon,
+  ArchiveBoxIcon,
+  ChartBarSquareIcon,
 } from '@heroicons/react/24/outline';
 import { FlowIcon } from '@/components/icon-map';
 
-// Loomi-native flows aren't wired up yet — until the LoomiFlow API
-// surfaces, every flows view renders an empty list. The page survives
-// so navigation and analytics chrome stay in place, ready for the
-// Loomi-native source to drop in.
-interface Workflow {
+// Loomi-native flows live behind `/api/flows`. Page mirrors the
+// Contacts page chrome: a single sticky header with title + primary
+// CTA, then the contacts-style FlowsTable renders directly below.
+
+interface FlowApiRow {
   id: string;
   name: string;
+  description: string;
   status: string;
-  provider?: string;
-  locationId?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  accountKey?: string;
-  dealer?: string;
+  accountKey: string;
+  publishedAt: string;
+  archivedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  nodeCount: number;
+  activeEnrollments: number;
 }
 
-type PageTab = 'analytics' | 'list';
-
-const EMPTY_WORKFLOWS: Workflow[] = [];
-
-const EMPTY_STATE = {
-  title: 'No flows yet',
-  subtitle: 'Loomi-native flows will appear here once they launch.',
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
 };
+
+// Map the API shape onto the row shape FlowsTable speaks.
+function flowsToRows(
+  flows: FlowApiRow[],
+  accountNames: Record<string, string>,
+): FlowsTableRow[] {
+  return flows.map((f) => ({
+    id: f.id,
+    name: f.name,
+    status: f.status,
+    source: 'loomi',
+    createdAt: f.createdAt,
+    updatedAt: f.updatedAt,
+    accountKey: f.accountKey || undefined,
+    dealer: f.accountKey ? accountNames[f.accountKey] : undefined,
+  }));
+}
 
 function FlowsPageHeader({
   title,
   subtitle,
-  activeTab,
-  onTabChange,
-  createHref,
+  onCreate,
+  creating,
 }: {
   title: string;
   subtitle: string;
-  activeTab: PageTab;
-  onTabChange: (tab: PageTab) => void;
-  createHref: string;
+  onCreate: () => void;
+  creating: boolean;
 }) {
   return (
     <div className="page-sticky-header mb-6">
@@ -59,134 +81,262 @@ function FlowsPageHeader({
           <FlowIcon className="w-7 h-7 text-[var(--primary)]" />
           <div>
             <h2 className="text-2xl font-bold">{title}</h2>
-            <p className="text-[var(--muted-foreground)] mt-1">
-              {subtitle}
-            </p>
+            <p className="text-[var(--muted-foreground)] mt-1">{subtitle}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-1 h-10">
-            <button
-              type="button"
-              onClick={() => onTabChange('analytics')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-xs font-medium transition-colors ${
-                activeTab === 'analytics'
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <ChartBarIcon className="w-3.5 h-3.5" />
-              Analytics
-            </button>
-            <button
-              type="button"
-              onClick={() => onTabChange('list')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-xs font-medium transition-colors ${
-                activeTab === 'list'
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <ListBulletIcon className="w-3.5 h-3.5" />
-              Flows
-            </button>
-          </div>
-
           <Link
-            href={createHref}
-            className="flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90"
+            href="/flows/analytics"
+            className="inline-flex items-center gap-1.5 px-2 h-10 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"
+          >
+            <ChartBarSquareIcon className="w-4 h-4" />
+            Analytics
+          </Link>
+          <button
+            type="button"
+            onClick={onCreate}
+            disabled={creating}
+            className="flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90 disabled:opacity-60"
           >
             <PlusIcon className="w-4 h-4" />
-            Create Flow
-          </Link>
+            {creating ? 'Creating…' : 'Create Flow'}
+          </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function FlowsPageBody({
+  scopeKey,
+  subtitle,
+  presetAccountKey,
+}: {
+  scopeKey: string;
+  subtitle: string;
+  presetAccountKey: string | null;
+}) {
+  const router = useRouter();
+  const { accounts } = useAccount();
+  const [creating, setCreating] = useState(false);
+  const [updatingIds, setUpdatingIds] = useState<string[]>([]);
+
+  const query = presetAccountKey
+    ? `?accountKey=${encodeURIComponent(presetAccountKey)}`
+    : '';
+  const { data, error, mutate, isLoading } = useSWR<{ flows: FlowApiRow[] }>(
+    `/api/flows${query}`,
+    fetcher,
+  );
+
+  const accountNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [key, account] of Object.entries(accounts)) {
+      map[key] = account.dealer;
+    }
+    return map;
+  }, [accounts]);
+
+  const accountMeta = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        dealer: string;
+        logos?: { light?: string; dark?: string; white?: string; black?: string };
+        storefrontImage?: string;
+      }
+    > = {};
+    for (const [key, account] of Object.entries(accounts)) {
+      map[key] = {
+        dealer: account.dealer,
+        logos: account.logos,
+      };
+    }
+    return map;
+  }, [accounts]);
+
+  const rows = useMemo(
+    () => flowsToRows(data?.flows ?? [], accountNames),
+    [data, accountNames],
+  );
+
+  const handleCreate = async () => {
+    setCreating(true);
+    try {
+      const res = await fetch('/api/flows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Untitled flow',
+          accountKey: presetAccountKey ?? undefined,
+        }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to create flow');
+        return;
+      }
+      const payload = await res.json();
+      router.push(`/flows/${payload.flow.id}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // FlowsTable speaks "active|inactive"; our model is
+  // draft|active|paused|archived. We treat "inactive" as pause.
+  const handleToggleStatus = async (
+    flow: FlowsTableRow,
+    nextStatus: 'active' | 'inactive',
+  ) => {
+    const endpoint =
+      nextStatus === 'active'
+        ? `/api/flows/${flow.id}/publish`
+        : `/api/flows/${flow.id}/pause`;
+
+    setUpdatingIds((ids) => [...ids, flow.id]);
+    try {
+      const res = await fetch(endpoint, { method: 'POST' });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        if (payload.details && Array.isArray(payload.details)) {
+          toast.error(`Cannot publish: ${payload.details.join('; ')}`);
+        } else {
+          toast.error(payload.error || 'Status update failed');
+        }
+        return;
+      }
+      toast.success(
+        nextStatus === 'active' ? 'Flow published' : 'Flow paused',
+      );
+      await mutate();
+    } finally {
+      setUpdatingIds((ids) => ids.filter((id) => id !== flow.id));
+    }
+  };
+
+  // ── Bulk-action runner ──
+  // Runs the same per-flow endpoint over a selection, sequentially.
+  // We don't expose a true bulk endpoint yet, so this fans out
+  // individual POST/DELETE calls and aggregates the results into one
+  // toast at the end. Failures don't short-circuit — we report
+  // succeeded/failed counts so the user can re-try the failures.
+  const runBulk = async (
+    label: 'publish' | 'pause' | 'archive',
+    ids: string[],
+    fetchFor: (id: string) => Promise<Response>,
+    clearSelection: () => void,
+  ) => {
+    let succeeded = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetchFor(id);
+        if (res.ok) succeeded += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed === 0) {
+      toast.success(`${succeeded} ${succeeded === 1 ? 'flow' : 'flows'} ${label}d`);
+    } else if (succeeded === 0) {
+      toast.error(`Failed to ${label} ${failed} ${failed === 1 ? 'flow' : 'flows'}`);
+    } else {
+      toast.error(`${succeeded} ${label}d, ${failed} failed`);
+    }
+    await mutate();
+    clearSelection();
+  };
+
+  const buildBulkActions = (ctx: BulkActionContext): BulkActionDockItem[] => [
+    {
+      id: 'publish',
+      label: 'Publish',
+      icon: <PlayIcon className="w-3.5 h-3.5" />,
+      onClick: () =>
+        void runBulk('publish', ctx.selectedIds, (id) =>
+          fetch(`/api/flows/${id}/publish`, { method: 'POST' }), ctx.clearSelection,
+        ),
+    },
+    {
+      id: 'pause',
+      label: 'Pause',
+      icon: <PauseIcon className="w-3.5 h-3.5" />,
+      onClick: () =>
+        void runBulk('pause', ctx.selectedIds, (id) =>
+          fetch(`/api/flows/${id}/pause`, { method: 'POST' }), ctx.clearSelection,
+        ),
+    },
+    {
+      id: 'archive',
+      label: 'Archive',
+      danger: true,
+      icon: <ArchiveBoxIcon className="w-3.5 h-3.5" />,
+      onClick: () =>
+        void runBulk('archive', ctx.selectedIds, (id) =>
+          fetch(`/api/flows/${id}`, { method: 'DELETE' }), ctx.clearSelection,
+        ),
+    },
+  ];
+
+  const emptyState = {
+    title: 'No flows yet',
+    subtitle: 'Create a flow to start sending automated email drips.',
+  };
+
+  if (error) {
+    return (
+      <div className="text-center py-16 text-[var(--muted-foreground)]">
+        <p>Failed to load flows: {error.message}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div key={scopeKey}>
+      <FlowsPageHeader
+        title="Flows"
+        subtitle={subtitle}
+        onCreate={handleCreate}
+        creating={creating}
+      />
+
+      <FlowsTable
+        workflows={rows}
+        loading={isLoading}
+        accountMeta={accountMeta}
+        showAccountColumn={presetAccountKey === null}
+        onToggleStatus={handleToggleStatus}
+        updatingStatusFlowIds={updatingIds}
+        emptyState={emptyState}
+        bulkActions={buildBulkActions}
+      />
     </div>
   );
 }
 
 function AdminFlowsPage() {
-  const [activeTab, setActiveTab] = useState<PageTab>('list');
-  const subHref = useSubaccountHref();
-
   return (
-    <div>
-      <FlowsPageHeader
-        title="Flows"
-        subtitle="Workflows across all accounts"
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        createHref={subHref('/flows/new')}
-      />
-
-      <div className="min-w-0">
-        {activeTab === 'analytics' && (
-          <FlowAnalytics
-            workflows={EMPTY_WORKFLOWS}
-            loading={false}
-            showAccountBreakdown
-            accountNames={{}}
-          />
-        )}
-
-        {activeTab === 'list' && (
-          <FlowList
-            workflows={EMPTY_WORKFLOWS}
-            loading={false}
-            accountNames={{}}
-            accountMeta={{}}
-            accountProviders={{}}
-            emptyState={EMPTY_STATE}
-          />
-        )}
-      </div>
-    </div>
+    <FlowsPageBody
+      scopeKey="admin"
+      subtitle="Email drip series across all accounts"
+      presetAccountKey={null}
+    />
   );
 }
 
 function AccountFlowsPage() {
   const { accountKey, accountData } = useAccount();
-  const [activeTab, setActiveTab] = useState<PageTab>('list');
-  const subHref = useSubaccountHref();
-
   const dealerName = accountData?.dealer || 'Your Sub-Account';
-  const accountNames = accountKey ? { [accountKey]: dealerName } : {};
 
   return (
-    <div>
-      <FlowsPageHeader
-        title="Flows"
-        subtitle={`Workflows for ${dealerName}`}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        createHref={subHref('/flows/new')}
-      />
-
-      <div className="min-w-0">
-        {activeTab === 'analytics' && (
-          <FlowAnalytics
-            workflows={EMPTY_WORKFLOWS}
-            loading={false}
-            showAccountBreakdown={false}
-            accountNames={accountNames}
-            emptyTitle={EMPTY_STATE.title}
-            emptySubtitle={EMPTY_STATE.subtitle}
-          />
-        )}
-
-        {activeTab === 'list' && (
-          <FlowList
-            workflows={EMPTY_WORKFLOWS}
-            loading={false}
-            accountNames={accountNames}
-            accountMeta={{}}
-            accountProviders={{}}
-            emptyState={EMPTY_STATE}
-          />
-        )}
-      </div>
-    </div>
+    <FlowsPageBody
+      scopeKey={accountKey ?? 'no-account'}
+      subtitle={`Email drip series for ${dealerName}`}
+      presetAccountKey={accountKey}
+    />
   );
 }
 

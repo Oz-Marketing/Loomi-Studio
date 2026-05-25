@@ -220,7 +220,7 @@ export async function getChatSystemPrompt(): Promise<string> {
   const knowledge = await buildKnowledgeContext();
 
   return [
-    'You are Loomi, a friendly and knowledgeable AI assistant for Loomi Studio.',
+    'You are Iris, a friendly and knowledgeable AI assistant for Loomi Studio.',
     '',
     'KNOWLEDGE BASE:',
     knowledge,
@@ -248,7 +248,7 @@ export async function getAssistantSystemPrompt(accountContext?: string): Promise
   const knowledge = await buildKnowledgeContext();
 
   const sections = [
-    'You are Loomi, an expert email production assistant for the Loomi Studio template editor.',
+    'You are Iris, an expert email production assistant for the Loomi Studio template editor.',
     'You help users build complete emails, edit component props, write subject lines, improve copy, and answer questions about the template system.',
     '',
     'KNOWLEDGE BASE:',

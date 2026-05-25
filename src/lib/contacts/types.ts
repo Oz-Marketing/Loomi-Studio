@@ -48,6 +48,7 @@ export interface Contact {
   hasReceivedMessage: boolean;
   hasReceivedEmail: boolean;
   hasReceivedSms: boolean;
+  hasOpenedEmail: boolean;
   lastMessageDate: string;
   _accountKey?: string;
   _dealer?: string;

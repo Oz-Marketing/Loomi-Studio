@@ -393,20 +393,129 @@ model LoomiFlow {
   id               String    @id @default(cuid())
   name             String
   description      String?
-  status           String    @default("inactive") // active | inactive
+  status           String    @default("draft") // draft | active | paused | archived
   accountKey       String?
   account          Account?  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
   createdByUserId  String?
   sourceAudienceId String?
   sourceFilter     String?
   metadata         String?
+  // JSON-serialised flow-level defaults: re-entry policy, quiet
+  // hours, goal/exit-on-conversion condition, max-enrollment
+  // duration, DND handling. Shape lives in `FlowSettings` in
+  // services/loomi-flows.ts. Optional — missing/null means "use
+  // defaults" everywhere downstream.
+  settings         String?
   publishedAt      DateTime?
+  archivedAt       DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+
+  nodes       LoomiFlowNode[]
+  edges       LoomiFlowEdge[]
+  triggers    LoomiFlowTrigger[]
+  enrollments LoomiFlowEnrollment[]
 
   @@index([accountKey])
   @@index([status])
   @@index([createdAt])
+}
+
+// One drawing-canvas node in a flow's graph. `config` is JSON sized to
+// the node's `type` (email → { templateId, subject? }, wait → { ms },
+// condition → { predicate }, split → { weights: number[] }, exit → {}).
+model LoomiFlowNode {
+  id        String    @id @default(cuid())
+  flowId    String
+  flow      LoomiFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  type      String // trigger | email | wait | condition | split | exit
+  config    String    @default("{}")
+  x         Float     @default(0)
+  y         Float     @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([flowId])
+}
+
+// Directed edge between two nodes. `branch` labels the outgoing port
+// for fan-out nodes: "yes"/"no" for condition, "a"/"b"/... for split,
+// null for linear next-step. The execution engine reads `branch` to
+// pick which downstream node to advance into after evaluating a node.
+model LoomiFlowEdge {
+  id         String    @id @default(cuid())
+  flowId     String
+  flow       LoomiFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  fromNodeId String
+  toNodeId   String
+  branch     String?
+  createdAt  DateTime  @default(now())
+
+  @@index([flowId])
+  @@index([fromNodeId])
+}
+
+// Trigger config attached to a flow. Multiple triggers can be enabled
+// per flow (e.g. list + audience + manual). The trigger poll worker
+// enumerates `list` and `audience` triggers; `manual` is API-driven;
+// `event` is webhook-driven (deferred until event ingestion lands).
+model LoomiFlowTrigger {
+  id        String    @id @default(cuid())
+  flowId    String
+  flow      LoomiFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  type      String // list | audience | manual | event
+  config    String    @default("{}")
+  enabled   Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([flowId])
+  @@index([type, enabled])
+}
+
+// One row per (flow, contact) — a contact's run through the flow's
+// graph. `currentNodeId` is the next node to execute; `nextRunAt` is
+// when the execution worker should pick it up. The (flowId, contactId)
+// uniqueness prevents double-enrolling the same contact concurrently.
+model LoomiFlowEnrollment {
+  id            String    @id @default(cuid())
+  flowId        String
+  flow          LoomiFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  contactId     String
+  triggerId     String?
+  status        String    @default("active") // active | completed | exited | failed
+  currentNodeId String?
+  nextRunAt     DateTime?
+  enrolledAt    DateTime  @default(now())
+  completedAt   DateTime?
+  metadata      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  steps LoomiFlowEnrollmentStep[]
+
+  @@unique([flowId, contactId])
+  @@index([status, nextRunAt])
+  @@index([flowId, status])
+  @@index([contactId])
+}
+
+// Step-execution audit trail per enrollment. One row each time a node
+// is executed; useful for analytics, debugging, and follow-up engagement
+// queries (link emailRecipientId → EmailEvent for opens/clicks).
+model LoomiFlowEnrollmentStep {
+  id               String              @id @default(cuid())
+  enrollmentId     String
+  enrollment       LoomiFlowEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  nodeId           String
+  status           String // sent | skipped | failed | branched | waited | exited
+  emailRecipientId String?
+  branch           String?
+  executedAt       DateTime            @default(now())
+  metadata         String?
+
+  @@index([enrollmentId])
+  @@index([nodeId])
 }
 
 // ─────────────────────────────────────────────────────

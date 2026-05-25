@@ -389,7 +389,7 @@ function KnowledgeBaseTab() {
       <section className={sectionCardClass}>
         <div className="flex items-start gap-3 p-3 rounded-xl border border-[var(--ai-assist-border)] bg-[var(--ai-hz-chip-bg)]">
           <span className="w-6 h-6 rounded-full ai-horizon-orb flex items-center justify-center flex-shrink-0 mt-0.5">
-            <SparklesIcon className="w-3.5 h-3.5 text-white" />
+            <SparklesIcon className="w-3.5 h-3.5 text-zinc-900" />
           </span>
           <div>
             <p className="text-sm font-medium text-[var(--foreground)]">AI Knowledge Base</p>

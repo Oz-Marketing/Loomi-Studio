@@ -107,6 +107,7 @@ export function serializeContact(
     hasReceivedMessage: summary?.hasReceivedMessage ?? false,
     hasReceivedEmail: summary?.hasReceivedEmail ?? false,
     hasReceivedSms: summary?.hasReceivedSms ?? false,
+    hasOpenedEmail: summary?.hasOpenedEmail ?? false,
     lastMessageDate: summary?.lastMessageDate ?? '',
   };
 }
@@ -219,6 +220,10 @@ export interface MessagingSummary {
   hasReceivedMessage: boolean;
   hasReceivedEmail: boolean;
   hasReceivedSms: boolean;
+  /** True when ANY past email to this contact recorded an `open`
+   *  EmailEvent. Used by the flow builder's condition node to branch
+   *  on whether a recipient has opened a prior send. */
+  hasOpenedEmail: boolean;
   lastMessageDate: string;
 }
 
@@ -277,6 +282,19 @@ export async function getMessagingSummaryForContacts(
     },
   });
 
+  // Separate query for `open` events so we can flip `hasOpenedEmail`
+  // on the summary. Same EmailCampaignRecipient join shape, just a
+  // different event type filter.
+  const openRows = await prisma.emailCampaignRecipient.findMany({
+    where: {
+      accountKey,
+      contactId: { in: contactIds },
+      events: { some: { eventType: 'open' } },
+    },
+    select: { contactId: true },
+  });
+  const openedIds = new Set(openRows.map((r) => r.contactId));
+
   for (const row of emailRows) {
     const last = row.events[0]?.timestamp;
     const current = out.get(row.contactId);
@@ -284,6 +302,7 @@ export async function getMessagingSummaryForContacts(
       hasReceivedMessage: true,
       hasReceivedEmail: true,
       hasReceivedSms: current?.hasReceivedSms ?? false,
+      hasOpenedEmail: current?.hasOpenedEmail ?? openedIds.has(row.contactId),
       lastMessageDate: pickLatest(current?.lastMessageDate, last),
     });
   }
@@ -295,6 +314,7 @@ export async function getMessagingSummaryForContacts(
       hasReceivedMessage: true,
       hasReceivedEmail: current?.hasReceivedEmail ?? false,
       hasReceivedSms: true,
+      hasOpenedEmail: current?.hasOpenedEmail ?? false,
       lastMessageDate: pickLatest(current?.lastMessageDate, last),
     });
   }
