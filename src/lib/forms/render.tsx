@@ -29,29 +29,30 @@ const FieldErrorContext = React.createContext<Record<string, string>>({});
 
 export function FormRenderer({ template, options }: FormRendererProps) {
   const errors = options?.errors ?? {};
-  // Spacing settings — fall back to sensible defaults so older form
-  // schemas that predate these fields still render without jumping.
-  const contentPadding = template.settings.contentPadding ?? 32;
-  const contentMargin = template.settings.contentMargin ?? 32;
+  // Per-side spacing — `??` lets us tolerate older schemas that
+  // predate these fields (they fall through to 32 on every side).
+  const s = template.settings;
+  const margin = `${s.contentMarginTop ?? 32}px ${s.contentMarginRight ?? 32}px ${s.contentMarginBottom ?? 32}px ${s.contentMarginLeft ?? 32}px`;
+  const padding = `${s.contentPaddingTop ?? 32}px ${s.contentPaddingRight ?? 32}px ${s.contentPaddingBottom ?? 32}px ${s.contentPaddingLeft ?? 32}px`;
   return (
     <FieldErrorContext.Provider value={errors}>
       <div
         className="loomi-form-root"
         style={{
-          backgroundColor: template.settings.bodyBg,
-          fontFamily: template.settings.fontFamily,
-          color: template.settings.textColor,
+          backgroundColor: s.bodyBg,
+          fontFamily: s.fontFamily,
+          color: s.textColor,
           minHeight: '100%',
-          padding: `${contentMargin}px`,
+          padding: margin,
         }}
       >
         <div
           style={{
-            maxWidth: `${template.settings.contentWidth}px`,
+            maxWidth: `${s.contentWidth}px`,
             margin: '0 auto',
-            backgroundColor: template.settings.contentBg,
+            backgroundColor: s.contentBg,
             borderRadius: 12,
-            padding: `${contentPadding}px`,
+            padding,
           }}
         >
           {template.blocks.map((block) => (
