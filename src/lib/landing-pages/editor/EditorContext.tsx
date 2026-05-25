@@ -1,12 +1,21 @@
 'use client';
 
 import * as React from 'react';
-import type { Block, LandingPageBlockType, LandingPageTemplate } from '../types';
+import type {
+  Block,
+  LandingPageBlockType,
+  LandingPageDevice,
+  LandingPageTemplate,
+} from '../types';
 import { getDefaultProps } from '../schemas';
 
 interface EditorState {
   template: LandingPageTemplate;
   selectedId: string | null;
+  /** Which device preview is currently active. Drives both the
+   *  canvas's visual width AND the destination of property-panel
+   *  writes (desktop → `props`, mobile → `mobileProps`). */
+  activeDevice: LandingPageDevice;
 }
 
 /**
@@ -24,8 +33,17 @@ export interface InsertPosition {
 
 interface EditorActions {
   selectBlock: (id: string | null) => void;
+  /** Write a prop patch to the block. In desktop preview the patch
+   *  lands in `props` (the base layer); in mobile preview it lands
+   *  in `mobileProps` (the override layer) so desktop stays
+   *  untouched. */
   updateBlockProps: (id: string, props: Record<string, unknown>) => void;
+  /** Clear specific mobile-override keys on a block, falling back to
+   *  the desktop value. Used by "Reset to desktop" affordances in
+   *  the property panel. */
+  resetMobileOverrides: (id: string, keys: string[]) => void;
   updateSettings: (settings: Partial<LandingPageTemplate['settings']>) => void;
+  setActiveDevice: (device: LandingPageDevice) => void;
   /** Insert a new block. If `position` is omitted we infer one from
    *  the current selection: a container is inserted-into, a leaf is
    *  inserted-after. */
@@ -196,6 +214,7 @@ interface ProviderProps {
 
 export function LandingPageEditorProvider({ template, onChange, children }: ProviderProps) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [activeDevice, setActiveDevice] = React.useState<LandingPageDevice>('desktop');
 
   const update = React.useCallback(
     (updater: (t: LandingPageTemplate) => LandingPageTemplate) => {
@@ -208,9 +227,40 @@ export function LandingPageEditorProvider({ template, onChange, children }: Prov
     (id: string, props: Record<string, unknown>) => {
       update((t) => ({
         ...t,
-        blocks: mapBlocks(t.blocks, (b) =>
-          b.id === id ? { ...b, props: { ...b.props, ...props } } : b,
-        ),
+        blocks: mapBlocks(t.blocks, (b) => {
+          if (b.id !== id) return b;
+          if (activeDevice === 'mobile') {
+            // Mobile edits land in mobileProps (the override layer).
+            // Desktop stays untouched.
+            return {
+              ...b,
+              mobileProps: { ...(b.mobileProps ?? {}), ...props },
+            };
+          }
+          return { ...b, props: { ...b.props, ...props } };
+        }),
+      }));
+    },
+    [update, activeDevice],
+  );
+
+  const resetMobileOverrides = React.useCallback(
+    (id: string, keys: string[]) => {
+      update((t) => ({
+        ...t,
+        blocks: mapBlocks(t.blocks, (b) => {
+          if (b.id !== id || !b.mobileProps) return b;
+          const next = { ...b.mobileProps };
+          for (const k of keys) delete next[k];
+          // If we just emptied the override map, drop it entirely so
+          // hasMobileOverrides() reads false and dual-render skips.
+          if (Object.keys(next).length === 0) {
+            const { mobileProps: _drop, ...rest } = b;
+            void _drop;
+            return rest;
+          }
+          return { ...b, mobileProps: next };
+        }),
       }));
     },
     [update],
@@ -355,8 +405,11 @@ export function LandingPageEditorProvider({ template, onChange, children }: Prov
   const value: EditorContextValue = {
     template,
     selectedId,
+    activeDevice,
     selectBlock: setSelectedId,
+    setActiveDevice,
     updateBlockProps,
+    resetMobileOverrides,
     updateSettings,
     insertBlock,
     moveBlock,

@@ -42,9 +42,41 @@ export type LandingPageBlockType =
 export interface Block {
   id: string;
   type: LandingPageBlockType;
+  /** Desktop values (the base). */
   props: Record<string, unknown>;
+  /** Sparse map of mobile-specific overrides. Only the keys the user
+   *  has changed on mobile preview are stored here; everything else
+   *  cascades from `props`. */
+  mobileProps?: Record<string, unknown>;
   /** Only used for container blocks (`section`, `columns`). */
   children?: Block[];
+}
+
+/** Per-device viewport identity. The editor's preview toggle and the
+ *  public page's media-query gate both speak this. */
+export type LandingPageDevice = 'desktop' | 'mobile';
+
+/**
+ * Return the effective props for a block at the given device.
+ * Desktop = the block's base `props`; mobile = base merged with the
+ * sparse mobile overrides on top.
+ */
+export function effectiveProps(
+  block: Block,
+  device: LandingPageDevice,
+): Record<string, unknown> {
+  if (device === 'desktop' || !block.mobileProps) return block.props;
+  return { ...block.props, ...block.mobileProps };
+}
+
+/** True when THIS block (not its descendants) has at least one
+ *  mobile override. The public renderer uses this to decide whether
+ *  to dual-render the block itself — descendants make their own
+ *  decision recursively, so each subtree dual-renders at the deepest
+ *  level it needs to and we avoid the N²-DOM trap of dual-rendering
+ *  every ancestor of an overridden leaf. */
+export function hasMobileOverrides(block: Block): boolean {
+  return !!block.mobileProps && Object.keys(block.mobileProps).length > 0;
 }
 
 export interface LandingPageSettings {

@@ -21,7 +21,7 @@ import { BLOCK_COMPONENTS } from '../components';
 import { SectionBlock } from '../components/Section';
 import { ColumnsBlock } from '../components/Columns';
 import { blockSpacingStyle } from '../block-spacing';
-import type { Block } from '../types';
+import { effectiveProps, type Block } from '../types';
 
 /**
  * Editor canvas. Renders the template using the real block
@@ -40,26 +40,23 @@ import type { Block } from '../types';
  * Page-level settings (bg, font, max width, brand color) wrap the
  * tree so the editor matches LandingPageRenderer pixel-for-pixel.
  */
-type PreviewWidth = 'desktop' | 'mobile';
-
 const MOBILE_PREVIEW_WIDTH = 390;
 
 export function Canvas() {
-  const { template, selectBlock } = useLandingPageEditor();
+  const { template, selectBlock, activeDevice, setActiveDevice } = useLandingPageEditor();
   const s = template.settings;
-  const [previewWidth, setPreviewWidth] = React.useState<PreviewWidth>('desktop');
 
   const effectiveMaxWidth =
-    previewWidth === 'mobile'
+    activeDevice === 'mobile'
       ? Math.min(MOBILE_PREVIEW_WIDTH, s.contentWidth)
       : s.contentWidth;
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <CanvasActionBar previewWidth={previewWidth} onChange={setPreviewWidth} />
+      <CanvasActionBar previewWidth={activeDevice} onChange={setActiveDevice} />
       <div
         className={`flex-1 overflow-auto bg-[var(--muted)]/30 ${
-          previewWidth === 'mobile' ? 'loomi-lp-canvas-mobile' : ''
+          activeDevice === 'mobile' ? 'loomi-lp-canvas-mobile' : ''
         }`}
         onClick={() => selectBlock(null)}
       >
@@ -147,8 +144,8 @@ function CanvasActionBar({
   previewWidth,
   onChange,
 }: {
-  previewWidth: PreviewWidth;
-  onChange: (w: PreviewWidth) => void;
+  previewWidth: 'desktop' | 'mobile';
+  onChange: (w: 'desktop' | 'mobile') => void;
 }) {
   // Bare bar — no background, no separator. The toggle itself is the
   // only chrome on this row. Same pill-tab idiom the sidebar uses.
@@ -221,9 +218,18 @@ function EditableBlock({
   index: number;
   total: number;
 }) {
-  const { selectedId, selectBlock, moveBlock, deleteBlock, duplicateBlock } =
-    useLandingPageEditor();
+  const {
+    selectedId,
+    selectBlock,
+    moveBlock,
+    deleteBlock,
+    duplicateBlock,
+    activeDevice,
+  } = useLandingPageEditor();
   const selected = selectedId === block.id;
+  // Render with the merged-for-device props so mobile preview shows
+  // mobile overrides cascading over the desktop base.
+  const renderProps = effectiveProps(block, activeDevice);
 
   const {
     attributes,
@@ -238,11 +244,13 @@ function EditableBlock({
   // rides the same wrapper as the selection ring + drag transform.
   // Section skips padding here so its component can paint the bg
   // into its own padded area; see blockSpacingStyle.
+  // Passes activeDevice so mobile preview shows the mobile spacing
+  // override when one is set.
   const dragStyle: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-    ...blockSpacingStyle(block),
+    ...blockSpacingStyle(block, activeDevice),
   };
 
   let body: React.ReactNode = null;
@@ -250,7 +258,7 @@ function EditableBlock({
   if (block.type === 'section') {
     const children = block.children ?? [];
     body = (
-      <SectionBlock {...block.props}>
+      <SectionBlock {...renderProps}>
         {children.length === 0 ? (
           <EmptyContainerDropZone parentId={block.id} />
         ) : (
@@ -273,7 +281,7 @@ function EditableBlock({
   } else if (block.type === 'columns') {
     const columns = block.children ?? [];
     body = (
-      <ColumnsBlock {...block.props}>
+      <ColumnsBlock {...renderProps}>
         {columns.map((column) => (
           <ColumnSlot key={column.id} column={column} />
         ))}
@@ -283,7 +291,7 @@ function EditableBlock({
     const Component = BLOCK_COMPONENTS[block.type] as React.ComponentType<
       Record<string, unknown> & { children?: React.ReactNode }
     >;
-    body = Component ? <Component {...block.props} /> : null;
+    body = Component ? <Component {...renderProps} /> : null;
   }
 
   return (

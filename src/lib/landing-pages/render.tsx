@@ -11,10 +11,20 @@
  * don't have auth to hit /api/forms/[id]).
  */
 import * as React from 'react';
-import type { Block, LandingPageTemplate } from './types';
+import {
+  effectiveProps,
+  hasMobileOverrides,
+  type Block,
+  type LandingPageDevice,
+  type LandingPageTemplate,
+} from './types';
 import { BLOCK_COMPONENTS } from './components';
 import { blockSpacingStyle } from './block-spacing';
 import type { FormTemplate } from '@/lib/forms/types';
+
+/** Breakpoint shared by the editor's mobile preview and the public
+ *  page's responsive CSS. Anything narrower than this is "mobile". */
+const MOBILE_BREAKPOINT_PX = 600;
 
 export interface PreloadedForm {
   schema: FormTemplate;
@@ -56,6 +66,24 @@ export function LandingPageRenderer({ template, preloadedForms }: LandingPageRen
         ['--loomi-lp-primary' as never]: s.primaryColor,
       }}
     >
+      {/* Responsive show/hide CSS for blocks that have mobile
+          overrides. We dual-render those (a .lp-desktop-render copy
+          + a .lp-mobile-render copy) and let the breakpoint pick
+          which one is visible. Blocks without overrides render once
+          and don't take either class. */}
+      <style
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media (max-width: ${MOBILE_BREAKPOINT_PX}px) {
+              .loomi-lp-desktop-render { display: none !important; }
+            }
+            @media (min-width: ${MOBILE_BREAKPOINT_PX + 1}px) {
+              .loomi-lp-mobile-render { display: none !important; }
+            }
+          `,
+        }}
+      />
       <div
         style={{
           maxWidth: `${s.contentWidth}px`,
@@ -86,17 +114,62 @@ function RenderedBlock({ block }: { block: Block }) {
   const Component = BLOCK_COMPONENTS[block.type] as React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }> | undefined;
   if (!Component) return null;
 
-  // Every block sits inside a thin wrapper that carries its
-  // margin / padding from the block's spacing props. Section skips
-  // padding here — Section's own component applies it internally so
-  // the background colors the padded area.
-  const wrapperStyle = blockSpacingStyle(block);
+  // EmbeddedForm is special: it can't be dual-rendered because two
+  // FormRenderers would mount with duplicate ids + fight for focus.
+  // Always render once with desktop props (or merged props — same
+  // form regardless of viewport). Most form responsiveness is the
+  // FormRenderer's own CSS anyway.
+  if (block.type === 'embedded_form') {
+    return (
+      <div style={blockSpacingStyle(block, 'desktop')}>
+        <Component {...effectiveProps(block, 'desktop')} />
+      </div>
+    );
+  }
+
+  // Anything below the subtree has overrides? Dual-render. The
+  // breakpoint CSS at the LP root will show exactly one of the two
+  // copies based on viewport width.
+  if (hasMobileOverrides(block)) {
+    return (
+      <>
+        <RenderedBlockForDevice block={block} device="desktop" wrapClass="loomi-lp-desktop-render" />
+        <RenderedBlockForDevice block={block} device="mobile" wrapClass="loomi-lp-mobile-render" />
+      </>
+    );
+  }
+
+  // No overrides anywhere in this subtree — render once normally
+  // (no dual-DOM cost). Desktop values are the canonical layer.
+  return <RenderedBlockForDevice block={block} device="desktop" />;
+}
+
+/**
+ * Render one device-flavored copy of a block. Children recurse
+ * through RenderedBlock so EACH child gets its own dual-render
+ * decision (a Section without overrides won't double-render its
+ * own DOM even when nested under a Section that does).
+ */
+function RenderedBlockForDevice({
+  block,
+  device,
+  wrapClass,
+}: {
+  block: Block;
+  device: LandingPageDevice;
+  wrapClass?: string;
+}) {
+  const Component = BLOCK_COMPONENTS[block.type] as React.ComponentType<
+    Record<string, unknown> & { children?: React.ReactNode }
+  >;
+  const wrapperStyle = blockSpacingStyle(block, device);
+  const renderProps = effectiveProps(block, device);
 
   if (block.type === 'section' || block.type === 'columns') {
     const children = block.children ?? [];
     return (
-      <div style={wrapperStyle}>
-        <Component {...block.props}>
+      <div className={wrapClass} style={wrapperStyle}>
+        <Component {...renderProps}>
           {children.map((child) => (
             <RenderedBlock key={child.id} block={child} />
           ))}
@@ -104,10 +177,9 @@ function RenderedBlock({ block }: { block: Block }) {
       </div>
     );
   }
-
   return (
-    <div style={wrapperStyle}>
-      <Component {...block.props} />
+    <div className={wrapClass} style={wrapperStyle}>
+      <Component {...renderProps} />
     </div>
   );
 }

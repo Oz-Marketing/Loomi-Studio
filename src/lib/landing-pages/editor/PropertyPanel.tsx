@@ -3,6 +3,9 @@
 import * as React from 'react';
 import {
   AdjustmentsHorizontalIcon,
+  ArrowUturnLeftIcon,
+  ComputerDesktopIcon,
+  DevicePhoneMobileIcon,
   PaintBrushIcon,
   WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline';
@@ -12,7 +15,7 @@ import { FormPickerInput } from './FormPickerInput';
 import { ItemArrayEditor } from './ItemArrayEditor';
 import { SLIDER_CLASS } from './slider-style';
 import { SpacingBox } from '@/lib/forms/editor/PropertyControls';
-import type { Block } from '../types';
+import { effectiveProps, type Block, type LandingPageDevice } from '../types';
 
 // Padding / margin in the LP editor always renders as the canonical
 // SpacingBox (4 inputs in a row + link icon to lock sides). Detected
@@ -106,7 +109,13 @@ const inputClass =
  * to whichever tab has props (preferring General).
  */
 export function BlockProperties() {
-  const { template, selectedId, updateBlockProps } = useLandingPageEditor();
+  const {
+    template,
+    selectedId,
+    updateBlockProps,
+    resetMobileOverrides,
+    activeDevice,
+  } = useLandingPageEditor();
   const block = selectedId ? findBlockDeep(template.blocks, selectedId) : undefined;
   const [activeTab, setActiveTab] = React.useState<PropertyTab>('general');
 
@@ -177,7 +186,7 @@ export function BlockProperties() {
               <PropertyGroupHeader name="Margin" />
               <div className="px-4 py-3">
                 <SpacingBox
-                  values={readSides(block, 'margin')}
+                  values={readSides(block, 'margin', activeDevice)}
                   onChange={(sides) =>
                     updateBlockProps(block.id, {
                       marginTop: sides.top,
@@ -191,7 +200,7 @@ export function BlockProperties() {
               <PropertyGroupHeader name="Padding" />
               <div className="px-4 py-3">
                 <SpacingBox
-                  values={readSides(block, 'padding')}
+                  values={readSides(block, 'padding', activeDevice)}
                   onChange={(sides) =>
                     updateBlockProps(block.id, {
                       paddingTop: sides.top,
@@ -208,9 +217,11 @@ export function BlockProperties() {
                   <FieldGroup
                     block={block}
                     props={extras}
+                    activeDevice={activeDevice}
                     onPropChange={(key, value) =>
                       updateBlockProps(block.id, { [key]: value })
                     }
+                    onReset={(keys) => resetMobileOverrides(block.id, keys)}
                   />
                 </>
               )}
@@ -223,9 +234,11 @@ export function BlockProperties() {
             <FieldGroup
               block={block}
               props={props}
+              activeDevice={activeDevice}
               onPropChange={(key, value) =>
                 updateBlockProps(block.id, { [key]: value })
               }
+              onReset={(keys) => resetMobileOverrides(block.id, keys)}
             />
           </React.Fragment>
         );
@@ -250,30 +263,38 @@ function PropertyGroupHeader({ name }: { name: string }) {
 }
 
 /**
- * Stack of property fields inside a section. Each field auto-picks
- * inline (label + control side-by-side) vs stacked (label above
- * control) based on the control type — short controls (select,
- * toggle, plain number) go inline; wide controls (text input,
- * textarea, color, url, image, item-array, sliders) stay stacked
- * because they need the full width.
+ * Stack of property fields inside a section. Reads the effective
+ * value for the active device so mobile preview shows mobile
+ * overrides cascading over desktop. Labels surface a device icon
+ * (monitor on desktop, phone on mobile) and a "reset to desktop"
+ * button when a mobile override exists on the prop.
  */
 function FieldGroup({
   block,
   props,
+  activeDevice,
   onPropChange,
+  onReset,
 }: {
   block: Block;
   props: PropSchema[];
+  activeDevice: LandingPageDevice;
   onPropChange: (key: string, value: unknown) => void;
+  onReset: (keys: string[]) => void;
 }) {
+  const merged = effectiveProps(block, activeDevice);
+  const overrides = (block.mobileProps ?? {}) as Record<string, unknown>;
   return (
     <div className="px-4 py-3 space-y-3">
       {props.map((p) => (
         <PropertyField
           key={p.key}
           prop={p}
-          value={(block.props[p.key] as unknown) ?? p.default}
+          value={merged[p.key] ?? p.default}
+          activeDevice={activeDevice}
+          isOverridden={Object.prototype.hasOwnProperty.call(overrides, p.key)}
           onChange={(value) => onPropChange(p.key, value)}
+          onReset={() => onReset([p.key])}
         />
       ))}
     </div>
@@ -283,11 +304,17 @@ function FieldGroup({
 function PropertyField({
   prop,
   value,
+  activeDevice,
+  isOverridden,
   onChange,
+  onReset,
 }: {
   prop: PropSchema;
   value: unknown;
+  activeDevice: LandingPageDevice;
+  isOverridden: boolean;
   onChange: (v: unknown) => void;
+  onReset: () => void;
 }) {
   const isSliderProp =
     !!prop.slider &&
@@ -300,31 +327,97 @@ function PropertyField({
       prop.type === 'unit' ||
       prop.type === 'range');
 
-  const control = (
-    <PropEditor prop={prop} value={value} onChange={onChange} />
+  const control = <PropEditor prop={prop} value={value} onChange={onChange} />;
+  const label = (
+    <PropLabel
+      label={prop.label}
+      activeDevice={activeDevice}
+      isOverridden={isOverridden}
+      onReset={onReset}
+    />
   );
 
   if (inline) {
     return (
       <div className="flex items-center justify-between gap-3 py-0.5">
-        <PropLabel label={prop.label} />
+        {label}
         <div className="flex-shrink-0 w-[58%]">{control}</div>
       </div>
     );
   }
-  return control;
-}
-
-function PropLabel({ label }: { label: string }) {
   return (
-    <span className="text-[12px] font-medium text-[var(--foreground)] truncate">
+    <div className="space-y-1.5">
       {label}
-    </span>
+      {control}
+    </div>
   );
 }
 
-function readSides(block: Block, prefix: 'padding' | 'margin') {
-  const p = block.props as Record<string, unknown>;
+/**
+ * Field label with a small device-context icon — monitor on
+ * desktop, phone on mobile — and a "reset to desktop" button that
+ * appears only when the active device is mobile AND the prop has a
+ * mobile override (so resetting actually does something). Hovering
+ * the device icon shows which layer the value is coming from.
+ */
+function PropLabel({
+  label,
+  activeDevice,
+  isOverridden,
+  onReset,
+}: {
+  label: string;
+  activeDevice: LandingPageDevice;
+  isOverridden: boolean;
+  onReset: () => void;
+}) {
+  const showReset = activeDevice === 'mobile' && isOverridden;
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <span className="text-[12px] font-medium text-[var(--foreground)] truncate">
+        {label}
+      </span>
+      <span
+        title={
+          activeDevice === 'mobile'
+            ? isOverridden
+              ? 'Mobile override — desktop unaffected'
+              : 'Editing mobile (no override yet)'
+            : 'Editing desktop'
+        }
+        className={`inline-flex items-center ${
+          isOverridden && activeDevice === 'mobile'
+            ? 'text-[var(--primary)]'
+            : 'text-[var(--muted-foreground)]/60'
+        }`}
+      >
+        {activeDevice === 'mobile' ? (
+          <DevicePhoneMobileIcon className="w-3.5 h-3.5" />
+        ) : (
+          <ComputerDesktopIcon className="w-3.5 h-3.5" />
+        )}
+      </span>
+      {showReset && (
+        <button
+          type="button"
+          onClick={onReset}
+          title="Reset to desktop value"
+          aria-label="Reset to desktop value"
+          className="inline-flex items-center justify-center w-4 h-4 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+        >
+          <ArrowUturnLeftIcon className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function readSides(
+  block: Block,
+  prefix: 'padding' | 'margin',
+  device: LandingPageDevice,
+) {
+  const p = effectiveProps(block, device);
   const num = (key: string): number => (typeof p[key] === 'number' ? (p[key] as number) : 0);
   return {
     top: num(`${prefix}Top`),

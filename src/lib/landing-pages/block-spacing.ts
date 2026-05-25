@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { Block } from './types';
+import { effectiveProps, type Block, type LandingPageDevice } from './types';
 
 /**
  * Pull padding + margin off a block's props and convert to a CSS
@@ -8,12 +8,20 @@ import type { Block } from './types';
  * background color extends into the padded area), and we don't want
  * to double-pad.
  *
+ * Takes a `device` so per-device mobile overrides apply: the editor
+ * passes its activeDevice; the public renderer passes 'desktop' for
+ * the desktop-only copy and 'mobile' for the mobile-only copy when
+ * dual-rendering blocks with overrides.
+ *
  * Used by both the public LandingPageRenderer wrapper and the editor
  * canvas's EditableBlock wrapper so the box-model spacing controls
  * behave identically in both surfaces.
  */
-export function blockSpacingStyle(block: Block): CSSProperties {
-  const p = block.props as Record<string, unknown>;
+export function blockSpacingStyle(
+  block: Block,
+  device: LandingPageDevice = 'desktop',
+): CSSProperties {
+  const p = effectiveProps(block, device);
   const num = (key: string): number => {
     const v = p[key];
     return typeof v === 'number' ? v : 0;
