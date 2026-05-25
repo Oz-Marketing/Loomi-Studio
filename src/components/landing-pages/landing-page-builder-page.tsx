@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import {
   ArrowLeftIcon,
   ArrowPathIcon,
+  ArrowUturnLeftIcon,
+  ArrowUturnRightIcon,
   CheckIcon,
   ClockIcon,
   Cog6ToothIcon,
@@ -25,6 +27,7 @@ import {
 import type { LandingPageDetail } from '@/lib/services/landing-pages';
 
 const AUTOSAVE_MS = 600;
+const HISTORY_LIMIT = 50;
 const fetcher = async (url: string) => {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
@@ -54,6 +57,8 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
   const page = data?.page;
 
   const [template, setTemplate] = React.useState<LandingPageTemplate | null>(null);
+  const [past, setPast] = React.useState<LandingPageTemplate[]>([]);
+  const [future, setFuture] = React.useState<LandingPageTemplate[]>([]);
   const [saveStatus, setSaveStatus] = React.useState<SaveStatus>('idle');
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -174,6 +179,71 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
     return () => window.removeEventListener('pagehide', flush);
   }, [id]);
 
+  // ── Undo / redo ──
+  //
+  // `applyChange` is what the editor calls when the user edits — it
+  // pushes the pre-edit template onto the undo stack, clears the redo
+  // stack (any divergent edit invalidates pending redos), and
+  // commits the new template. Undo pops past → current, current →
+  // future; redo is the mirror.
+  const applyChange = React.useCallback(
+    (next: LandingPageTemplate) => {
+      setPast((items) => {
+        if (!template) return items;
+        return [...items.slice(-(HISTORY_LIMIT - 1)), template];
+      });
+      setFuture([]);
+      setTemplate(next);
+    },
+    [template],
+  );
+
+  const undo = React.useCallback(() => {
+    setPast((items) => {
+      const previous = items[items.length - 1];
+      if (!previous || !template) return items;
+      setFuture((futureItems) => [template, ...futureItems].slice(0, HISTORY_LIMIT));
+      setTemplate(previous);
+      return items.slice(0, -1);
+    });
+  }, [template]);
+
+  const redo = React.useCallback(() => {
+    setFuture((items) => {
+      const next = items[0];
+      if (!next || !template) return items;
+      setPast((pastItems) => [...pastItems.slice(-(HISTORY_LIMIT - 1)), template]);
+      setTemplate(next);
+      return items.slice(1);
+    });
+  }, [template]);
+
+  // Keyboard shortcuts: Cmd/Ctrl+Z (undo), Cmd/Ctrl+Shift+Z (redo).
+  // Skip when the focus is inside a text field — those have their own
+  // native undo stack we don't want to fight.
+  React.useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'z') return;
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [redo, undo]);
+
+  const canUndo = past.length > 0;
+  const canRedo = future.length > 0;
   const saveDescriptor = describeSaveStatus(saveStatus, savedAt);
 
   return (
@@ -208,6 +278,22 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
           {page?.name || 'Loading…'}
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 mr-1">
+            <HeaderIconButton
+              label="Undo"
+              shortcut="⌘Z"
+              disabled={!canUndo}
+              onClick={undo}
+              icon={<ArrowUturnLeftIcon className="w-4 h-4" />}
+            />
+            <HeaderIconButton
+              label="Redo"
+              shortcut="⌘⇧Z"
+              disabled={!canRedo}
+              onClick={redo}
+              icon={<ArrowUturnRightIcon className="w-4 h-4" />}
+            />
+          </div>
           {page?.status === 'published' && (
             <Link
               href={`/lp/${page.slug}`}
@@ -236,7 +322,7 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
           Loading editor…
         </div>
       ) : (
-        <LandingPageEditorShell template={template} onChange={setTemplate} />
+        <LandingPageEditorShell template={template} onChange={applyChange} />
       )}
 
       <LandingPageSettingsModal
@@ -246,6 +332,33 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
         onUpdated={(next) => void mutate({ page: next }, { revalidate: false })}
       />
     </AdminOnly>
+  );
+}
+
+function HeaderIconButton({
+  label,
+  shortcut,
+  icon,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  shortcut?: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={shortcut ? `${label} (${shortcut})` : label}
+      aria-label={label}
+      className="inline-flex items-center justify-center w-8 h-8 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+    >
+      {icon}
+    </button>
   );
 }
 
