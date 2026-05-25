@@ -44,27 +44,31 @@ export function BlockPalette() {
         </p>
       </div>
       {CATEGORY_ORDER.map((cat) => (
-        <div key={cat} className="px-4 py-3 border-b border-[var(--border)]">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)] mb-2">
-            {CATEGORY_LABEL[cat]}
-          </h3>
-          <div className="grid grid-cols-2 gap-2">
-            {groups[cat].map((schema) => (
-              <button
-                key={schema.type}
-                type="button"
-                onClick={() => insertBlock(schema.type)}
-                className="flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--accent)] transition-colors group select-none"
-                title={schema.description}
-              >
-                <PaletteIcon name={schema.icon} className="w-5 h-5 text-[var(--muted-foreground)] group-hover:text-[var(--primary)]" />
-                <span className="text-[11px] font-medium text-center leading-tight">
-                  {schema.label}
-                </span>
-              </button>
-            ))}
+        <React.Fragment key={cat}>
+          <div className="px-4 pt-5 pb-2.5 border-t border-[var(--border)]">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--foreground)]">
+              {CATEGORY_LABEL[cat]}
+            </h3>
           </div>
-        </div>
+          <div className="px-4 py-3">
+            <div className="grid grid-cols-2 gap-2">
+              {groups[cat].map((schema) => (
+                <button
+                  key={schema.type}
+                  type="button"
+                  onClick={() => insertBlock(schema.type)}
+                  className="flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--accent)] transition-colors group select-none"
+                  title={schema.description}
+                >
+                  <PaletteIcon name={schema.icon} className="w-5 h-5 text-[var(--muted-foreground)] group-hover:text-[var(--primary)]" />
+                  <span className="text-[11px] font-medium text-center leading-tight">
+                    {schema.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </React.Fragment>
       ))}
     </div>
   );

@@ -65,9 +65,6 @@ export function PageSettingsPanel() {
       </Section>
 
       <Section name="Padding">
-        <p className="text-[10px] text-[var(--muted-foreground)] -mt-1 mb-2">
-          Inside the content card, between its edges and the first/last block.
-        </p>
         <SpacingBox
           values={{
             top: settings.contentPaddingTop ?? 0,
@@ -87,9 +84,6 @@ export function PageSettingsPanel() {
       </Section>
 
       <Section name="Margin">
-        <p className="text-[10px] text-[var(--muted-foreground)] -mt-1 mb-2">
-          Outside the content card — adds breathing room against the page edges.
-        </p>
         <SpacingBox
           values={{
             top: settings.contentMarginTop ?? 0,
@@ -147,13 +141,18 @@ export function PageSettingsPanel() {
 }
 
 function Section({ name, children }: { name: string; children: React.ReactNode }) {
+  // Matches the forms / email editor section header pattern —
+  // top-border separator + uppercase 11px foreground text. Keeps
+  // the sidebar feeling like the same surface across editors.
   return (
-    <div className="px-4 py-3 border-b border-[var(--border)] space-y-3 last:border-b-0">
-      <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
-        {name}
-      </h4>
-      {children}
-    </div>
+    <>
+      <div className="px-4 pt-5 pb-2.5 border-t border-[var(--border)]">
+        <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--foreground)]">
+          {name}
+        </h4>
+      </div>
+      <div className="px-4 py-3 space-y-3">{children}</div>
+    </>
   );
 }
 

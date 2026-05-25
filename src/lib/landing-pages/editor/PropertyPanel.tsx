@@ -21,6 +21,29 @@ const PADDING_KEYS = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLef
 const MARGIN_KEYS = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'] as const;
 const SPACING_PROP_KEYS = new Set<string>([...PADDING_KEYS, ...MARGIN_KEYS]);
 
+// Pretty-print group names for the section headers. Mirrors the
+// map the forms editor uses so the sidebar reads the same across
+// editors (matching the visual cohesion ask).
+const GROUP_LABELS: Record<string, string> = {
+  content: 'Content',
+  cta: 'Buttons',
+  media: 'Media',
+  items: 'Items',
+  links: 'Links',
+  background: 'Background',
+  border: 'Border',
+  style: 'Style',
+  typography: 'Typography',
+  layout: 'Layout',
+  spacing: 'Spacing',
+  behavior: 'Behavior',
+  general: 'Settings',
+};
+
+function prettyGroupName(g: string): string {
+  return GROUP_LABELS[g] ?? g.charAt(0).toUpperCase() + g.slice(1);
+}
+
 type PropertyTab = 'general' | 'styling' | 'advanced';
 
 // Each schema's `group` field maps to one of three sidebar tabs.
@@ -143,84 +166,160 @@ export function BlockProperties() {
         />
       )}
       {Object.entries(subGroups).map(([group, props]) => {
-        // The `spacing` group always renders as SpacingBoxes — one
-        // for Margin (4 sides + link icon) and one for Padding
-        // (same). Any spacing props the schema declares OUTSIDE
-        // those 8 keys (e.g. Section's `gap`) still render through
-        // the generic PropEditor below.
+        // The `spacing` sub-group splits into its own Padding +
+        // Margin sections, each with the canonical SpacingBox.
+        // Any non-padding/margin props in the spacing group (e.g.
+        // a future `gap` field) render in a Spacing section after.
         if (group === 'spacing') {
           const extras = props.filter((p) => !SPACING_PROP_KEYS.has(p.key));
           return (
-            <div
-              key={group}
-              className="px-4 py-3 border-b border-[var(--border)] space-y-4 last:border-b-0"
-            >
-              <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
-                {group}
-              </h4>
-              <SpacingGroup
-                label="Margin"
-                values={readSides(block, 'margin')}
-                onChange={(sides) =>
-                  updateBlockProps(block.id, {
-                    marginTop: sides.top,
-                    marginRight: sides.right,
-                    marginBottom: sides.bottom,
-                    marginLeft: sides.left,
-                  })
-                }
-              />
-              <SpacingGroup
-                label="Padding"
-                values={readSides(block, 'padding')}
-                onChange={(sides) =>
-                  updateBlockProps(block.id, {
-                    paddingTop: sides.top,
-                    paddingRight: sides.right,
-                    paddingBottom: sides.bottom,
-                    paddingLeft: sides.left,
-                  })
-                }
-              />
+            <React.Fragment key={group}>
+              <PropertyGroupHeader name="Margin" />
+              <div className="px-4 py-3">
+                <SpacingBox
+                  values={readSides(block, 'margin')}
+                  onChange={(sides) =>
+                    updateBlockProps(block.id, {
+                      marginTop: sides.top,
+                      marginRight: sides.right,
+                      marginBottom: sides.bottom,
+                      marginLeft: sides.left,
+                    })
+                  }
+                />
+              </div>
+              <PropertyGroupHeader name="Padding" />
+              <div className="px-4 py-3">
+                <SpacingBox
+                  values={readSides(block, 'padding')}
+                  onChange={(sides) =>
+                    updateBlockProps(block.id, {
+                      paddingTop: sides.top,
+                      paddingRight: sides.right,
+                      paddingBottom: sides.bottom,
+                      paddingLeft: sides.left,
+                    })
+                  }
+                />
+              </div>
               {extras.length > 0 && (
-                <div className="grid grid-cols-2 gap-3">
-                  {extras.map((p) => (
-                    <div key={p.key} className={p.half ? 'col-span-1' : 'col-span-2'}>
-                      <PropEditor
-                        prop={p}
-                        value={(block.props[p.key] as unknown) ?? p.default}
-                        onChange={(value) => updateBlockProps(block.id, { [p.key]: value })}
-                      />
-                    </div>
-                  ))}
-                </div>
+                <>
+                  <PropertyGroupHeader name="Spacing" />
+                  <FieldGroup
+                    block={block}
+                    props={extras}
+                    onPropChange={(key, value) =>
+                      updateBlockProps(block.id, { [key]: value })
+                    }
+                  />
+                </>
               )}
-            </div>
+            </React.Fragment>
           );
         }
         return (
-          <div
-            key={group}
-            className="px-4 py-3 border-b border-[var(--border)] space-y-3 last:border-b-0"
-          >
-            <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
-              {group}
-            </h4>
-            <div className="grid grid-cols-2 gap-3">
-              {props.map((p) => (
-                <div key={p.key} className={p.half ? 'col-span-1' : 'col-span-2'}>
-                  <PropEditor
-                    prop={p}
-                    value={(block.props[p.key] as unknown) ?? p.default}
-                    onChange={(value) => updateBlockProps(block.id, { [p.key]: value })}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+          <React.Fragment key={group}>
+            <PropertyGroupHeader name={prettyGroupName(group)} />
+            <FieldGroup
+              block={block}
+              props={props}
+              onPropChange={(key, value) =>
+                updateBlockProps(block.id, { [key]: value })
+              }
+            />
+          </React.Fragment>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Section header bar matching the forms / email editor styling —
+ * uppercase 11px font-semibold, top-border separator, foreground
+ * text color. The sidebar feels uniform across editors with this.
+ */
+function PropertyGroupHeader({ name }: { name: string }) {
+  return (
+    <div className="px-4 pt-5 pb-2.5 border-t border-[var(--border)]">
+      <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--foreground)]">
+        {name}
+      </h4>
+    </div>
+  );
+}
+
+/**
+ * Stack of property fields inside a section. Each field auto-picks
+ * inline (label + control side-by-side) vs stacked (label above
+ * control) based on the control type — short controls (select,
+ * toggle, plain number) go inline; wide controls (text input,
+ * textarea, color, url, image, item-array, sliders) stay stacked
+ * because they need the full width.
+ */
+function FieldGroup({
+  block,
+  props,
+  onPropChange,
+}: {
+  block: Block;
+  props: PropSchema[];
+  onPropChange: (key: string, value: unknown) => void;
+}) {
+  return (
+    <div className="px-4 py-3 space-y-3">
+      {props.map((p) => (
+        <PropertyField
+          key={p.key}
+          prop={p}
+          value={(block.props[p.key] as unknown) ?? p.default}
+          onChange={(value) => onPropChange(p.key, value)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PropertyField({
+  prop,
+  value,
+  onChange,
+}: {
+  prop: PropSchema;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const isSliderProp =
+    !!prop.slider &&
+    (prop.type === 'number' || prop.type === 'unit' || prop.type === 'range');
+  const inline =
+    !isSliderProp &&
+    (prop.type === 'toggle' ||
+      prop.type === 'select' ||
+      prop.type === 'number' ||
+      prop.type === 'unit' ||
+      prop.type === 'range');
+
+  const control = (
+    <PropEditor prop={prop} value={value} onChange={onChange} />
+  );
+
+  if (inline) {
+    return (
+      <div className="flex items-center justify-between gap-3 py-0.5">
+        <PropLabel label={prop.label} />
+        <div className="flex-shrink-0 w-[58%]">{control}</div>
+      </div>
+    );
+  }
+  return control;
+}
+
+function PropLabel({ label }: { label: string }) {
+  return (
+    <span className="text-[12px] font-medium text-[var(--foreground)] truncate">
+      {label}
+    </span>
   );
 }
 
@@ -233,23 +332,6 @@ function readSides(block: Block, prefix: 'padding' | 'margin') {
     bottom: num(`${prefix}Bottom`),
     left: num(`${prefix}Left`),
   };
-}
-
-function SpacingGroup({
-  label,
-  values,
-  onChange,
-}: {
-  label: string;
-  values: { top: number; right: number; bottom: number; left: number };
-  onChange: (sides: { top: number; right: number; bottom: number; left: number }) => void;
-}) {
-  return (
-    <div>
-      <div className="text-[11px] font-medium text-[var(--foreground)] mb-1.5">{label}</div>
-      <SpacingBox values={values} onChange={onChange} />
-    </div>
-  );
 }
 
 function PropertyTabsBar({
