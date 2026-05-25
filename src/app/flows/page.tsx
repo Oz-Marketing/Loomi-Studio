@@ -13,7 +13,7 @@ import {
   type FlowsTableRow,
   type BulkActionContext,
 } from '@/components/flows/flows-table';
-import { FlowList } from '@/components/flows/flow-list';
+import { FlowCard, type FlowCardWorkflow } from '@/components/flows/flow-card';
 import { CloneFlowModal } from '@/components/flows/clone-flow-modal';
 import { PickTemplateModal } from '@/components/flows/pick-template-modal';
 import { ViewSwitcher, useListView } from '@/components/view-switcher';
@@ -236,6 +236,9 @@ function FlowsPageBody({
   // since flows has always been table-first; the card grid is the new
   // alternative.
   const [view, setView] = useListView('loomi.flows.view', 'table');
+  // Per-card 3-dot menu state — one open at a time. FlowCard expects
+  // the parent to track this so the menus can't stack.
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
   const queryParams = new URLSearchParams();
   if (presetAccountKey) queryParams.set('accountKey', presetAccountKey);
@@ -665,16 +668,60 @@ function FlowsPageBody({
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
         />
+      ) : isLoading ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="glass-card rounded-xl h-44 animate-pulse bg-[var(--muted)]/30"
+            />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="glass-card rounded-2xl px-6 py-14 text-center">
+          <h3 className="text-lg font-semibold">{emptyState.title}</h3>
+          <p className="text-sm text-[var(--muted-foreground)] mt-1">
+            {emptyState.subtitle}
+          </p>
+        </div>
       ) : (
-        <FlowList
-          workflows={rows}
-          loading={isLoading}
-          accountNames={accountNames}
-          accountMeta={accountMeta}
-          onToggleLoomiStatus={handleToggleStatus}
-          updatingStatusFlowIds={updatingIds}
-          emptyState={emptyState}
-        />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {rows.map((flow) => {
+            const workflow: FlowCardWorkflow = {
+              id: flow.id,
+              name: flow.name,
+              status: flow.status,
+              source: flow.source ?? 'loomi',
+              accountKey: flow.accountKey,
+              dealer: flow.dealer,
+              createdAt: flow.createdAt,
+              updatedAt: flow.updatedAt,
+            };
+            const meta = flow.accountKey ? accountMeta[flow.accountKey] : undefined;
+            return (
+              <FlowCard
+                key={flow.id}
+                workflow={workflow}
+                accountMeta={meta}
+                accountName={
+                  flow.accountKey ? (accountNames[flow.accountKey] ?? null) : null
+                }
+                showAccount={presetAccountKey === null && !!flow.accountKey}
+                isMenuOpen={menuOpenId === flow.id}
+                isStatusUpdating={updatingIds.includes(flow.id)}
+                onToggleMenu={(w) =>
+                  setMenuOpenId((cur) => (cur === w.id ? null : w.id))
+                }
+                onToggleLoomiStatus={(_w, next) =>
+                  // FlowCardWorkflow doesn't carry every FlowsTableRow
+                  // field — re-hydrate from the row we already have.
+                  void handleToggleStatus(flow, next)
+                }
+                hrefBuilder={(w) => subHref(`/flows/${w.id}`)}
+              />
+            );
+          })}
+        </div>
       )}
 
       {presetAccountKey && (
