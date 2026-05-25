@@ -17,6 +17,11 @@ interface FormDetailContextValue {
   saveStatus: FormSaveStatus;
   savedAt: Date | null;
   setSaveState: (status: FormSaveStatus, savedAt?: Date | null) => void;
+  /** Whether the settings modal is open. Anything that needs to open
+   *  it (overview cog, builder cog) calls `openSettings()`. */
+  settingsOpen: boolean;
+  openSettings: () => void;
+  closeSettings: () => void;
 }
 
 const FormDetailContext = React.createContext<FormDetailContextValue | null>(null);
@@ -31,6 +36,7 @@ export function FormDetailProvider({
   const [form, setForm] = React.useState<FormDetail>(initialForm);
   const [saveStatus, setSaveStatus] = React.useState<FormSaveStatus>('idle');
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
 
   const setSaveState = React.useCallback(
     (status: FormSaveStatus, when?: Date | null) => {
@@ -44,9 +50,21 @@ export function FormDetailProvider({
     [],
   );
 
+  const openSettings = React.useCallback(() => setSettingsOpen(true), []);
+  const closeSettings = React.useCallback(() => setSettingsOpen(false), []);
+
   return (
     <FormDetailContext.Provider
-      value={{ form, setForm, saveStatus, savedAt, setSaveState }}
+      value={{
+        form,
+        setForm,
+        saveStatus,
+        savedAt,
+        setSaveState,
+        settingsOpen,
+        openSettings,
+        closeSettings,
+      }}
     >
       {children}
     </FormDetailContext.Provider>

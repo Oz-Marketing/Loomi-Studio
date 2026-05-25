@@ -207,6 +207,8 @@ export async function createForm(input: {
   accountKey: string;
   name: string;
   createdByUserId?: string | null;
+  /** Pre-built FormTemplate to seed the new form. Defaults to empty. */
+  schema?: FormTemplate;
 }): Promise<FormDetail> {
   const name = input.name.trim();
   if (!name) throw new FormServiceError('name is required');
@@ -218,13 +220,14 @@ export async function createForm(input: {
   if (!account) throw new FormServiceError('Account not found', 404);
 
   const slug = await ensureUniqueSlug(slugify(name) || 'untitled-form');
+  const schema = (input.schema ?? emptyFormTemplate()) as unknown as Prisma.InputJsonValue;
   const created = await prisma.form.create({
     data: {
       accountKey: input.accountKey,
       name,
       slug,
       status: 'draft',
-      schema: emptyFormTemplate() as unknown as Prisma.InputJsonValue,
+      schema,
       successMessage: DEFAULT_SUCCESS_MESSAGE,
       createdByUserId: input.createdByUserId ?? null,
     },

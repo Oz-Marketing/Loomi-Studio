@@ -19,6 +19,7 @@ import {
 import { useFormDetail } from '@/components/forms/form-detail-context';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { FormRenderer } from '@/lib/forms/render';
+import { SubmissionsTable } from '@/components/forms/submissions-table';
 import type { FormSubmissionRow } from '@/lib/services/forms';
 
 const fetcher = async (url: string) => {
@@ -30,29 +31,24 @@ const fetcher = async (url: string) => {
 /**
  * Form overview page — the landing page for a single form. Mirrors the
  * Flow overview pattern (`/flows/[id]`): stat cards across the top,
- * live form preview, recent submissions list, embed snippets, and an
- * Edit Form CTA that routes into the builder.
- *
- * Data sources:
- *   - Form metadata lives in FormDetailContext (set by the parent
- *     layout's server fetch).
- *   - Submissions fetched via SWR so refreshes pick up new entries
- *     without a hard reload.
+ * live form preview, embed snippet, and the full submissions table at
+ * the bottom. The cog opens the settings modal (no separate page).
  */
 export function FormOverview() {
-  const { form, setForm } = useFormDetail();
+  const { form, setForm, openSettings } = useFormDetail();
   const subHref = useSubaccountHref();
   const [publishing, setPublishing] = React.useState(false);
   const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
 
+  // Just for the stat cards — the full submissions table embedded at
+  // the bottom does its own fetch with pagination.
   const { data: submissionsPayload } = useSWR<{
     submissions: FormSubmissionRow[];
     total: number;
-  }>(`/api/forms/${form.id}/submissions?pageSize=5`, fetcher, {
+  }>(`/api/forms/${form.id}/submissions?pageSize=20`, fetcher, {
     revalidateOnFocus: true,
   });
 
-  const submissions = submissionsPayload?.submissions ?? [];
   const totalSubmissions = submissionsPayload?.total ?? form.submissionCount;
   const submissionsLast7d = React.useMemo(() => {
     if (!submissionsPayload?.submissions) return null;
@@ -61,7 +57,7 @@ export function FormOverview() {
       (s) => new Date(s.createdAt).getTime() >= cutoff,
     ).length;
   }, [submissionsPayload]);
-  const lastSubmissionAt = submissions[0]?.createdAt ?? null;
+  const lastSubmissionAt = submissionsPayload?.submissions?.[0]?.createdAt ?? null;
 
   const togglePublish = async () => {
     if (publishing) return;
@@ -89,7 +85,7 @@ export function FormOverview() {
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 1400);
     } catch {
-      // Clipboard denied — fall back to manual select.
+      // Clipboard denied — manual select fallback.
     }
   };
 
@@ -97,7 +93,7 @@ export function FormOverview() {
 
   return (
     <div className="space-y-5">
-      {/* Sticky header — same shape as flow overview */}
+      {/* Sticky header */}
       <div className="page-sticky-header">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
@@ -146,21 +142,15 @@ export function FormOverview() {
                 onToggle={() => void togglePublish()}
               />
             </div>
-            <Link
-              href={subHref(`/websites/forms/${form.id}/settings`)}
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            <button
+              type="button"
+              onClick={openSettings}
               aria-label="Form settings"
               title="Settings"
+              className="inline-flex items-center justify-center w-10 h-10 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
             >
               <Cog6ToothIcon className="w-5 h-5" />
-            </Link>
-            <Link
-              href={subHref(`/websites/forms/${form.id}/submissions`)}
-              className="inline-flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)] hover:bg-[var(--muted)] transition-colors"
-            >
-              <InboxStackIcon className="w-4 h-4" />
-              Submissions
-            </Link>
+            </button>
             {published && (
               <a
                 href={`/f/${form.slug}`}
@@ -207,7 +197,11 @@ export function FormOverview() {
           Icon={EyeIcon}
           bgColor="bg-emerald-500/15"
           iconColor="text-emerald-300"
-          hint={lastSubmissionAt ? new Date(lastSubmissionAt).toLocaleString() : 'No submissions yet'}
+          hint={
+            lastSubmissionAt
+              ? new Date(lastSubmissionAt).toLocaleString()
+              : 'No submissions yet'
+          }
         />
         <StatCard
           label="Status"
@@ -223,14 +217,14 @@ export function FormOverview() {
         />
       </div>
 
-      {/* Two-column body: preview on the left, submissions + embed on the right */}
+      {/* Two-column body — preview + embed */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] gap-5">
         <section className="glass-card rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
             <div>
               <h3 className="font-semibold">Preview</h3>
               <p className="text-xs text-[var(--muted-foreground)]">
-                How visitors see the form. Open the live URL to test submission.
+                What visitors see. Open the live URL to actually submit.
               </p>
             </div>
             <Link
@@ -243,8 +237,7 @@ export function FormOverview() {
           </div>
           <div
             className="max-h-[680px] overflow-y-auto bg-[var(--muted)]/30"
-            // The preview re-uses the same renderer the public page does,
-            // so what users see here is exactly what /f/<slug> serves.
+            // Same renderer the public page uses, so this matches /f/<slug>.
           >
             <div className="loomi-form-preview pointer-events-none">
               <FormRenderer template={form.schema} />
@@ -252,100 +245,51 @@ export function FormOverview() {
           </div>
         </section>
 
-        <div className="space-y-5">
-          {/* Recent submissions */}
-          <section className="glass-card rounded-2xl overflow-hidden">
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-              <div>
-                <h3 className="font-semibold">Recent submissions</h3>
-                <p className="text-xs text-[var(--muted-foreground)]">
-                  Last {submissions.length || 0} of {totalSubmissions.toLocaleString()}
-                </p>
-              </div>
-              {totalSubmissions > 0 && (
-                <Link
-                  href={subHref(`/websites/forms/${form.id}/submissions`)}
-                  className="text-xs text-[var(--primary)] hover:underline"
-                >
-                  View all →
-                </Link>
+        <section className="glass-card rounded-2xl p-4 h-fit">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h3 className="font-semibold">Embed</h3>
+            <button
+              type="button"
+              onClick={openSettings}
+              className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)]"
+            >
+              More options →
+            </button>
+          </div>
+          <p className="text-xs text-[var(--muted-foreground)] mb-3">
+            Paste this script tag where you want the form to appear.
+          </p>
+          <div className="relative">
+            <textarea
+              readOnly
+              value={form.embedSnippets.script}
+              rows={3}
+              onFocus={(e) => e.currentTarget.select()}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--input)] px-3 py-2 pr-12 font-mono text-xs text-[var(--muted-foreground)] resize-none"
+            />
+            <button
+              type="button"
+              onClick={() => void copyText('script', form.embedSnippets.script)}
+              className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              title="Copy"
+              aria-label="Copy script embed"
+            >
+              {copiedKey === 'script' ? (
+                <CheckCircleIcon className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <ClipboardIcon className="w-4 h-4" />
               )}
-            </div>
-            {submissions.length === 0 ? (
-              <div className="px-6 py-10 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-[var(--muted)] flex items-center justify-center mx-auto mb-3">
-                  <InboxStackIcon className="w-6 h-6 text-[var(--muted-foreground)]" />
-                </div>
-                <p className="text-sm font-medium">No submissions yet</p>
-                <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                  {published
-                    ? 'Share the form link or embed it to start collecting.'
-                    : 'Publish the form to start collecting submissions.'}
-                </p>
-              </div>
-            ) : (
-              <ul className="divide-y divide-[var(--border)]">
-                {submissions.map((s) => {
-                  const label =
-                    s.contact?.fullName ||
-                    s.contact?.email ||
-                    s.contact?.phone ||
-                    'Anonymous';
-                  return (
-                    <li
-                      key={s.id}
-                      className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-4 py-3 text-sm hover:bg-[var(--muted)]/40"
-                    >
-                      <span className="truncate">{label}</span>
-                      <span className="text-xs text-[var(--muted-foreground)] whitespace-nowrap">
-                        {formatRelativeTime(s.createdAt)}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-
-          {/* Embed quick-copy */}
-          <section className="glass-card rounded-2xl p-4">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <h3 className="font-semibold">Embed</h3>
-              <Link
-                href={subHref(`/websites/forms/${form.id}/settings`)}
-                className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)]"
-              >
-                More options →
-              </Link>
-            </div>
-            <p className="text-xs text-[var(--muted-foreground)] mb-3">
-              Paste this script tag where you want the form to appear.
-            </p>
-            <div className="relative">
-              <textarea
-                readOnly
-                value={form.embedSnippets.script}
-                rows={2}
-                onFocus={(e) => e.currentTarget.select()}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--input)] px-3 py-2 pr-12 font-mono text-xs text-[var(--muted-foreground)] resize-none"
-              />
-              <button
-                type="button"
-                onClick={() => void copyText('script', form.embedSnippets.script)}
-                className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                title="Copy"
-                aria-label="Copy script embed"
-              >
-                {copiedKey === 'script' ? (
-                  <CheckCircleIcon className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <ClipboardIcon className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-          </section>
-        </div>
+            </button>
+          </div>
+        </section>
       </div>
+
+      {/* Submissions — full table at the bottom of the overview. The
+          submissions data fetch / pagination / CSV export all live in
+          the table component itself, so embedding it here is a one-liner. */}
+      <section>
+        <SubmissionsTable formId={form.id} />
+      </section>
     </div>
   );
 }
@@ -385,7 +329,7 @@ function StatCard({
   );
 }
 
-// ── Publish switch (matches Flows overview pattern) ──────────────
+// ── Publish switch ───────────────────────────────────────────────
 
 function PublishSwitch({
   active,

@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getAccountScope, getAuthSession } from '@/lib/api-auth';
 import { getForm } from '@/lib/services/forms';
 import { FormDetailProvider } from '@/components/forms/form-detail-context';
+import { FormSettingsModal } from '@/components/forms/form-settings-modal';
 
 /**
  * Detail-area shell. Fetches the form once and exposes it via
@@ -28,5 +29,13 @@ export default async function FormDetailLayout({
   const form = await getForm(id, getAccountScope(session));
   if (!form) notFound();
 
-  return <FormDetailProvider initialForm={form}>{children}</FormDetailProvider>;
+  return (
+    <FormDetailProvider initialForm={form}>
+      {children}
+      {/* Settings modal lives at the layout level so the cog buttons
+          on every page (overview, builder) can open it without each
+          page mounting its own copy. */}
+      <FormSettingsModal />
+    </FormDetailProvider>
+  );
 }

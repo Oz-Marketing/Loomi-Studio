@@ -29,7 +29,7 @@ import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 export function FormDetailHeader() {
   const router = useRouter();
   const subHref = useSubaccountHref();
-  const { form, setForm, saveStatus, savedAt } = useFormDetail();
+  const { form, setForm, saveStatus, savedAt, openSettings } = useFormDetail();
 
   const [editingTitle, setEditingTitle] = React.useState(false);
   const [titleDraft, setTitleDraft] = React.useState(form.name);
@@ -173,7 +173,7 @@ export function FormDetailHeader() {
         )}
         <button
           type="button"
-          onClick={() => router.push(subHref(`/websites/forms/${form.id}/settings`))}
+          onClick={openSettings}
           title="Form settings"
           aria-label="Form settings"
           className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[var(--muted)] hover:bg-[var(--accent)] text-[var(--foreground)] transition-colors"
