@@ -26,3 +26,30 @@ export async function requireRole(...roles: UserRole[]) {
   if (!roles.includes(session.user.role)) return { session, error: forbidden() };
   return { session, error: null };
 }
+
+/**
+ * Compute the account-scope filter for a session.
+ *
+ * - `null` = no scoping (developer / super_admin can see all accounts)
+ * - `string[]` = scoped to these account keys (admin / client roles)
+ *
+ * Service-layer queries treat `null` as "no filter" and an array as
+ * "WHERE accountKey IN (…)". Used by feature APIs that need to enforce
+ * per-account access.
+ */
+export function getAccountScope(session: {
+  user: { role: UserRole; accountKeys?: string[] };
+}): string[] | null {
+  if (session.user.role === 'developer' || session.user.role === 'super_admin') {
+    return null;
+  }
+  return session.user.accountKeys ?? [];
+}
+
+/** True when the session can access the given accountKey under its scope. */
+export function canAccessAccount(
+  scope: string[] | null,
+  accountKey: string,
+): boolean {
+  return !scope || scope.length === 0 || scope.includes(accountKey);
+}
