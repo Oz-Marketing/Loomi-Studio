@@ -117,9 +117,13 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
   // Matches /flows/<id>/edit only — the overview at /flows/<id> renders
   // inside the regular app shell.
   const isFlowBuilder = /^\/flows\/[^/]+\/edit$/.test(builderProbe);
+  const isWebsiteBuilder =
+    /^\/websites\/forms\/[^/]+$/.test(builderProbe) ||
+    /^\/websites\/landing-pages\/[^/]+$/.test(builderProbe) ||
+    builderProbe === '/websites/landing-pages/demo';
 
   useEffect(() => {
-    if (isFullScreen || isTemplateEditor || isCampaignBuilder || isFlowBuilder) {
+    if (isFullScreen || isTemplateEditor || isCampaignBuilder || isFlowBuilder || isWebsiteBuilder) {
       setIsMainScrolled(false);
       return;
     }
@@ -134,13 +138,20 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
     handleScroll();
     main.addEventListener('scroll', handleScroll, { passive: true });
     return () => main.removeEventListener('scroll', handleScroll);
-  }, [pathname, isFullScreen, isTemplateEditor, isCampaignBuilder, isFlowBuilder]);
+  }, [
+    pathname,
+    isFullScreen,
+    isTemplateEditor,
+    isCampaignBuilder,
+    isFlowBuilder,
+    isWebsiteBuilder,
+  ]);
 
   if (isFullScreen) {
     return <div className="flex-1">{children}</div>;
   }
 
-  if (isFlowBuilder) {
+  if (isFlowBuilder || isWebsiteBuilder) {
     return <div className="flex-1 min-w-0">{children}</div>;
   }
 

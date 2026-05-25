@@ -1,0 +1,54 @@
+'use client';
+
+import { DocumentTextIcon } from '@heroicons/react/24/outline';
+import type { FormSummary } from '@/lib/services/forms';
+import { FormCard } from '@/components/forms/form-card';
+
+export function FormsList({
+  forms,
+  loading,
+  accountNames,
+}: {
+  forms: FormSummary[];
+  loading?: boolean;
+  accountNames?: Record<string, string>;
+}) {
+  if (loading) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div
+            key={index}
+            className="glass-card rounded-xl p-4 h-40 animate-pulse bg-[var(--muted)]/30"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (forms.length === 0) {
+    return (
+      <div className="glass-card rounded-2xl px-6 py-14 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-[var(--muted)] flex items-center justify-center mx-auto mb-4">
+          <DocumentTextIcon className="w-7 h-7 text-[var(--muted-foreground)]" />
+        </div>
+        <h3 className="text-lg font-semibold">No forms yet</h3>
+        <p className="text-sm text-[var(--muted-foreground)] mt-1">
+          Create your first form and start shaping the capture experience.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {forms.map((form) => (
+        <FormCard
+          key={form.id}
+          form={form}
+          accountName={accountNames?.[form.accountKey]}
+        />
+      ))}
+    </div>
+  );
+}
