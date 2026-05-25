@@ -654,18 +654,19 @@ function FlowsPageBody({
         </p>
       )}
 
-      {/* Unified toolbar — Cards/Table toggle, search, status filter.
-          Both card and table views render below this so the controls
-          stay in the same place no matter which view is active. */}
-      <ListToolbar
-        view={view}
-        onViewChange={setView}
-        search={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search flows..."
-        status={statusFilter}
-        onStatusChange={setStatusFilter}
-      />
+      {/* Unified toolbar — hide when there's nothing to view yet, to
+          avoid showing a search/filter row above an empty-state card. */}
+      {rows.length > 0 && (
+        <ListToolbar
+          view={view}
+          onViewChange={setView}
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search flows..."
+          status={statusFilter}
+          onStatusChange={setStatusFilter}
+        />
+      )}
 
       {view === 'table' ? (
         <FlowsTable

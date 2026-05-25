@@ -235,23 +235,25 @@ export default function FormsPage() {
         disabledReason="Select a sub-account before creating a form."
       />
 
-      {/* Unified toolbar — Cards/Table toggle, search, status filter.
-          Forms only have draft/published states; we surface those plus
-          'all' in the StatusFilter and skip 'archived'. */}
-      <ListToolbar
-        view={view}
-        onViewChange={setView}
-        search={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search forms…"
-        status={statusFilter}
-        onStatusChange={setStatusFilter}
-        statusOptions={[
-          { value: 'all', label: 'All' },
-          { value: 'draft', label: 'Draft' },
-          { value: 'published', label: 'Published' },
-        ]}
-      />
+      {/* Unified toolbar — only renders when there's something to view.
+          A toolbar above an empty-state card looks like dead chrome;
+          hide it until the user has at least one form. */}
+      {forms.length > 0 && (
+        <ListToolbar
+          view={view}
+          onViewChange={setView}
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search forms…"
+          status={statusFilter}
+          onStatusChange={setStatusFilter}
+          statusOptions={[
+            { value: 'all', label: 'All' },
+            { value: 'draft', label: 'Draft' },
+            { value: 'published', label: 'Published' },
+          ]}
+        />
+      )}
 
       {error ? (
         <div className="glass-card rounded-2xl p-6 text-sm text-rose-300">
