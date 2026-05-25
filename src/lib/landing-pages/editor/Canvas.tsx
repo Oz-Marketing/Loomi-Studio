@@ -89,21 +89,34 @@ export function Canvas() {
           }
         `}</style>
         <div className="py-6">
+          {/* Two-layer structure mirroring LandingPageRenderer:
+                outer  → page background + contentMargin (as padding)
+                inner  → content card, always centered (margin: 0 auto)
+              Squashing both into one element broke centering in mobile
+              preview, because the inline `margin` shorthand wiped the
+              `mx-auto` Tailwind class. */}
           <div
-            className="loomi-lp-canvas shadow-sm mx-auto bg-white"
             style={{
-              maxWidth: `${effectiveMaxWidth}px`,
-              backgroundColor: s.contentBg,
-              color: s.textColor,
-              fontFamily: s.fontFamily,
-              borderRadius: s.contentBorderRadius ?? 0,
-              ['--loomi-lp-primary' as never]: s.primaryColor,
-              padding: `${s.contentPaddingTop ?? 0}px ${s.contentPaddingRight ?? 0}px ${s.contentPaddingBottom ?? 0}px ${s.contentPaddingLeft ?? 0}px`,
-              margin: `${s.contentMarginTop ?? 0}px ${s.contentMarginRight ?? 0}px ${s.contentMarginBottom ?? 0}px ${s.contentMarginLeft ?? 0}px`,
-              transition: 'max-width 150ms ease',
-              overflow: 'hidden',
+              backgroundColor: s.bodyBg,
+              padding: `${s.contentMarginTop ?? 0}px ${s.contentMarginRight ?? 0}px ${s.contentMarginBottom ?? 0}px ${s.contentMarginLeft ?? 0}px`,
+              transition: 'background-color 120ms ease',
             }}
           >
+            <div
+              className="loomi-lp-canvas shadow-sm"
+              style={{
+                maxWidth: `${effectiveMaxWidth}px`,
+                margin: '0 auto',
+                backgroundColor: s.contentBg,
+                color: s.textColor,
+                fontFamily: s.fontFamily,
+                borderRadius: s.contentBorderRadius ?? 0,
+                ['--loomi-lp-primary' as never]: s.primaryColor,
+                padding: `${s.contentPaddingTop ?? 0}px ${s.contentPaddingRight ?? 0}px ${s.contentPaddingBottom ?? 0}px ${s.contentPaddingLeft ?? 0}px`,
+                transition: 'max-width 150ms ease',
+                overflow: 'hidden',
+              }}
+            >
           {template.blocks.length === 0 ? (
             <EmptyCanvasState />
           ) : (
@@ -121,6 +134,7 @@ export function Canvas() {
               ))}
             </SortableContext>
           )}
+            </div>
           </div>
         </div>
       </div>

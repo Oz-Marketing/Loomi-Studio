@@ -54,7 +54,7 @@ export function BlockPalette() {
                 key={schema.type}
                 type="button"
                 onClick={() => insertBlock(schema.type)}
-                className="flex flex-col items-center gap-1.5 px-2 py-3 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 transition-colors group"
+                className="flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--accent)] transition-colors group select-none"
                 title={schema.description}
               >
                 <PaletteIcon name={schema.icon} className="w-5 h-5 text-[var(--muted-foreground)] group-hover:text-[var(--primary)]" />
