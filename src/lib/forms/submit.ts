@@ -10,6 +10,7 @@ import type { Form, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { parseFormTemplate } from './types';
 import { validateSubmission, FormValidationError } from './validate';
+import { enrollContactForFormSubmission } from '@/lib/services/loomi-flows';
 
 export interface SubmitContext {
   ipAddress?: string | null;
@@ -91,18 +92,20 @@ export async function submitForm(args: {
     data: { submissionCount: { increment: 1 } },
   });
 
-  // PR5 hook: fire form_submission flow triggers. The function is a
-  // no-op stub today and will be filled in when PR5 lands. Wrapping in
-  // a try/catch keeps a flow misconfiguration from blocking the
-  // submission — the submission is already persisted at this point.
-  try {
-    await fireFormSubmissionTriggers({
-      formId: form.id,
-      contactId,
-      submissionId: submission.id,
-    });
-  } catch (err) {
-    console.error('[forms/submit] flow-trigger hook failed', err);
+  // Fire any form_submission flow triggers attached to this form.
+  // Wrapped in try/catch so a flow-runner failure can't roll back the
+  // already-persisted submission — the submission is the source of truth
+  // and a missing enrollment can be backfilled.
+  if (contactId) {
+    try {
+      await enrollContactForFormSubmission({
+        formId: form.id,
+        contactId,
+        accountKey: form.accountKey,
+      });
+    } catch (err) {
+      console.error('[forms/submit] flow-trigger enrollment failed', err);
+    }
   }
 
   return {
@@ -195,24 +198,6 @@ async function attachContactToList(
     create: { listId, contactId },
     update: {},
   });
-}
-
-/**
- * Placeholder for the PR5 flow-trigger hook. PR5 will:
- *   1. Find enabled LoomiFlowTriggers with type='form_submission' + formId
- *   2. Create LoomiFlowEnrollment rows for the contact (respecting re-entry policy)
- *   3. The existing flow runner picks them up on its next tick
- *
- * Keeping the hook in place now so PR4 lands with the call-site wired up
- * and PR5 only has to fill in the body.
- */
-async function fireFormSubmissionTriggers(_args: {
-  formId: string;
-  contactId: string | null;
-  submissionId: string;
-}): Promise<void> {
-  // Intentionally a no-op until PR5.
-  return;
 }
 
 export { FormValidationError };
