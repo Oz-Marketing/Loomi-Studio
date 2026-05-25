@@ -9,6 +9,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useFormDetail } from '@/components/forms/form-detail-context';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
+import { HelpTip } from '@/components/ui/help-tip';
 
 interface ContactListOption {
   id: string;
@@ -240,7 +241,43 @@ export function FormSettingsForm() {
         <aside className="space-y-4">
           <section className="glass-card rounded-2xl p-5 space-y-5">
             <div>
-              <h2 className="text-lg font-semibold">Embed</h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="text-lg font-semibold">Embed</h2>
+                <HelpTip title="How to embed this form">
+                  <p>
+                    Pick the snippet that fits the page you&rsquo;re embedding
+                    on, then paste it into your site&rsquo;s HTML wherever you
+                    want the form to appear.
+                  </p>
+                  <ol>
+                    <li>
+                      <strong>Script tag</strong> (recommended) — auto-resizes
+                      to fit the form&rsquo;s content. Works on most sites.
+                    </li>
+                    <li>
+                      <strong>Iframe</strong> — fixed height. Use when the host
+                      page strips <code>&lt;script&gt;</code> tags. Adjust{' '}
+                      <code>height</code> if your form is taller or shorter
+                      than 600px.
+                    </li>
+                    <li>
+                      <strong>Direct link</strong> — share the hosted form URL
+                      anywhere a link works (email, SMS, socials).
+                    </li>
+                  </ol>
+                  <p>
+                    In your page editor, add an HTML / embed block and paste
+                    the snippet in. Most builders (Webflow, WordPress, Wix,
+                    Framer, plain HTML) accept these directly.
+                  </p>
+                  <p>
+                    The form must be <strong>Published</strong> for visitors to
+                    submit — draft forms return a 404 on the public URL.
+                    Submissions appear under the <strong>Submissions</strong>{' '}
+                    tab on this form.
+                  </p>
+                </HelpTip>
+              </div>
               <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                 Pick the snippet that fits the page you&apos;re embedding on.
                 Drop it anywhere in the page&apos;s HTML.
