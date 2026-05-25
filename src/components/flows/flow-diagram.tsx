@@ -32,7 +32,15 @@ interface FlowDiagramProps {
   nodes: FlowNode[];
   edges: FlowEdge[];
   className?: string;
+  // Fires on a quick click (no drag). Pan/zoom interactions are
+  // suppressed so this only triggers when the user actually clicked
+  // the canvas without dragging.
+  onCanvasClick?: () => void;
 }
+
+// Max pixel distance between pointerdown and pointerup that still
+// counts as a click rather than a pan.
+const CLICK_DRAG_THRESHOLD = 5;
 
 const NODE_W = 180;
 const NODE_H = 64;
@@ -60,12 +68,12 @@ function getBounds(nodes: FlowNode[]) {
   return { minX, minY, maxX, maxY };
 }
 
-export function FlowDiagram({ nodes, edges, className }: FlowDiagramProps) {
+export function FlowDiagram({ nodes, edges, className, onCanvasClick }: FlowDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
-  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number; startX: number; startY: number } | null>(null);
   const [isPanning, setIsPanning] = useState(false);
 
   // Track container size
@@ -122,8 +130,18 @@ export function FlowDiagram({ nodes, edges, className }: FlowDiagramProps) {
   // Pan with drag
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    // Ignore presses that started on a control (zoom buttons, etc.)
+    // so their own click handlers run unimpeded.
+    if ((e.target as HTMLElement).closest('[data-flow-control]')) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+    dragRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: pan.x,
+      panY: pan.y,
+      startX: e.clientX,
+      startY: e.clientY,
+    };
     setIsPanning(true);
   }, [pan]);
 
@@ -135,12 +153,19 @@ export function FlowDiagram({ nodes, edges, className }: FlowDiagramProps) {
   }, []);
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current) {
+    const drag = dragRef.current;
+    if (drag) {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      const movedX = Math.abs(e.clientX - drag.startX);
+      const movedY = Math.abs(e.clientY - drag.startY);
+      const wasClick = movedX < CLICK_DRAG_THRESHOLD && movedY < CLICK_DRAG_THRESHOLD;
       dragRef.current = null;
       setIsPanning(false);
+      if (wasClick && onCanvasClick) {
+        onCanvasClick();
+      }
     }
-  }, []);
+  }, [onCanvasClick]);
 
   const zoomIn = () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.2));
   const zoomOut = () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.2));
@@ -248,7 +273,7 @@ export function FlowDiagram({ nodes, edges, className }: FlowDiagramProps) {
       </div>
 
       {/* Controls (fixed in container, not transformed) */}
-      <div className="absolute bottom-3 right-3 flex flex-col gap-1 z-10">
+      <div data-flow-control className="absolute bottom-3 right-3 flex flex-col gap-1 z-10">
         <button
           type="button"
           onClick={zoomIn}

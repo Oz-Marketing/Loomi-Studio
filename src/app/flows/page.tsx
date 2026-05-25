@@ -12,13 +12,11 @@ import {
   type BulkActionContext,
 } from '@/components/flows/flows-table';
 import type { BulkActionDockItem } from '@/components/bulk-action-dock';
-import Link from 'next/link';
 import {
   PlusIcon,
   PlayIcon,
   PauseIcon,
   ArchiveBoxIcon,
-  ChartBarSquareIcon,
 } from '@heroicons/react/24/outline';
 import { FlowIcon } from '@/components/icon-map';
 
@@ -32,6 +30,8 @@ interface FlowApiRow {
   description: string;
   status: string;
   accountKey: string;
+  parentTemplateId: string;
+  lastSyncedAt: string;
   publishedAt: string;
   archivedAt: string;
   createdAt: string;
@@ -60,6 +60,7 @@ function flowsToRows(
     updatedAt: f.updatedAt,
     accountKey: f.accountKey || undefined,
     dealer: f.accountKey ? accountNames[f.accountKey] : undefined,
+    parentTemplateId: f.parentTemplateId || undefined,
   }));
 }
 
@@ -86,13 +87,6 @@ function FlowsPageHeader({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          <Link
-            href="/flows/analytics"
-            className="inline-flex items-center gap-1.5 px-2 h-10 text-sm text-[var(--foreground)] hover:text-[var(--primary)] transition-colors"
-          >
-            <ChartBarSquareIcon className="w-4 h-4" />
-            Analytics
-          </Link>
           <button
             type="button"
             onClick={onCreate}
@@ -112,10 +106,17 @@ function FlowsPageBody({
   scopeKey,
   subtitle,
   presetAccountKey,
+  hideInstances = false,
 }: {
   scopeKey: string;
   subtitle: string;
   presetAccountKey: string | null;
+  /** When true, drop rows that are deployed instances of a template
+   *  (those have parentTemplateId set). The instances are still visible
+   *  via the Adoption column on their parent template's row + via a
+   *  hidden-count hint below the search. Admin view sets this; the
+   *  per-account view shows everything. */
+  hideInstances?: boolean;
 }) {
   const router = useRouter();
   const { accounts } = useAccount();
@@ -145,21 +146,53 @@ function FlowsPageBody({
         dealer: string;
         logos?: { light?: string; dark?: string; white?: string; black?: string };
         storefrontImage?: string;
+        city?: string;
+        state?: string;
+        category?: string;
       }
     > = {};
     for (const [key, account] of Object.entries(accounts)) {
       map[key] = {
         dealer: account.dealer,
         logos: account.logos,
+        city: account.city,
+        state: account.state,
+        category: account.category,
       };
     }
     return map;
   }, [accounts]);
 
-  const rows = useMemo(
+  const allRows = useMemo(
     () => flowsToRows(data?.flows ?? [], accountNames),
     [data, accountNames],
   );
+
+  // Visible rows = everything when hideInstances=false; otherwise drop
+  // deployed instances. The hidden ones still ride along on the
+  // template row's Adoption column so the admin doesn't lose access.
+  const rows = useMemo(
+    () => (hideInstances ? allRows.filter((r) => !r.parentTemplateId) : allRows),
+    [allRows, hideInstances],
+  );
+
+  // Adoption map computed over the FULL list so the table can render
+  // sub-account avatars on a template row even when those instances
+  // are filtered out of the visible row set.
+  const adoptionMap = useMemo(() => {
+    const map = new Map<string, FlowsTableRow[]>();
+    for (const r of allRows) {
+      if (!r.parentTemplateId) continue;
+      const arr = map.get(r.parentTemplateId) ?? [];
+      arr.push(r);
+      map.set(r.parentTemplateId, arr);
+    }
+    return map;
+  }, [allRows]);
+
+  const hiddenInstanceCount = hideInstances
+    ? allRows.length - rows.length
+    : 0;
 
   const handleCreate = async () => {
     setCreating(true);
@@ -303,6 +336,15 @@ function FlowsPageBody({
         creating={creating}
       />
 
+      {hiddenInstanceCount > 0 && (
+        <p className="text-[11px] text-[var(--muted-foreground)] mb-2 px-1">
+          Showing templates + standalone flows. {hiddenInstanceCount} deployed{' '}
+          {hiddenInstanceCount === 1 ? 'instance is' : 'instances are'} rolled up under{' '}
+          {hiddenInstanceCount === 1 ? 'its' : 'their'} template — click the adoption
+          avatars to open one.
+        </p>
+      )}
+
       <FlowsTable
         workflows={rows}
         loading={isLoading}
@@ -312,6 +354,7 @@ function FlowsPageBody({
         updatingStatusFlowIds={updatingIds}
         emptyState={emptyState}
         bulkActions={buildBulkActions}
+        adoption={adoptionMap}
       />
     </div>
   );
@@ -321,8 +364,9 @@ function AdminFlowsPage() {
   return (
     <FlowsPageBody
       scopeKey="admin"
-      subtitle="Email drip series across all accounts"
+      subtitle="Templates + standalone flows across all accounts"
       presetAccountKey={null}
+      hideInstances
     />
   );
 }

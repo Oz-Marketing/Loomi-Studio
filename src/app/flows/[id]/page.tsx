@@ -1,7 +1,8 @@
 'use client';
 
-import { use, useMemo } from 'react';
+import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { toast } from 'sonner';
 import {
@@ -17,11 +18,18 @@ import {
   EyeIcon,
   ChartBarIcon,
   BoltIcon,
+  ArrowUpTrayIcon,
+  Squares2X2Icon,
+  ArrowPathIcon,
+  ArrowRightIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline';
-import { AdminOnly } from '@/components/route-guard';
+import { useAccount } from '@/contexts/account-context';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { FlowIcon } from '@/components/icon-map';
 import { FlowDiagram, type FlowNode } from '@/components/flows/flow-diagram';
+import { DeployFlowModal } from '@/components/flows/deploy-flow-modal';
+import { AccountAvatar } from '@/components/account-avatar';
 
 // Types mirror the API shape (loomi-flows service serializes nulls to
 // empty strings + ISO strings for dates).
@@ -40,12 +48,30 @@ interface FlowGraphEdgeApi {
   branch: string | null;
 }
 
+interface FlowParentTemplateApi {
+  id: string;
+  name: string;
+  updatedAt: string;
+}
+
+interface FlowInstanceRefApi {
+  id: string;
+  accountKey: string;
+  status: 'draft' | 'active' | 'paused' | 'archived';
+  lastSyncedAt: string;
+  outOfDate: boolean;
+  activeEnrollments: number;
+  updatedAt: string;
+}
+
 interface FlowDetailApi {
   id: string;
   name: string;
   description: string;
   status: 'draft' | 'active' | 'paused' | 'archived';
   accountKey: string;
+  parentTemplateId: string;
+  lastSyncedAt: string;
   publishedAt: string;
   archivedAt: string;
   createdAt: string;
@@ -54,6 +80,8 @@ interface FlowDetailApi {
   activeEnrollments: number;
   nodes: FlowGraphNodeApi[];
   edges: FlowGraphEdgeApi[];
+  parentTemplate: FlowParentTemplateApi | null;
+  instances: FlowInstanceRefApi[];
 }
 
 interface FlowAnalyticsApi {
@@ -107,6 +135,28 @@ function formatDate(iso?: string): string {
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
+
+function formatRelative(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const diff = Date.now() - d.getTime();
+  if (diff < 60_000) return 'just now';
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+const INSTANCE_STATUS_BADGE: Record<FlowInstanceRefApi['status'], string> = {
+  active: 'bg-green-500/10 text-green-400',
+  paused: 'bg-orange-500/10 text-orange-400',
+  draft: 'bg-zinc-500/10 text-zinc-400',
+  archived: 'bg-zinc-500/10 text-zinc-400',
+};
 
 function PublishSwitch({
   active,
@@ -166,6 +216,15 @@ function StatCard({
 
 function FlowOverview({ flowId }: { flowId: string }) {
   const subHref = useSubaccountHref();
+  const router = useRouter();
+  const { isAdmin, accounts } = useAccount();
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [resyncing, setResyncing] = useState(false);
+  // Per-instance resync state for the Deployments list — each row's
+  // Update button shows its own spinner without locking the others.
+  const [resyncingInstanceIds, setResyncingInstanceIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const { data: flowData, error: flowError, isLoading: flowLoading, mutate } = useSWR<{ flow: FlowDetailApi }>(
     `/api/flows/${flowId}`,
@@ -254,6 +313,73 @@ function FlowOverview({ flowId }: { flowId: string }) {
     await mutate();
   }
 
+  // Re-sync handler. Two modes (server-resolved):
+  //   - On a template overview: re-syncs every out-of-date instance.
+  //   - On an instance overview: re-syncs that instance from its parent.
+  async function handleResync() {
+    if (!flow || resyncing) return;
+    setResyncing(true);
+    try {
+      const res = await fetch(`/api/flows/${flow.id}/resync`, { method: 'POST' });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload.error || 'Sync failed');
+        return;
+      }
+      // Templates return { flows, failures } — instances return { flow }.
+      if (Array.isArray(payload.flows)) {
+        const ok = payload.flows.length;
+        const fail = Array.isArray(payload.failures) ? payload.failures.length : 0;
+        if (ok > 0 && fail === 0) {
+          toast.success(`Updated ${ok} ${ok === 1 ? 'instance' : 'instances'}.`);
+        } else if (ok > 0 && fail > 0) {
+          toast.warning(`Updated ${ok}; ${fail} failed.`);
+        } else if (fail > 0) {
+          toast.error(`All ${fail} updates failed.`);
+        } else {
+          toast.info('No instances needed updating.');
+        }
+      } else {
+        toast.success('Flow synced from template.');
+      }
+      await mutate();
+    } finally {
+      setResyncing(false);
+    }
+  }
+
+  // Per-instance resync — used by each row's Update button on the
+  // Deployments section. Independent of the template-level handleResync
+  // so partial updates don't lock the whole page.
+  async function handleResyncInstance(instanceId: string) {
+    if (resyncingInstanceIds.has(instanceId)) return;
+    setResyncingInstanceIds((prev) => new Set(prev).add(instanceId));
+    try {
+      const res = await fetch(`/api/flows/${instanceId}/resync`, { method: 'POST' });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload.error || 'Sync failed');
+        return;
+      }
+      toast.success('Instance synced from template.');
+      await mutate();
+    } finally {
+      setResyncingInstanceIds((prev) => {
+        const next = new Set(prev);
+        next.delete(instanceId);
+        return next;
+      });
+    }
+  }
+
+  const outOfDateCount = flow.instances.filter((i) => i.outOfDate).length;
+  const activeInstanceCount = flow.instances.filter((i) => i.status === 'active').length;
+  const totalInstanceEnrollments = flow.instances.reduce(
+    (sum, i) => sum + i.activeEnrollments,
+    0,
+  );
+  const isTemplate = !flow.accountKey;
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -277,6 +403,15 @@ function FlowOverview({ flowId }: { flowId: string }) {
                   <StatusIcon className="w-3 h-3" />
                   {statusMeta.label}
                 </span>
+                {!flow.accountKey && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-500/15 text-violet-300"
+                    title="Template flows have no sub-account. Deploy them to one or more sub-accounts to start enrolling contacts."
+                  >
+                    <Squares2X2Icon className="w-3 h-3" />
+                    Template
+                  </span>
+                )}
               </div>
               {flow.description && (
                 <p className="text-[var(--muted-foreground)] mt-1 text-sm truncate">
@@ -287,16 +422,31 @@ function FlowOverview({ flowId }: { flowId: string }) {
           </div>
 
           <div className="flex items-center gap-3 flex-wrap justify-end">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[var(--muted-foreground)]">
-                {flow.status === 'active' ? 'Published' : 'Unpublished'}
-              </span>
-              <PublishSwitch
-                active={flow.status === 'active'}
-                updating={false}
-                onToggle={handleToggle}
-              />
-            </div>
+            {/* Templates can't be "published" the same way — they need
+                to be deployed to a sub-account first. Hide the publish
+                toggle on templates to keep the affordance unambiguous. */}
+            {flow.accountKey && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--muted-foreground)]">
+                  {flow.status === 'active' ? 'Published' : 'Unpublished'}
+                </span>
+                <PublishSwitch
+                  active={flow.status === 'active'}
+                  updating={false}
+                  onToggle={handleToggle}
+                />
+              </div>
+            )}
+            {isAdmin && !flow.accountKey && (
+              <button
+                type="button"
+                onClick={() => setDeployOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <ArrowUpTrayIcon className="w-4 h-4" />
+                Deploy to Sub-Accounts
+              </button>
+            )}
             <Link
               href={subHref(`/flows/${flow.id}/edit`)}
               className="inline-flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90"
@@ -308,40 +458,219 @@ function FlowOverview({ flowId }: { flowId: string }) {
         </div>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard
-          icon={UsersIcon}
-          value={(analytics?.active ?? flow.activeEnrollments).toLocaleString()}
-          label="Currently enrolled"
-          sub={analytics ? `${totalEnrollments.toLocaleString()} all-time` : undefined}
-          color="text-orange-400"
-          bgColor="bg-orange-500/10"
+      {isAdmin && !flow.accountKey && (
+        <DeployFlowModal
+          open={deployOpen}
+          flowId={flow.id}
+          flowName={flow.name || 'Untitled flow'}
+          existingInstances={flow.instances.map((i) => ({
+            id: i.id,
+            accountKey: i.accountKey,
+          }))}
+          instanceHrefPrefix={subHref('').replace(/\/$/, '')}
+          onClose={() => setDeployOpen(false)}
+          onDeployed={() => {
+            // Re-fetch so the adoption panel below reflects the new
+            // instances immediately.
+            void mutate();
+          }}
         />
-        <StatCard
-          icon={ChartBarIcon}
-          value={analytics ? `${completionRate}%` : '—'}
-          label="Completion rate"
-          sub={analytics ? `${analytics.completed.toLocaleString()} completed` : undefined}
-          color="text-green-400"
-          bgColor="bg-green-500/10"
-        />
-        <StatCard
-          icon={EnvelopeIcon}
-          value={(analytics?.totalSends ?? 0).toLocaleString()}
-          label="Emails sent"
-          color="text-sky-400"
-          bgColor="bg-sky-500/10"
-        />
-        <StatCard
-          icon={EyeIcon}
-          value={(analytics?.totalOpens ?? 0).toLocaleString()}
-          label="Email opens"
-          sub={analytics ? `${analytics.totalClicks.toLocaleString()} clicks` : undefined}
-          color="text-emerald-400"
-          bgColor="bg-emerald-500/10"
-        />
-      </div>
+      )}
+
+      {/* Instance banner: "Deployed from template X". Shown on any
+          flow that has a parentTemplate, regardless of role. The link
+          back to the template works for sub-account users too because
+          getFlow doesn't scope-check flows with no accountKey. */}
+      {flow.parentTemplate && (
+        <div className="glass-card rounded-xl p-3 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-md bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+            <Squares2X2Icon className="w-4 h-4 text-violet-300" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-[var(--foreground)]">
+              Deployed from template
+            </p>
+            <Link
+              href={subHref(`/flows/${flow.parentTemplate.id}`)}
+              className="text-xs text-[var(--primary)] hover:underline inline-flex items-center gap-1 mt-0.5"
+            >
+              {flow.parentTemplate.name}
+              <ArrowRightIcon className="w-3 h-3" />
+            </Link>
+            {flow.lastSyncedAt && (
+              <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                Last synced {formatDate(flow.lastSyncedAt)}
+              </p>
+            )}
+          </div>
+          {isAdmin && (() => {
+            const instanceOutOfDate =
+              !flow.lastSyncedAt ||
+              flow.parentTemplate.updatedAt > flow.lastSyncedAt;
+            if (!instanceOutOfDate) {
+              return (
+                <span className="inline-flex items-center gap-1 text-[10px] text-green-400">
+                  <CheckCircleIcon className="w-3 h-3" />
+                  Up to date
+                </span>
+              );
+            }
+            return (
+              <button
+                type="button"
+                onClick={handleResync}
+                disabled={resyncing}
+                title="Re-pull the template's current graph into this instance. Preserves status, name, and triggers."
+                className="inline-flex items-center gap-1.5 px-2.5 h-8 text-[11px] font-semibold rounded-md border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)] hover:bg-[var(--muted)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ArrowPathIcon className={`w-3.5 h-3.5 ${resyncing ? 'animate-spin' : ''}`} />
+                {resyncing ? 'Updating…' : 'Update from template'}
+              </button>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Template banner: "N instances need an update". Admin-only;
+          surfaces when the template has been edited after at least one
+          instance's lastSyncedAt. Includes a "Update all" affordance
+          plus a peek at which accounts are stale. */}
+      {isAdmin && !flow.accountKey && outOfDateCount > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 flex items-start gap-3">
+          <div className="w-8 h-8 rounded-md bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+            <InformationCircleIcon className="w-4 h-4 text-amber-300" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-[var(--foreground)]">
+              {outOfDateCount} {outOfDateCount === 1 ? 'instance is' : 'instances are'} out of date
+            </p>
+            <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+              This template has been edited since the last deploy. Push the
+              latest graph to {outOfDateCount === 1 ? 'this instance' : 'these instances'} to bring them in sync.
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              {flow.instances
+                .filter((i) => i.outOfDate)
+                .slice(0, 6)
+                .map((inst) => {
+                  const meta = accounts[inst.accountKey];
+                  if (!meta) return null;
+                  return (
+                    <Link
+                      key={inst.id}
+                      href={subHref(`/flows/${inst.id}`)}
+                      className="inline-flex items-center gap-1 pl-0.5 pr-2 py-0.5 rounded-full bg-[var(--card)] border border-[var(--border)] hover:border-[var(--primary)] transition-colors"
+                      title={`Open ${meta.dealer}'s instance`}
+                    >
+                      <AccountAvatar
+                        name={meta.dealer}
+                        logos={meta.logos}
+                        size={18}
+                        className="flex-shrink-0"
+                      />
+                      <span className="text-[10px] text-[var(--foreground)] truncate max-w-[100px]">
+                        {meta.dealer}
+                      </span>
+                    </Link>
+                  );
+                })}
+              {outOfDateCount > 6 && (
+                <span className="text-[10px] text-[var(--muted-foreground)]">
+                  +{outOfDateCount - 6} more
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleResync}
+            disabled={resyncing}
+            className="inline-flex items-center gap-1.5 px-3 h-9 text-xs font-semibold rounded-lg border border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+          >
+            <ArrowPathIcon className={`w-3.5 h-3.5 ${resyncing ? 'animate-spin' : ''}`} />
+            {resyncing ? 'Updating…' : `Update all (${outOfDateCount})`}
+          </button>
+        </div>
+      )}
+
+      {/* Stat cards. Templates show deployment-focused stats (because
+          the template itself has no enrollments — they live on
+          instances). Instances + standalone flows show the real
+          engagement numbers from the analytics endpoint. */}
+      {isTemplate ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard
+            icon={Squares2X2Icon}
+            value={flow.instances.length.toLocaleString()}
+            label="Total deployments"
+            sub={flow.instances.length === 0 ? 'Not deployed yet' : 'Sub-accounts'}
+            color="text-violet-400"
+            bgColor="bg-violet-500/15"
+          />
+          <StatCard
+            icon={CheckCircleIcon}
+            value={activeInstanceCount.toLocaleString()}
+            label="Active instances"
+            sub={
+              flow.instances.length > 0
+                ? `of ${flow.instances.length}`
+                : undefined
+            }
+            color="text-green-400"
+            bgColor="bg-green-500/10"
+          />
+          <StatCard
+            icon={InformationCircleIcon}
+            value={outOfDateCount.toLocaleString()}
+            label="Out of date"
+            sub={outOfDateCount > 0 ? 'Update available' : 'All in sync'}
+            color={outOfDateCount > 0 ? 'text-amber-300' : 'text-[var(--muted-foreground)]'}
+            bgColor={outOfDateCount > 0 ? 'bg-amber-500/15' : 'bg-[var(--muted)]'}
+          />
+          <StatCard
+            icon={UsersIcon}
+            value={totalInstanceEnrollments.toLocaleString()}
+            label="Total enrollments"
+            sub="Across all instances"
+            color="text-orange-400"
+            bgColor="bg-orange-500/10"
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard
+            icon={UsersIcon}
+            value={(analytics?.active ?? flow.activeEnrollments).toLocaleString()}
+            label="Currently enrolled"
+            sub={analytics ? `${totalEnrollments.toLocaleString()} all-time` : undefined}
+            color="text-orange-400"
+            bgColor="bg-orange-500/10"
+          />
+          <StatCard
+            icon={ChartBarIcon}
+            value={analytics ? `${completionRate}%` : '—'}
+            label="Completion rate"
+            sub={analytics ? `${analytics.completed.toLocaleString()} completed` : undefined}
+            color="text-green-400"
+            bgColor="bg-green-500/10"
+          />
+          <StatCard
+            icon={EnvelopeIcon}
+            value={(analytics?.totalSends ?? 0).toLocaleString()}
+            label="Emails sent"
+            color="text-sky-400"
+            bgColor="bg-sky-500/10"
+          />
+          <StatCard
+            icon={EyeIcon}
+            value={(analytics?.totalOpens ?? 0).toLocaleString()}
+            label="Email opens"
+            sub={analytics ? `${analytics.totalClicks.toLocaleString()} clicks` : undefined}
+            color="text-emerald-400"
+            bgColor="bg-emerald-500/10"
+          />
+        </div>
+      )}
 
       {/* Diagram + side panel */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
@@ -352,13 +681,14 @@ function FlowOverview({ flowId }: { flowId: string }) {
               Flow Preview
             </h3>
             <span className="text-[10px] text-[var(--muted-foreground)]">
-              Drag to pan · scroll to zoom
+              Click to edit · drag to pan · scroll to zoom
             </span>
           </div>
           <FlowDiagram
             nodes={diagramNodes}
             edges={diagramEdges}
             className="h-[480px]"
+            onCanvasClick={() => router.push(subHref(`/flows/${flow.id}/edit`))}
           />
         </div>
 
@@ -387,7 +717,10 @@ function FlowOverview({ flowId }: { flowId: string }) {
             </dl>
           </div>
 
-          {analytics && (
+          {/* Engagement/Enrollment side cards only make sense for
+              instances + standalone flows — templates have no
+              enrollments of their own. */}
+          {!isTemplate && analytics && (
             <div className="glass-card rounded-xl p-4">
               <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">
                 Enrollment Breakdown
@@ -416,36 +749,177 @@ function FlowOverview({ flowId }: { flowId: string }) {
             </div>
           )}
 
-          <div className="glass-card rounded-xl p-4">
-            <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">
-              Engagement
-            </h3>
-            <dl className="space-y-2.5 text-xs">
-              <div className="flex justify-between gap-3">
-                <dt className="text-[var(--muted-foreground)] inline-flex items-center gap-1">
-                  <EnvelopeIcon className="w-3 h-3" />
-                  Sends
-                </dt>
-                <dd className="text-right tabular-nums">{(analytics?.totalSends ?? 0).toLocaleString()}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-[var(--muted-foreground)] inline-flex items-center gap-1">
-                  <EyeIcon className="w-3 h-3" />
-                  Opens
-                </dt>
-                <dd className="text-right tabular-nums">{(analytics?.totalOpens ?? 0).toLocaleString()}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-[var(--muted-foreground)] inline-flex items-center gap-1">
-                  <CursorArrowRaysIcon className="w-3 h-3" />
-                  Clicks
-                </dt>
-                <dd className="text-right tabular-nums">{(analytics?.totalClicks ?? 0).toLocaleString()}</dd>
-              </div>
-            </dl>
-          </div>
+          {!isTemplate && (
+            <div className="glass-card rounded-xl p-4">
+              <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">
+                Engagement
+              </h3>
+              <dl className="space-y-2.5 text-xs">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--muted-foreground)] inline-flex items-center gap-1">
+                    <EnvelopeIcon className="w-3 h-3" />
+                    Sends
+                  </dt>
+                  <dd className="text-right tabular-nums">{(analytics?.totalSends ?? 0).toLocaleString()}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--muted-foreground)] inline-flex items-center gap-1">
+                    <EyeIcon className="w-3 h-3" />
+                    Opens
+                  </dt>
+                  <dd className="text-right tabular-nums">{(analytics?.totalOpens ?? 0).toLocaleString()}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--muted-foreground)] inline-flex items-center gap-1">
+                    <CursorArrowRaysIcon className="w-3 h-3" />
+                    Clicks
+                  </dt>
+                  <dd className="text-right tabular-nums">{(analytics?.totalClicks ?? 0).toLocaleString()}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Deployments section — templates only. Per-instance rows with
+          sub-account, status, sync state, enrollments, and a per-row
+          Update button when the instance is out of date. */}
+      {isTemplate && (
+        <div className="glass-card rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">
+                Deployments
+              </h3>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                {flow.instances.length === 0
+                  ? 'No sub-accounts have this template yet.'
+                  : `${flow.instances.length} sub-account${flow.instances.length === 1 ? '' : 's'}${outOfDateCount > 0 ? ` · ${outOfDateCount} out of date` : ' · all in sync'}`}
+              </p>
+            </div>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setDeployOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 h-9 text-xs font-semibold rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90"
+              >
+                <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                Deploy to more
+              </button>
+            )}
+          </div>
+
+          {flow.instances.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <Squares2X2Icon className="w-7 h-7 text-[var(--muted-foreground)] mx-auto mb-2" />
+              <p className="text-sm text-[var(--foreground)]">
+                This template hasn't been deployed yet
+              </p>
+              <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                Click <span className="font-semibold">Deploy to Sub-Accounts</span> in
+                the header to create an instance under one or more sub-accounts.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--border)]">
+              {/* Column header */}
+              <div className="grid grid-cols-[1fr_100px_140px_100px_auto] gap-3 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                <span>Sub-Account</span>
+                <span>Status</span>
+                <span>Last synced</span>
+                <span className="text-right">Active</span>
+                <span className="text-right w-44" />
+              </div>
+              {flow.instances.map((inst) => {
+                const meta = accounts[inst.accountKey];
+                const dealer = meta?.dealer || inst.accountKey || '—';
+                const statusBadge =
+                  INSTANCE_STATUS_BADGE[inst.status] || 'bg-zinc-500/10 text-zinc-400';
+                const isSyncing = resyncingInstanceIds.has(inst.id);
+                return (
+                  <div
+                    key={inst.id}
+                    className="grid grid-cols-[1fr_100px_140px_100px_auto] gap-3 px-4 py-3 items-center hover:bg-[var(--muted)]/40 transition-colors"
+                  >
+                    <Link
+                      href={subHref(`/flows/${inst.id}`)}
+                      className="flex items-center gap-2 min-w-0 group"
+                    >
+                      <AccountAvatar
+                        name={dealer}
+                        accountKey={inst.accountKey}
+                        logos={meta?.logos}
+                        size={28}
+                        className="flex-shrink-0"
+                      />
+                      <span className="text-sm font-medium text-[var(--foreground)] truncate group-hover:text-[var(--primary)] transition-colors">
+                        {dealer}
+                      </span>
+                    </Link>
+                    <span>
+                      <span
+                        className={`inline-flex items-center text-[10px] uppercase tracking-wider font-medium px-2 py-0.5 rounded-full ${statusBadge}`}
+                      >
+                        {inst.status}
+                      </span>
+                    </span>
+                    <span className="text-xs text-[var(--muted-foreground)] inline-flex items-center gap-1.5">
+                      {inst.outOfDate ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-amber-300"
+                          title={`Template updated ${formatRelative(flow.updatedAt)}`}
+                        >
+                          <InformationCircleIcon className="w-3.5 h-3.5" />
+                          Out of date
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-green-400">
+                          <CheckCircleIcon className="w-3.5 h-3.5" />
+                          In sync
+                        </span>
+                      )}
+                      <span className="text-[var(--muted-foreground)]/80">
+                        · {inst.lastSyncedAt ? formatRelative(inst.lastSyncedAt) : 'never'}
+                      </span>
+                    </span>
+                    <span className="text-sm tabular-nums text-right">
+                      {inst.activeEnrollments > 0 ? (
+                        <span className="text-[var(--foreground)]">
+                          {inst.activeEnrollments.toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-[var(--muted-foreground)]/60">0</span>
+                      )}
+                    </span>
+                    <span className="flex items-center justify-end gap-1.5 w-44">
+                      {isAdmin && inst.outOfDate && (
+                        <button
+                          type="button"
+                          onClick={() => handleResyncInstance(inst.id)}
+                          disabled={isSyncing}
+                          title="Re-pull the template's current graph into this instance"
+                          className="inline-flex items-center gap-1 px-2 h-8 text-[11px] font-semibold rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <ArrowPathIcon className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                          {isSyncing ? 'Updating…' : 'Update'}
+                        </button>
+                      )}
+                      <Link
+                        href={subHref(`/flows/${inst.id}`)}
+                        className="inline-flex items-center gap-1 px-2 h-8 text-[11px] font-semibold rounded-md border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] transition-colors"
+                      >
+                        Open
+                        <ArrowRightIcon className="w-3 h-3" />
+                      </Link>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -456,9 +930,9 @@ export default function FlowOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  return (
-    <AdminOnly>
-      <FlowOverview flowId={id} />
-    </AdminOnly>
-  );
+  // No AdminOnly guard — the /api/flows/[id] endpoint already scopes
+  // by accountKey for client/admin roles, so a sub-account user only
+  // ever resolves their own flows. Sub-account users should see the
+  // overview for their own flows; only /edit stays admin-gated.
+  return <FlowOverview flowId={id} />;
 }

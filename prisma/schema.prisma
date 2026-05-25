@@ -400,6 +400,17 @@ model LoomiFlow {
   sourceAudienceId String?
   sourceFilter     String?
   metadata         String?
+  // Template lineage. When an admin deploys a template to a sub-account
+  // we duplicate the template and set parentTemplateId on the new
+  // instance so we can: (a) show "deployed from template X" on the
+  // instance, (b) compute adoption (which accounts have this template),
+  // (c) re-push template updates onto stale instances. Null on
+  // standalone flows + on the templates themselves. Self-referential
+  // relation with SetNull on delete so deleting a template leaves
+  // orphaned instances rather than cascading.
+  parentTemplateId String?
+  parentTemplate   LoomiFlow?  @relation("FlowTemplateInstances", fields: [parentTemplateId], references: [id], onDelete: SetNull)
+  instances        LoomiFlow[] @relation("FlowTemplateInstances")
   // JSON-serialised flow-level defaults: re-entry policy, quiet
   // hours, goal/exit-on-conversion condition, max-enrollment
   // duration, DND handling. Shape lives in `FlowSettings` in
@@ -408,6 +419,10 @@ model LoomiFlow {
   settings         String?
   publishedAt      DateTime?
   archivedAt       DateTime?
+  // Last time the instance's graph was sync'd from its parent
+  // template. Compared against parent.updatedAt to surface an
+  // "Update available" banner. Null on flows that don't have a parent.
+  lastSyncedAt     DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -419,6 +434,7 @@ model LoomiFlow {
   @@index([accountKey])
   @@index([status])
   @@index([createdAt])
+  @@index([parentTemplateId])
 }
 
 // One drawing-canvas node in a flow's graph. `config` is JSON sized to

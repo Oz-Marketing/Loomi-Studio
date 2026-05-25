@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ChevronUpDownIcon,
@@ -9,6 +10,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   MagnifyingGlassIcon,
+  Squares2X2Icon,
 } from '@heroicons/react/24/outline';
 import { AccountAvatar } from '@/components/account-avatar';
 import BulkActionDock, { type BulkActionDockItem } from '@/components/bulk-action-dock';
@@ -25,6 +27,10 @@ export interface FlowsTableRow {
   updatedAt?: string;
   accountKey?: string;
   dealer?: string;
+  /** When set, this flow is an instance deployed from a template.
+   *  Powers the adoption column (admin view: each template row shows
+   *  which sub-accounts have an instance). */
+  parentTemplateId?: string;
 }
 
 interface FlowsTableProps {
@@ -36,6 +42,11 @@ interface FlowsTableProps {
       dealer: string;
       logos?: { light?: string; dark?: string; white?: string; black?: string };
       storefrontImage?: string;
+      /** Optional address pieces used by the Adoption column's hover
+       *  tooltip — mirrors the users-tab Sub-Accounts popover. */
+      city?: string;
+      state?: string;
+      category?: string;
     }
   >;
   /** Hide the Sub-Account column when only one account's worth of
@@ -49,6 +60,11 @@ interface FlowsTableProps {
    *  the selected flow IDs + a `clearSelection` helper to call after
    *  a successful mutation. */
   bulkActions?: (ctx: BulkActionContext) => BulkActionDockItem[];
+  /** Pre-computed templateId → instance-rows map. Provided by callers
+   *  that filter instances out of `workflows` (admin view) so the
+   *  adoption column can still see them. When omitted, the table
+   *  builds its own map from `workflows`. */
+  adoption?: Map<string, FlowsTableRow[]>;
 }
 
 export interface BulkActionContext {
@@ -57,7 +73,7 @@ export interface BulkActionContext {
   clearSelection: () => void;
 }
 
-type SortKey = 'name' | 'status' | 'updatedAt' | 'createdAt' | 'dealer';
+type SortKey = 'name' | 'status' | 'updatedAt' | 'createdAt' | 'dealer' | 'adoption';
 type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE = 25;
@@ -96,6 +112,7 @@ export function FlowsTable({
   updatingStatusFlowIds = [],
   emptyState,
   bulkActions,
+  adoption: providedAdoption,
 }: FlowsTableProps) {
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
@@ -111,7 +128,9 @@ export function FlowsTable({
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
-      setSortDir(key === 'name' || key === 'status' || key === 'dealer' ? 'asc' : 'desc');
+      setSortDir(
+        key === 'name' || key === 'status' || key === 'dealer' ? 'asc' : 'desc',
+      );
     }
   };
 
@@ -124,19 +143,36 @@ export function FlowsTable({
     });
   }, [workflows, search]);
 
+  // Adoption map: templateId → list of instance rows. Prefer the
+  // caller-provided map (the admin view passes one computed over the
+  // *unfiltered* list, since instance rows themselves are hidden from
+  // the table). Fall back to deriving from `workflows` when no map is
+  // provided (sub-account view, or any caller that doesn't filter).
+  const adoptionMap = useMemo(() => {
+    if (providedAdoption) return providedAdoption;
+    const map = new Map<string, FlowsTableRow[]>();
+    for (const w of workflows) {
+      if (!w.parentTemplateId) continue;
+      const arr = map.get(w.parentTemplateId) ?? [];
+      arr.push(w);
+      map.set(w.parentTemplateId, arr);
+    }
+    return map;
+  }, [workflows, providedAdoption]);
+
   const sorted = useMemo(() => {
     const arr = [...filtered];
     const dir = sortDir === 'asc' ? 1 : -1;
     arr.sort((a, b) => {
-      const av = pickSortValue(a, sortKey);
-      const bv = pickSortValue(b, sortKey);
+      const av = pickSortValue(a, sortKey, adoptionMap);
+      const bv = pickSortValue(b, sortKey, adoptionMap);
       if (av === bv) return 0;
       if (av == null) return 1;
       if (bv == null) return -1;
       return av < bv ? -1 * dir : 1 * dir;
     });
     return arr;
-  }, [filtered, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir, adoptionMap]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -242,8 +278,11 @@ export function FlowsTable({
         </div>
       ) : (
         <>
-          {/* Table — same chrome the contacts page uses */}
-          <div className="overflow-x-auto glass-table rounded-xl">
+          {/* Table — same chrome the contacts page uses. Uses
+              `account-tooltip-table` (overflow:visible) so the
+              Adoption column's hover popover isn't clipped by the
+              scroll container, matching the users-tab pattern. */}
+          <div className="glass-table account-tooltip-table rounded-xl">
             <table className="w-full min-w-[820px]">
               <thead>
                 <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
@@ -290,6 +329,15 @@ export function FlowsTable({
                       onSort={handleSort}
                     />
                   )}
+                  {showAccountColumn && (
+                    <SortHeader
+                      label="Adoption"
+                      sortKey="adoption"
+                      currentKey={sortKey}
+                      dir={sortDir}
+                      onSort={handleSort}
+                    />
+                  )}
                   <SortHeader
                     label="Updated"
                     sortKey="updatedAt"
@@ -313,6 +361,7 @@ export function FlowsTable({
                     flow={flow}
                     showAccountColumn={showAccountColumn}
                     accountMeta={accountMeta}
+                    adoption={adoptionMap.get(flow.id) ?? []}
                     onToggleStatus={onToggleStatus}
                     isUpdating={updatingStatusFlowIds.includes(flow.id)}
                     selectable={bulkEnabled}
@@ -371,12 +420,110 @@ export function FlowsTable({
   );
 }
 
-function pickSortValue(w: FlowsTableRow, key: SortKey): string | number | null {
+// Stacked sub-account avatars showing which accounts have an instance
+// of this template. Empty cell for non-templates / templates with no
+// deploys yet. Mirrors the Sub-Accounts column on the users-tab
+// settings table: 32px circular avatars, white-background ring,
+// negative margin overlap that spreads on hover, "+N" overflow chip
+// matching the avatar dimensions. Each avatar is a Link to its
+// instance overview — clicking an avatar drills into that specific
+// deploy without triggering the row's template-navigation.
+function AdoptionCell({
+  adoption,
+  accountMeta,
+}: {
+  adoption: FlowsTableRow[];
+  accountMeta: FlowsTableProps['accountMeta'];
+}) {
+  if (adoption.length === 0) {
+    return <span className="text-xs text-[var(--muted-foreground)]/60">—</span>;
+  }
+  const MAX_VISIBLE = 4;
+  const visible = adoption.slice(0, MAX_VISIBLE);
+  const overflow = adoption.length - visible.length;
+  return (
+    <div className="account-avatar-stack flex items-center pl-2">
+      {visible.map((inst) => {
+        const meta = inst.accountKey ? accountMeta[inst.accountKey] : null;
+        if (!meta) return null;
+        const cityState = [meta.city, meta.state].filter(Boolean).join(', ') || 'Location unavailable';
+        const industry = meta.category?.trim() || 'Unknown industry';
+        return (
+          <Link
+            key={inst.id}
+            href={`/flows/${inst.id}`}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`${meta.dealer} • ${cityState} • ${industry} • Key: ${inst.accountKey ?? ''} • Open instance`}
+            className="account-avatar-stack-item relative inline-flex items-center group"
+          >
+            {/* Hover popover — dealer + city/state + industry + key.
+                pointer-events-none so the popover itself doesn't
+                intercept clicks on the underlying Link. Hidden by
+                default; revealed on group hover. */}
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-[90] mb-2 hidden -translate-x-1/2 group-hover:block">
+              <span className="relative block account-tooltip-popover rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 shadow-xl whitespace-nowrap">
+                <span className="block text-[11px] font-medium leading-4 text-[var(--foreground)]">
+                  {meta.dealer}
+                </span>
+                <span className="block text-[10px] leading-4 text-[var(--muted-foreground)]">
+                  {cityState}
+                </span>
+                <span className="block text-[10px] leading-4 text-[var(--muted-foreground)]">
+                  {industry}
+                </span>
+                {inst.accountKey && (
+                  <span className="mt-1 block text-[10px] font-mono leading-4 text-[var(--muted-foreground)]">
+                    Key: {inst.accountKey}
+                  </span>
+                )}
+                <span className="absolute left-1/2 top-full -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-t-[7px] border-t-[var(--background)]" />
+              </span>
+            </span>
+
+            <span className="inline-flex rounded-full bg-[var(--background)] p-[1px] shadow-sm">
+              <AccountAvatar
+                name={meta.dealer}
+                accountKey={inst.accountKey}
+                logos={meta.logos}
+                size={32}
+                className="rounded-full"
+                alt={`${meta.dealer} (${inst.accountKey ?? ''})`}
+              />
+            </span>
+          </Link>
+        );
+      })}
+
+      {overflow > 0 && (
+        <span
+          title={adoption
+            .slice(MAX_VISIBLE)
+            .map((i) => accountMeta[i.accountKey ?? '']?.dealer ?? i.accountKey)
+            .join(', ')}
+          className="account-avatar-stack-item inline-flex items-center justify-center w-[34px] h-[34px] rounded-full border border-[var(--background)] bg-[var(--background)] text-[10px] font-medium text-[var(--muted-foreground)] shadow-sm"
+        >
+          +{overflow}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function pickSortValue(
+  w: FlowsTableRow,
+  key: SortKey,
+  adoptionMap?: Map<string, FlowsTableRow[]>,
+): string | number | null {
   if (key === 'name') return w.name.toLowerCase();
   if (key === 'status') return w.status;
   if (key === 'dealer') return (w.dealer || '').toLowerCase();
   if (key === 'updatedAt') return w.updatedAt ? new Date(w.updatedAt).getTime() : 0;
   if (key === 'createdAt') return w.createdAt ? new Date(w.createdAt).getTime() : 0;
+  if (key === 'adoption') {
+    // Instances + standalone flows sort to 0; templates sort by the
+    // count of their deployed instances.
+    return adoptionMap?.get(w.id)?.length ?? 0;
+  }
   return null;
 }
 
@@ -421,6 +568,7 @@ function FlowRow({
   flow,
   showAccountColumn,
   accountMeta,
+  adoption,
   onToggleStatus,
   isUpdating,
   selectable,
@@ -430,6 +578,7 @@ function FlowRow({
   flow: FlowsTableRow;
   showAccountColumn: boolean;
   accountMeta: FlowsTableProps['accountMeta'];
+  adoption: FlowsTableRow[];
   onToggleStatus?: FlowsTableProps['onToggleStatus'];
   isUpdating: boolean;
   selectable: boolean;
@@ -473,32 +622,42 @@ function FlowRow({
         </span>
       </td>
       <td className="px-4 py-3">
-        {onToggleStatus && (
-          <button
-            type="button"
-            disabled={isUpdating}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleStatus(flow, isActive ? 'inactive' : 'active');
-            }}
-            role="switch"
-            aria-checked={isActive}
-            title={isActive ? 'Pause flow' : 'Publish flow'}
-            className={`relative w-9 h-5 rounded-full transition-colors disabled:opacity-50 ${
-              isActive ? 'bg-emerald-500' : 'bg-[var(--muted-foreground)]/30'
-            }`}
-          >
-            {/* Track w-9 (36px) − thumb w-4 (16px) − 2px inset each
-                side = 18px travel. Using inline `style.left` rather
-                than a Tailwind arbitrary translate so the position is
-                unambiguous — `translate-x-[18px]` wasn't taking
-                effect in some builds and the thumb spilled past the
-                right edge. */}
-            <span
-              className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-[left] duration-150 ease-out"
-              style={{ left: isActive ? '18px' : '2px' }}
-            />
-          </button>
+        {/* Templates (no accountKey) can't be published directly —
+            they're deployed to sub-accounts and each instance has its
+            own publish state. Render a muted dash so the column stays
+            aligned without offering a non-functional control. */}
+        {!flow.accountKey ? (
+          <span className="text-xs text-[var(--muted-foreground)]/60" title="Templates are deployed, not published. Open the template to deploy it.">
+            —
+          </span>
+        ) : (
+          onToggleStatus && (
+            <button
+              type="button"
+              disabled={isUpdating}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleStatus(flow, isActive ? 'inactive' : 'active');
+              }}
+              role="switch"
+              aria-checked={isActive}
+              title={isActive ? 'Pause flow' : 'Publish flow'}
+              className={`relative w-9 h-5 rounded-full transition-colors disabled:opacity-50 ${
+                isActive ? 'bg-emerald-500' : 'bg-[var(--muted-foreground)]/30'
+              }`}
+            >
+              {/* Track w-9 (36px) − thumb w-4 (16px) − 2px inset each
+                  side = 18px travel. Using inline `style.left` rather
+                  than a Tailwind arbitrary translate so the position is
+                  unambiguous — `translate-x-[18px]` wasn't taking
+                  effect in some builds and the thumb spilled past the
+                  right edge. */}
+              <span
+                className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-[left] duration-150 ease-out"
+                style={{ left: isActive ? '18px' : '2px' }}
+              />
+            </button>
+          )
         )}
       </td>
       {showAccountColumn && (
@@ -516,8 +675,19 @@ function FlowRow({
               </span>
             </div>
           ) : (
-            <span className="text-sm text-[var(--muted-foreground)]">—</span>
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-500/15 text-violet-300"
+              title="No sub-account — this is a template flow. Open it to deploy to one or more sub-accounts."
+            >
+              <Squares2X2Icon className="w-3 h-3" />
+              Template
+            </span>
           )}
+        </td>
+      )}
+      {showAccountColumn && (
+        <td className="px-4 py-3 max-w-[220px]">
+          <AdoptionCell adoption={adoption} accountMeta={accountMeta} />
         </td>
       )}
       <td className="px-4 py-3 text-sm text-[var(--muted-foreground)] whitespace-nowrap">
