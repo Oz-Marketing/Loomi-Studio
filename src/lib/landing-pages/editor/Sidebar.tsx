@@ -35,7 +35,7 @@ export function Sidebar() {
   const selectedBlock = selectedId ? findBlockDeep(template.blocks, selectedId) : null;
 
   return (
-    <aside className="flex flex-col h-full bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
+    <aside className="flex flex-col h-full w-full min-h-0">
       {selectedBlock ? (
         <SelectedBlockHeader
           block={selectedBlock}
@@ -97,31 +97,37 @@ function SidebarTabs({
   tab: SidebarTab;
   onTabChange: (next: SidebarTab) => void;
 }) {
+  // Segmented pill control — matches the Meta-Ads planner's
+  // Initial Setup / Mid-flight Reallocation toggle, which the user
+  // wants standardized across editors. Filled primary for active,
+  // transparent for the rest.
   return (
-    <div className="flex border-b border-[var(--border)]">
-      <TabButton
-        active={tab === 'content'}
-        onClick={() => onTabChange('content')}
-        icon={<Squares2X2Icon className="w-4 h-4" />}
-        label="Content"
-      />
-      <TabButton
-        active={tab === 'outline'}
-        onClick={() => onTabChange('outline')}
-        icon={<ListBulletIcon className="w-4 h-4" />}
-        label="Outline"
-      />
-      <TabButton
-        active={tab === 'settings'}
-        onClick={() => onTabChange('settings')}
-        icon={<Cog6ToothIcon className="w-4 h-4" />}
-        label="Settings"
-      />
+    <div className="px-3 pt-3 pb-2">
+      <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-1 gap-0.5">
+        <PillTab
+          active={tab === 'content'}
+          onClick={() => onTabChange('content')}
+          icon={<Squares2X2Icon className="w-3.5 h-3.5" />}
+          label="Content"
+        />
+        <PillTab
+          active={tab === 'outline'}
+          onClick={() => onTabChange('outline')}
+          icon={<ListBulletIcon className="w-3.5 h-3.5" />}
+          label="Outline"
+        />
+        <PillTab
+          active={tab === 'settings'}
+          onClick={() => onTabChange('settings')}
+          icon={<Cog6ToothIcon className="w-3.5 h-3.5" />}
+          label="Settings"
+        />
+      </div>
     </div>
   );
 }
 
-function TabButton({
+function PillTab({
   active,
   onClick,
   icon,
@@ -136,10 +142,10 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+      className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium rounded transition-colors ${
         active
-          ? 'border-[var(--primary)] text-[var(--foreground)]'
-          : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          ? 'bg-[var(--primary)] text-white'
+          : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
       }`}
     >
       {icon}

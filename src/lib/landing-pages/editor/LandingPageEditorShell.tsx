@@ -26,6 +26,12 @@ export interface LandingPageEditorShellProps {
   onChange: (next: LandingPageTemplate) => void;
 }
 
+// Sidebar width constants — same shape as the forms editor.
+const SIDEBAR_MIN_WIDTH = 280;
+const SIDEBAR_MAX_WIDTH = 520;
+const SIDEBAR_DEFAULT_WIDTH = 320;
+const SIDEBAR_STEP_PX = 24;
+
 export function LandingPageEditorShell({
   template,
   onChange,
@@ -47,6 +53,58 @@ function DndShell() {
     reorderInParent,
     moveBlockTo,
   } = useLandingPageEditor();
+
+  // ── Resizable sidebar ──
+  const [sidebarWidth, setSidebarWidth] = React.useState(SIDEBAR_DEFAULT_WIDTH);
+  const [isResizingSidebar, setIsResizingSidebar] = React.useState(false);
+  const resizeStartRef = React.useRef<{ x: number; width: number } | null>(null);
+
+  const clampSidebarWidth = React.useCallback(
+    (desired: number) =>
+      Math.round(Math.min(Math.max(desired, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH)),
+    [],
+  );
+
+  const handleResizerMouseDown = React.useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      resizeStartRef.current = { x: e.clientX, width: sidebarWidth };
+      setIsResizingSidebar(true);
+    },
+    [sidebarWidth],
+  );
+
+  const adjustSidebarWidth = React.useCallback(
+    (delta: number) => setSidebarWidth((prev) => clampSidebarWidth(prev + delta)),
+    [clampSidebarWidth],
+  );
+
+  React.useEffect(() => {
+    if (!isResizingSidebar || typeof window === 'undefined') return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const start = resizeStartRef.current;
+      if (!start) return;
+      setSidebarWidth(clampSidebarWidth(start.width + (e.clientX - start.x)));
+    };
+    const stopResizing = () => {
+      resizeStartRef.current = null;
+      setIsResizingSidebar(false);
+    };
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', stopResizing);
+    window.addEventListener('blur', stopResizing);
+    return () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', stopResizing);
+      window.removeEventListener('blur', stopResizing);
+    };
+  }, [isResizingSidebar, clampSidebarWidth]);
 
   // PointerSensor with an 8px activation distance so a click on a
   // block selects (and never accidentally starts a drag). Drags fire
@@ -134,10 +192,49 @@ function DndShell() {
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="flex w-full h-full min-h-0 gap-4 p-4">
-        <div className="w-[320px] flex-shrink-0 min-h-0 flex">
+      <div className="flex w-full h-full min-h-0 gap-2 p-4">
+        <div
+          className="flex-shrink-0 min-h-0 flex"
+          style={{ width: `${sidebarWidth}px` }}
+        >
           <Sidebar />
         </div>
+
+        {/* Resize handle — drag to expand/contract the sidebar.
+            Keyboard-accessible (Arrow keys nudge in SIDEBAR_STEP_PX
+            steps when focused). Matches the forms editor pattern. */}
+        <div
+          role="separator"
+          aria-label="Resize sidebar and canvas panes"
+          aria-orientation="vertical"
+          aria-valuenow={sidebarWidth}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
+          tabIndex={0}
+          onMouseDown={handleResizerMouseDown}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              adjustSidebarWidth(-SIDEBAR_STEP_PX);
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              adjustSidebarWidth(SIDEBAR_STEP_PX);
+            }
+          }}
+          className={`group flex-shrink-0 self-stretch w-2 -mx-1 rounded cursor-col-resize transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] ${
+            isResizingSidebar ? 'bg-[var(--primary)]/15' : 'hover:bg-[var(--muted)]'
+          }`}
+          title="Drag to resize sidebar"
+        >
+          <span
+            className={`mx-auto block h-full w-[2px] rounded-full transition-colors ${
+              isResizingSidebar
+                ? 'bg-[var(--primary)]'
+                : 'bg-[var(--border)] group-hover:bg-[var(--primary)]'
+            }`}
+          />
+        </div>
+
         <div className="flex-1 min-w-0 min-h-0 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)]">
           <Canvas />
         </div>
