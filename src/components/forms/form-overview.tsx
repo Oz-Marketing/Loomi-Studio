@@ -44,9 +44,15 @@ export function FormOverview() {
   // FormDetailProvider stays mounted across overview ↔ builder
   // navigation, so its in-memory `form` can lag the database when the
   // builder's autosave was still in flight (or completed via the
-  // unmount keepalive) at the moment the user clicked Back. Comparing
-  // `updatedAt` keeps optimistic in-context edits from being
-  // clobbered by an older server snapshot.
+  // unmount keepalive) at the moment the user clicked Back.
+  //
+  // Critical: only adopt the server response when it's STRICTLY newer
+  // than the local copy. The builder's optimistic unmount-flush bumps
+  // schema but not updatedAt, so a fetch that races a still-in-flight
+  // keepalive PATCH would return the pre-edit snapshot with the same
+  // updatedAt — a `>=` guard would happily overwrite the optimistic
+  // schema with the stale one, making the change "disappear" when the
+  // user re-opens the editor.
   React.useEffect(() => {
     let cancelled = false;
     fetch(`/api/forms/${form.id}`, { cache: 'no-store' })
@@ -55,7 +61,7 @@ export function FormOverview() {
         if (cancelled || !payload?.form) return;
         const serverAt = new Date(payload.form.updatedAt).getTime();
         const localAt = new Date(form.updatedAt).getTime();
-        if (serverAt >= localAt) setForm(payload.form);
+        if (serverAt > localAt) setForm(payload.form);
       })
       .catch(() => {
         /* offline / 404 — fall back to whatever the context already has */

@@ -93,16 +93,26 @@ export function FormBuilderPage() {
       //    context. Safe even after this component unmounts because
       //    the dispatch belongs to the parent provider.
       setForm((prev) => ({ ...prev, schema: pending }));
-      // 3) Best-effort server flush via keepalive.
+      // 3) Best-effort server flush via keepalive. We still PROCESS the
+      //    response — when it lands, push the server-authoritative
+      //    form (with its new updatedAt) into the context so a
+      //    subsequent overview/builder re-mount that does its own
+      //    refetch can't race-clobber the optimistic schema with an
+      //    older snapshot.
       try {
         fetch(`/api/forms/${formIdRef.current}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ schema: pending }),
           keepalive: true,
-        }).catch(() => {
-          /* keepalive saves are best-effort; nothing useful to do here */
-        });
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((payload) => {
+            if (payload?.form) setForm(payload.form);
+          })
+          .catch(() => {
+            /* keepalive saves are best-effort */
+          });
       } catch {
         /* ignore — best-effort flush */
       }
