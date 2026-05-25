@@ -32,6 +32,41 @@ export function FormBuilderPage() {
     formIdRef.current = form.id;
   }, [form.id]);
 
+  // Defensive mount refetch: pull the canonical form from the server
+  // when the builder first mounts. The previous instance of the
+  // builder may have just unmount-flushed a keepalive PATCH whose
+  // response chain hadn't completed by the time this instance was
+  // rendered, leaving useState's initial value (read from context)
+  // potentially stale. If the server has fresher data we adopt both
+  // the form context AND the local template state so the editor
+  // never opens onto pre-edit content.
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/forms/${form.id}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        if (cancelled || !payload?.form) return;
+        const serverAt = new Date(payload.form.updatedAt).getTime();
+        const localAt = new Date(form.updatedAt).getTime();
+        if (serverAt <= localAt) return;
+        setForm(payload.form);
+        setTemplate(payload.form.schema);
+        // Reset both refs so we don't immediately re-flush this same
+        // schema on the next unmount.
+        latestTemplateRef.current = payload.form.schema;
+        savedTemplateRef.current = payload.form.schema;
+      })
+      .catch(() => {
+        /* offline / 404 — keep using whatever context provided */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Mount-only fetch: deliberately not re-running when form.updatedAt
+    // changes (that would feed back into setForm and re-fire).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.id]);
+
   // Clear the autosave indicator if we leave the builder so the
   // shared header doesn't keep showing a stale "Saved just now".
   React.useEffect(() => {
