@@ -121,25 +121,28 @@ export default function LandingPagesPage() {
   return (
     <AdminOnly>
       <div>
-        <header className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-[var(--foreground)]">
-              Landing Pages
-            </h1>
-            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-              Build standalone marketing pages. Embed a Form to capture leads.
-            </p>
+        <div className="page-sticky-header mb-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <RectangleStackIcon className="w-7 h-7 text-[var(--primary)]" />
+              <div>
+                <h2 className="text-2xl font-bold">Landing Pages</h2>
+                <p className="text-[var(--muted-foreground)] mt-1">
+                  Build standalone marketing pages. Embed a Form to capture leads.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNewOpen(true)}
+              disabled={!accountKey}
+              className="flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <PlusIcon className="w-4 h-4" />
+              New Landing Page
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setNewOpen(true)}
-            disabled={!accountKey}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-          >
-            <PlusIcon className="w-4 h-4" />
-            New Landing Page
-          </button>
-        </header>
+        </div>
 
         {pages.length > 0 && (
           <div className="mb-4">
