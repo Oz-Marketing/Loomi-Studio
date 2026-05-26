@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowTopRightOnSquareIcon,
   DocumentDuplicateIcon,
@@ -36,15 +37,23 @@ export function LandingPagesTable({
   const subHref = useSubaccountHref();
 
   return (
-    <div className="glass-card rounded-2xl overflow-hidden">
+    <div className="glass-table rounded-xl">
       <table className="w-full text-sm">
-        <thead className="border-b border-[var(--border)] bg-[var(--muted)]/40">
-          <tr className="text-left text-xs uppercase tracking-wider text-[var(--muted-foreground)]">
-            <th className="px-4 py-3 font-medium">Name</th>
-            <th className="px-4 py-3 font-medium">Slug</th>
-            <th className="px-4 py-3 font-medium">Status</th>
-            <th className="px-4 py-3 font-medium">Updated</th>
-            <th className="px-4 py-3 font-medium w-12"></th>
+        <thead>
+          <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+            <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+              Name
+            </th>
+            <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+              Slug
+            </th>
+            <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+              Status
+            </th>
+            <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+              Updated
+            </th>
+            <th className="w-12 px-3 py-3" aria-label="Row actions" />
           </tr>
         </thead>
         <tbody>
@@ -83,16 +92,19 @@ function Row({
   onDelete?: (page: LandingPageSummary) => void;
   publishing: boolean;
 }) {
+  const router = useRouter();
   const published = page.status === 'published';
   return (
-    <tr className="border-t border-[var(--border)] hover:bg-[var(--muted)]/30 transition-colors">
+    <tr
+      onClick={() => router.push(overviewHref)}
+      className="border-b border-[var(--border)] transition-colors cursor-pointer hover:bg-[var(--muted)]/50"
+    >
       <td className="px-4 py-3">
-        <Link
-          href={overviewHref}
-          className="font-medium text-[var(--foreground)] hover:text-[var(--primary)]"
-        >
-          {page.name || 'Untitled'}
-        </Link>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-[var(--foreground)] truncate">
+            {page.name || 'Untitled'}
+          </div>
+        </div>
       </td>
       <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)]">
         /lp/{page.slug}
@@ -102,7 +114,10 @@ function Row({
           <button
             type="button"
             disabled={publishing}
-            onClick={() => onTogglePublish(page, published ? 'draft' : 'published')}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePublish(page, published ? 'draft' : 'published');
+            }}
             className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
               published
                 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15'
@@ -126,7 +141,7 @@ function Row({
       <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
         {new Date(page.updatedAt).toLocaleDateString()}
       </td>
-      <td className="px-4 py-3 text-right">
+      <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
         <RowMenu
           page={page}
           editHref={editHref}
