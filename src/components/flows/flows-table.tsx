@@ -425,7 +425,7 @@ export function FlowsTable({
                       the user see at a glance how many contacts are
                       flowing through each instance right now. */}
                   {!showAccountColumn && (
-                    <th className="text-right px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider w-32">
+                    <th className="text-right px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider whitespace-nowrap w-32">
                       Active Enrolled
                     </th>
                   )}
