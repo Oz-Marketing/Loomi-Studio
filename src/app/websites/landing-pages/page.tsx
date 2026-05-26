@@ -120,7 +120,7 @@ export default function LandingPagesPage() {
 
   return (
     <AdminOnly>
-      <div className="px-8 py-8 max-w-7xl mx-auto">
+      <div>
         <header className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-semibold text-[var(--foreground)]">

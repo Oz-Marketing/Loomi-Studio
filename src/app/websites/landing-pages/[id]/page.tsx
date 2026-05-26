@@ -101,9 +101,7 @@ export default function LandingPageOverviewPage({
   if (isLoading || !page) {
     return (
       <AdminOnly>
-        <div className="px-8 py-12 max-w-6xl mx-auto text-sm text-[var(--muted-foreground)]">
-          Loading…
-        </div>
+        <div className="text-sm text-[var(--muted-foreground)]">Loading…</div>
       </AdminOnly>
     );
   }
@@ -113,7 +111,7 @@ export default function LandingPageOverviewPage({
 
   return (
     <AdminOnly>
-      <div className="px-8 py-8 max-w-6xl mx-auto space-y-6">
+      <div className="space-y-5">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">

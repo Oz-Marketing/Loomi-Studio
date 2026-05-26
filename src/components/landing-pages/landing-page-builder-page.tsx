@@ -300,7 +300,7 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
 
   return (
     <AdminOnly>
-      <div className="grid grid-cols-[minmax(260px,1fr)_auto_minmax(260px,1fr)] items-center gap-3 px-6 pt-3 pb-4 flex-shrink-0">
+      <div className="grid grid-cols-[minmax(260px,1fr)_auto_minmax(260px,1fr)] items-center gap-3 pb-4 flex-shrink-0">
         {/* LEFT — back · status · autosave (mirrors forms header) */}
         <div className="flex items-center gap-2 min-w-0">
           <button
