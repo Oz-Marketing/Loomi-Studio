@@ -24,8 +24,12 @@ import {
   PreloadedFormsProvider,
   type PreloadedForm,
 } from './preloaded-forms-context';
+import {
+  PreloadedSnippetsProvider,
+  type PreloadedSnippet,
+} from './preloaded-snippets-context';
 
-export type { PreloadedForm };
+export type { PreloadedForm, PreloadedSnippet };
 
 /** Breakpoint shared by the editor's mobile preview and the public
  *  page's responsive CSS. Anything narrower than this is "mobile". */
@@ -34,9 +38,18 @@ const MOBILE_BREAKPOINT_PX = 600;
 export interface LandingPageRendererProps {
   template: LandingPageTemplate;
   preloadedForms?: Map<string, PreloadedForm>;
+  /** Snippet id → resolved snippet content. Populated server-side on
+   *  the public page (collectSnippetIds + getSnippetsByIds) and
+   *  client-side in the editor canvas (SWR). Snippet blocks rendered
+   *  without a matching entry show a "missing" placeholder. */
+  preloadedSnippets?: Map<string, PreloadedSnippet>;
 }
 
-export function LandingPageRenderer({ template, preloadedForms }: LandingPageRendererProps) {
+export function LandingPageRenderer({
+  template,
+  preloadedForms,
+  preloadedSnippets,
+}: LandingPageRendererProps) {
   const s = template.settings;
   const margin = `${s.contentMarginTop ?? 0}px ${s.contentMarginRight ?? 0}px ${s.contentMarginBottom ?? 0}px ${s.contentMarginLeft ?? 0}px`;
   const padding = `${s.contentPaddingTop ?? 0}px ${s.contentPaddingRight ?? 0}px ${s.contentPaddingBottom ?? 0}px ${s.contentPaddingLeft ?? 0}px`;
@@ -90,17 +103,24 @@ export function LandingPageRenderer({ template, preloadedForms }: LandingPageRen
     </div>
   );
 
+  // Layer the providers: snippets and forms both bound to the same
+  // tree, snippets outside so a snippet that itself contains an
+  // embedded_form still resolves the form via the outer forms map.
+  let tree = inner;
   if (preloadedForms) {
-    return (
-      <PreloadedFormsProvider value={preloadedForms}>
-        {inner}
-      </PreloadedFormsProvider>
+    tree = <PreloadedFormsProvider value={preloadedForms}>{tree}</PreloadedFormsProvider>;
+  }
+  if (preloadedSnippets) {
+    tree = (
+      <PreloadedSnippetsProvider value={preloadedSnippets}>
+        {tree}
+      </PreloadedSnippetsProvider>
     );
   }
-  return inner;
+  return tree;
 }
 
-function RenderedBlock({ block }: { block: Block }) {
+export function RenderedBlock({ block }: { block: Block }) {
   const Component = BLOCK_COMPONENTS[block.type] as React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }> | undefined;
   if (!Component) return null;
 

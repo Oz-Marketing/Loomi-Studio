@@ -34,6 +34,10 @@ interface V2EditorShellProps {
   template: EmailTemplate;
   onChange: (next: EmailTemplate) => void;
 
+  /** Account scope — drives the media-library picker inside the Image
+   *  block's property control. */
+  accountKey?: string | null;
+
   // Optional action bar wiring — passed from the editor page so the existing
   // global state (history, contacts, copy) integrates without duplication.
   previewContacts?: PreviewContact[];
@@ -63,7 +67,11 @@ interface V2EditorShellProps {
  */
 export function V2EditorShell(props: V2EditorShellProps) {
   return (
-    <EditorProvider template={props.template} onChange={props.onChange}>
+    <EditorProvider
+      template={props.template}
+      onChange={props.onChange}
+      accountKey={props.accountKey ?? null}
+    >
       <DndShell {...props} />
     </EditorProvider>
   );

@@ -7,9 +7,11 @@ import {
   ChevronLeftIcon,
   AdjustmentsHorizontalIcon,
   PaintBrushIcon,
+  PhotoIcon,
   Squares2X2Icon,
   ComputerDesktopIcon,
 } from '@heroicons/react/24/outline';
+import { MediaPickerModal } from '@/components/media-picker-modal';
 import {
   AlignmentControl,
   ColorInput,
@@ -476,13 +478,22 @@ function PropertyInput({
       />
     );
   }
-  if (prop.type === 'image' || prop.type === 'url') {
+  if (prop.type === 'image') {
+    return (
+      <ImageProp
+        value={stringValue}
+        onChange={onChange}
+        placeholder={prop.placeholder || 'https://...image.png'}
+      />
+    );
+  }
+  if (prop.type === 'url') {
     return (
       <input
         type="url"
         value={stringValue}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={prop.placeholder || (prop.type === 'image' ? 'https://...image.png' : 'https://...')}
+        placeholder={prop.placeholder || 'https://...'}
         className={inputClass}
       />
     );
@@ -521,4 +532,57 @@ function coerceSelectValue(raw: string, options?: PropSchema['options']) {
   if (!options) return raw;
   const match = options.find((o) => String(o.value) === raw);
   return match ? match.value : raw;
+}
+
+/**
+ * Image-prop control: URL text input + media library picker button.
+ * Mirrors the LP and Forms editors' picker pattern — clicking the
+ * button opens the account-scoped MediaPickerModal, and picking a
+ * file writes its URL back via `onChange`. Account scope is read
+ * from the editor context.
+ */
+function ImageProp({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+}) {
+  const { accountKey } = useEditor();
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  return (
+    <>
+      <div className="flex gap-1.5">
+        <input
+          type="url"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`${inputClass} flex-1 min-w-0`}
+        />
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          title="Select from media library"
+          aria-label="Select from media library"
+          className="inline-flex items-center justify-center w-9 h-9 flex-shrink-0 rounded-md border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--accent)] transition-colors"
+        >
+          <PhotoIcon className="w-4 h-4 text-[var(--muted-foreground)]" />
+        </button>
+      </div>
+      {pickerOpen && (
+        <MediaPickerModal
+          accountKey={accountKey ?? undefined}
+          onSelect={(url) => {
+            onChange(url);
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+    </>
+  );
 }

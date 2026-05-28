@@ -6,8 +6,10 @@ import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import {
   ArrowRightStartOnRectangleIcon,
+  ArrowTopRightOnSquareIcon,
   BellIcon,
   BugAntIcon,
+  ChartBarIcon,
   ClockIcon,
   MoonIcon,
   QuestionMarkCircleIcon,
@@ -15,6 +17,7 @@ import {
   UserCircleIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
+import { getOtherSurfaceUrl } from '@/lib/cross-site';
 import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useTheme } from '@/contexts/theme-context';
@@ -218,6 +221,21 @@ export function TopUtilityBar() {
                   )}
                   {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
                 </button>
+                {(() => {
+                  const otherUrl = getOtherSurfaceUrl();
+                  if (!otherUrl) return null;
+                  return (
+                    <a
+                      href={otherUrl}
+                      onClick={() => setUserMenuOpen(false)}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                    >
+                      <ChartBarIcon className="w-4 h-4" />
+                      <span className="flex-1 text-left">Reporting</span>
+                      <ArrowTopRightOnSquareIcon className="w-3 h-3 text-[var(--muted-foreground)]" />
+                    </a>
+                  );
+                })()}
                 <button
                   type="button"
                   onClick={() => {

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useDraggable } from '@dnd-kit/core';
 import { ALL_BLOCK_SCHEMAS, type BlockSchema } from '../schemas';
 import { useLandingPageEditor } from './EditorContext';
 import { PaletteIcon } from './PaletteIcon';
@@ -14,10 +15,10 @@ const CATEGORY_LABEL: Record<BlockSchema['category'], string> = {
 };
 
 /**
- * Left-side palette of available blocks. Click a block to append it
- * to the bottom of the canvas (or after the currently-selected block
- * if one is selected). PR2 ships the click affordance; a true drag-
- * from-palette is a follow-up.
+ * Left-side palette of available blocks. Drag a chip onto the canvas
+ * to insert at a specific position, or click to append (which uses
+ * selection-based inference: into a selected container, after a
+ * selected leaf, or at the end of the page).
  */
 export function BlockPalette() {
   const { insertBlock } = useLandingPageEditor();
@@ -39,8 +40,7 @@ export function BlockPalette() {
     <div className="flex flex-col">
       <div className="px-4 py-3 border-b border-[var(--border)]">
         <p className="text-[11px] text-[var(--muted-foreground)]">
-          Click a block to add it to the canvas. Hover a block on the canvas to
-          see its edit controls.
+          Drag a block onto the canvas, or click to append it.
         </p>
       </div>
       {CATEGORY_ORDER.map((cat) => (
@@ -53,23 +53,60 @@ export function BlockPalette() {
           <div className="px-4 py-3">
             <div className="grid grid-cols-2 gap-2">
               {groups[cat].map((schema) => (
-                <button
+                <PaletteChip
                   key={schema.type}
-                  type="button"
+                  schema={schema}
                   onClick={() => insertBlock(schema.type)}
-                  className="flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--accent)] transition-colors group select-none"
-                  title={schema.description}
-                >
-                  <PaletteIcon name={schema.icon} className="w-5 h-5 text-[var(--muted-foreground)] group-hover:text-[var(--primary)]" />
-                  <span className="text-[11px] font-medium text-center leading-tight">
-                    {schema.label}
-                  </span>
-                </button>
+                />
               ))}
             </div>
           </div>
         </React.Fragment>
       ))}
+    </div>
+  );
+}
+
+function PaletteChip({
+  schema,
+  onClick,
+}: {
+  schema: BlockSchema;
+  onClick: () => void;
+}) {
+  // Palette chips opt into dnd-kit as draggables. The id format
+  // `palette:<type>` is what the shell's drag-end handler keys off to
+  // distinguish "new block from palette" from "reorder existing
+  // block". The PointerSensor's 8px activation distance means a quick
+  // click (no movement) falls through to onClick — keeps the existing
+  // click-to-insert affordance alongside drag.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `palette:${schema.type}`,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      title={schema.description}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={`flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--accent)] transition-colors group select-none ${
+        isDragging ? 'opacity-40 cursor-grabbing' : 'cursor-grab'
+      }`}
+    >
+      <PaletteIcon name={schema.icon} className="w-5 h-5 text-[var(--muted-foreground)] group-hover:text-[var(--primary)]" />
+      <span className="text-[11px] font-medium text-center leading-tight">
+        {schema.label}
+      </span>
     </div>
   );
 }

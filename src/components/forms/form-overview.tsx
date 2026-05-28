@@ -14,14 +14,22 @@ import {
   DocumentTextIcon,
   InboxStackIcon,
   PencilSquareIcon,
+  Squares2X2Icon,
   EyeIcon,
 } from '@heroicons/react/24/outline';
 import { useFormDetail } from '@/components/forms/form-detail-context';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { FormRenderer } from '@/lib/forms/render';
+import { FormSettingsForm } from '@/components/forms/form-settings-form';
 import { SubmissionsTable } from '@/components/forms/submissions-table';
 import { HelpTip } from '@/components/ui/help-tip';
 import type { FormSubmissionRow } from '@/lib/services/forms';
+
+type DetailTab = 'overview' | 'settings';
+const TABS: { key: DetailTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { key: 'overview', label: 'Overview', icon: Squares2X2Icon },
+  { key: 'settings', label: 'Settings', icon: Cog6ToothIcon },
+];
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
@@ -36,10 +44,10 @@ const fetcher = async (url: string) => {
  * the bottom. The cog opens the settings modal (no separate page).
  */
 export function FormOverview() {
-  const { form, setForm, openSettings } = useFormDetail();
+  const { form, setForm } = useFormDetail();
   const subHref = useSubaccountHref();
   const [publishing, setPublishing] = React.useState(false);
-  const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
+  const [activeTab, setActiveTab] = React.useState<DetailTab>('overview');
 
   // Refetch fresh form data on every mount. Necessary because the
   // FormDetailProvider stays mounted across overview ↔ builder
@@ -75,25 +83,6 @@ export function FormOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.id]);
 
-  // Just for the stat cards — the full submissions table embedded at
-  // the bottom does its own fetch with pagination.
-  const { data: submissionsPayload } = useSWR<{
-    submissions: FormSubmissionRow[];
-    total: number;
-  }>(`/api/forms/${form.id}/submissions?pageSize=20`, fetcher, {
-    revalidateOnFocus: true,
-  });
-
-  const totalSubmissions = submissionsPayload?.total ?? form.submissionCount;
-  const submissionsLast7d = React.useMemo(() => {
-    if (!submissionsPayload?.submissions) return null;
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    return submissionsPayload.submissions.filter(
-      (s) => new Date(s.createdAt).getTime() >= cutoff,
-    ).length;
-  }, [submissionsPayload]);
-  const lastSubmissionAt = submissionsPayload?.submissions?.[0]?.createdAt ?? null;
-
   const togglePublish = async () => {
     if (publishing) return;
     setPublishing(true);
@@ -112,16 +101,6 @@ export function FormOverview() {
     const body = (await res.json()) as { form: typeof form };
     setForm(body.form);
     toast.success(nextStatus === 'published' ? 'Form published.' : 'Form moved to draft.');
-  };
-
-  const copyText = async (key: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey(null), 1400);
-    } catch {
-      // Clipboard denied — manual select fallback.
-    }
   };
 
   const published = form.status === 'published';
@@ -177,15 +156,6 @@ export function FormOverview() {
                 onToggle={() => void togglePublish()}
               />
             </div>
-            <button
-              type="button"
-              onClick={openSettings}
-              aria-label="Form settings"
-              title="Settings"
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-            >
-              <Cog6ToothIcon className="w-5 h-5" />
-            </button>
             {published && (
               <a
                 href={`/f/${form.slug}`}
@@ -209,6 +179,88 @@ export function FormOverview() {
         </div>
       </div>
 
+      {/* Tab bar — Overview / Settings. Mirrors the LP detail page
+          pattern; settings used to live behind a cog in the header
+          but a tab makes the surface area discoverable. */}
+      <div className="flex items-center gap-1 border-b border-[var(--border)]">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              aria-pressed={active}
+              className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                active
+                  ? 'border-[var(--primary)] text-[var(--foreground)]'
+                  : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === 'settings' ? (
+        <FormSettingsForm />
+      ) : (
+        <OverviewBody />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Overview-tab body — the form's stats, preview, embed snippet, and
+ * the recent-submissions table. Lifted out so the tab switch in
+ * FormOverview is a single ternary at the bottom; state still lives
+ * in the parent via `useFormDetail()`.
+ */
+function OverviewBody() {
+  const { form, setForm } = useFormDetail();
+  const subHref = useSubaccountHref();
+  const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
+
+  // Just for the stat cards — the full submissions table embedded at
+  // the bottom does its own fetch with pagination.
+  const { data: submissionsPayload } = useSWR<{
+    submissions: FormSubmissionRow[];
+    total: number;
+  }>(`/api/forms/${form.id}/submissions?pageSize=20`, fetcher, {
+    revalidateOnFocus: true,
+  });
+
+  const totalSubmissions = submissionsPayload?.total ?? form.submissionCount;
+  const submissionsLast7d = React.useMemo(() => {
+    if (!submissionsPayload?.submissions) return null;
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return submissionsPayload.submissions.filter(
+      (s) => new Date(s.createdAt).getTime() >= cutoff,
+    ).length;
+  }, [submissionsPayload]);
+  const lastSubmissionAt = submissionsPayload?.submissions?.[0]?.createdAt ?? null;
+
+  const published = form.status === 'published';
+
+  const copyText = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1400);
+    } catch {
+      /* clipboard blocked — silent */
+    }
+  };
+
+  // setForm is used by child components in the future; suppress for now.
+  void setForm;
+
+  return (
+    <>
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
@@ -324,13 +376,6 @@ export function FormOverview() {
                 </p>
               </HelpTip>
             </div>
-            <button
-              type="button"
-              onClick={openSettings}
-              className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)]"
-            >
-              More options →
-            </button>
           </div>
           <p className="text-xs text-[var(--muted-foreground)] mb-3">
             Paste this script tag where you want the form to appear.
@@ -366,7 +411,7 @@ export function FormOverview() {
       <section>
         <SubmissionsTable formId={form.id} schema={form.schema} />
       </section>
-    </div>
+    </>
   );
 }
 

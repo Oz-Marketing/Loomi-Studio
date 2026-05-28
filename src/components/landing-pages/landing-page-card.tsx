@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import {
+  ArchiveBoxArrowDownIcon,
   ArrowTopRightOnSquareIcon,
   ClockIcon,
   DocumentDuplicateIcon,
@@ -19,6 +20,7 @@ interface LandingPageCardProps {
   accountName?: string;
   onTogglePublish?: (page: LandingPageSummary, next: 'published' | 'draft') => void;
   onDuplicate?: (page: LandingPageSummary) => void;
+  onSaveAsTemplate?: (page: LandingPageSummary) => void;
   onDelete?: (page: LandingPageSummary) => void;
   isPublishUpdating?: boolean;
 }
@@ -48,6 +50,7 @@ export function LandingPageCard({
   accountName,
   onTogglePublish,
   onDuplicate,
+  onSaveAsTemplate,
   onDelete,
   isPublishUpdating = false,
 }: LandingPageCardProps) {
@@ -101,6 +104,7 @@ export function LandingPageCard({
               page={page}
               editHref={subHref(`/websites/landing-pages/${page.id}/edit`)}
               onDuplicate={onDuplicate}
+              onSaveAsTemplate={onSaveAsTemplate}
               onDelete={onDelete}
             />
           </div>
@@ -160,11 +164,13 @@ function CardMenu({
   page,
   editHref,
   onDuplicate,
+  onSaveAsTemplate,
   onDelete,
 }: {
   page: LandingPageSummary;
   editHref: string;
   onDuplicate?: (page: LandingPageSummary) => void;
+  onSaveAsTemplate?: (page: LandingPageSummary) => void;
   onDelete?: (page: LandingPageSummary) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -243,6 +249,21 @@ function CardMenu({
             >
               <DocumentDuplicateIcon className="w-3.5 h-3.5" />
               Duplicate
+            </button>
+          )}
+          {onSaveAsTemplate && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+                onSaveAsTemplate(page);
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            >
+              <ArchiveBoxArrowDownIcon className="w-3.5 h-3.5" />
+              Save as template
             </button>
           )}
           {onDelete && (

@@ -21,8 +21,13 @@ function checkAccess(
 /**
  * PATCH /api/media/[id]
  *
- * Rename a media asset (metadata only — S3 key is immutable).
- * Body: { name }
+ * Update display metadata for a media asset. The S3 key stays
+ * immutable so existing URLs (in published pages, sent emails, etc.)
+ * keep working — only the user-facing fields change.
+ *
+ * Body (all optional, at least one required):
+ *   - name: string — display filename
+ *   - altText: string | null — accessible alt text; pass null/'' to clear
  */
 export async function PATCH(
   req: NextRequest,
@@ -32,11 +37,32 @@ export async function PATCH(
   if (error) return error;
 
   const { id } = await params;
-  const body = await req.json();
-  const { name } = body;
+  const body = await req.json().catch(() => ({}));
 
-  if (!name || typeof name !== 'string') {
-    return NextResponse.json({ error: 'name is required' }, { status: 400 });
+  const data: { filename?: string; altText?: string | null } = {};
+
+  if (body.name !== undefined) {
+    if (typeof body.name !== 'string' || !body.name.trim()) {
+      return NextResponse.json({ error: 'name must be a non-empty string' }, { status: 400 });
+    }
+    data.filename = body.name.trim();
+  }
+
+  if (body.altText !== undefined) {
+    if (body.altText === null) {
+      data.altText = null;
+    } else if (typeof body.altText !== 'string') {
+      return NextResponse.json({ error: 'altText must be a string or null' }, { status: 400 });
+    } else {
+      const trimmed = body.altText.trim();
+      // Empty string clears the field — distinguishes "I removed the
+      // alt text" from "I didn't touch this field" (undefined).
+      data.altText = trimmed.length === 0 ? null : trimmed;
+    }
+  }
+
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json({ error: 'No editable fields provided' }, { status: 400 });
   }
 
   const asset = await prisma.mediaAsset.findUnique({ where: { id } });
@@ -48,10 +74,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 
-  const updated = await prisma.mediaAsset.update({
-    where: { id },
-    data: { filename: name.trim() },
-  });
+  const updated = await prisma.mediaAsset.update({ where: { id }, data });
 
   return NextResponse.json({
     file: {
@@ -63,6 +86,7 @@ export async function PATCH(
       width: updated.width,
       height: updated.height,
       thumbnailUrl: updated.thumbnailKey ? s3PublicUrl(updated.thumbnailKey) : undefined,
+      altText: updated.altText,
       category: updated.category,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),

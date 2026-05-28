@@ -188,15 +188,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
               onClick={() => {
                 // Best-effort: flush any focused input's onBlur so the
                 // currently-typed value gets persisted before we navigate.
+                // Autosave handles the rest, so no exit-confirmation
+                // prompt — work is already preserved as a draft.
                 const active = document.activeElement as HTMLElement | null;
                 if (active && typeof active.blur === 'function') active.blur();
-                if (
-                  confirm(
-                    'Your changes are saved as a draft. You can resume from the Campaigns list. Exit the builder?',
-                  )
-                ) {
-                  router.push('/messaging/campaigns');
-                }
+                router.push('/messaging/campaigns');
               }}
               className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
               aria-label="Exit campaign builder"
@@ -253,7 +249,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
  */
 export function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  if (pathname.startsWith('/f/') || pathname.startsWith('/lp/')) {
+  if (
+    pathname.startsWith('/f/') ||
+    pathname.startsWith('/lp/') ||
+    pathname.startsWith('/reporting')
+  ) {
     return <>{children}</>;
   }
   return <AppShell>{children}</AppShell>;

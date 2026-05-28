@@ -245,6 +245,40 @@
   background-color: var(--warning-surface-20);
 }
 
+/* Light mode danger color tuning (keeps dark mode unchanged).
+   The dark-tuned rose-200/300/400 values disappear against a light
+   background — retarget them here to darker rose shades so the
+   "Danger zone" treatment in the LP settings (and any future
+   destructive panels using the same utility classes) reads clearly
+   in light mode. Mirrors the amber/warning pattern above. */
+[data-theme='light'] .text-rose-400 {
+  color: rgb(190 18 60); /* rose-700 */
+}
+[data-theme='light'] .text-rose-300 {
+  color: rgb(159 18 57); /* rose-800 */
+}
+[data-theme='light'] .text-rose-200 {
+  color: rgb(190 18 60); /* rose-700 */
+}
+[data-theme='light'] .text-rose-200\/80 {
+  color: rgb(159 18 57 / 0.85); /* rose-800 @ 85% */
+}
+[data-theme='light'] .border-rose-500\/30 {
+  border-color: rgb(244 63 94 / 0.45); /* rose-500 @ 45% — deeper than dark mode */
+}
+[data-theme='light'] .border-rose-500\/40 {
+  border-color: rgb(244 63 94 / 0.55);
+}
+[data-theme='light'] .bg-rose-500\/5 {
+  background-color: rgb(254 226 226 / 0.7); /* rose-100 tint */
+}
+[data-theme='light'] .bg-rose-500\/10 {
+  background-color: rgb(254 205 211 / 0.9); /* rose-200 tint */
+}
+[data-theme='light'] .hover\:bg-rose-500\/20:hover {
+  background-color: rgb(253 164 175); /* rose-300 */
+}
+
 body {
   background: var(--gradient-bg);
   background-attachment: fixed;

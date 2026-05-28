@@ -16,6 +16,16 @@ export interface SubmitContext {
   ipAddress?: string | null;
   userAgent?: string | null;
   referrer?: string | null;
+  /** Landing-page attribution — set when the submission came from a
+   *  form embedded on a Loomi LP. Stored alongside the submission so
+   *  reports can answer "which page generated this lead". */
+  lpId?: string | null;
+  lpSlug?: string | null;
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  utmTerm?: string | null;
+  utmContent?: string | null;
 }
 
 export interface SubmissionResult {
@@ -75,7 +85,10 @@ export async function submitForm(args: {
     await attachContactToList(contactId, form.listId, form.accountKey);
   }
 
-  // Write the raw submission + bump the form's counter.
+  // Write the raw submission + bump the form's counter. The LP
+  // attribution and UTM fields are nullable — they only land when the
+  // request came from an LP-embedded form (the client passes them via
+  // hidden meta fields in the submit payload).
   const submission = await prisma.formSubmission.create({
     data: {
       formId: form.id,
@@ -84,6 +97,13 @@ export async function submitForm(args: {
       ipAddress: context.ipAddress ?? null,
       userAgent: context.userAgent ?? null,
       referrer: context.referrer ?? null,
+      lpId: context.lpId ?? null,
+      lpSlug: context.lpSlug ?? null,
+      utmSource: context.utmSource ?? null,
+      utmMedium: context.utmMedium ?? null,
+      utmCampaign: context.utmCampaign ?? null,
+      utmTerm: context.utmTerm ?? null,
+      utmContent: context.utmContent ?? null,
     },
   });
 

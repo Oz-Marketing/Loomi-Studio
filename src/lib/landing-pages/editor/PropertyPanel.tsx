@@ -7,11 +7,14 @@ import {
   ComputerDesktopIcon,
   DevicePhoneMobileIcon,
   PaintBrushIcon,
+  PhotoIcon,
   WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline';
+import { MediaPickerModal } from '@/components/media-picker-modal';
 import { useLandingPageEditor } from './EditorContext';
 import { BLOCK_SCHEMA_BY_TYPE, type PropSchema } from '../schemas';
 import { FormPickerInput } from './FormPickerInput';
+import { SnippetPickerInput } from './SnippetPickerInput';
 import { ItemArrayEditor } from './ItemArrayEditor';
 import { SLIDER_CLASS } from './slider-style';
 import { SpacingBox } from '@/lib/forms/editor/PropertyControls';
@@ -516,15 +519,7 @@ function PropEditor({ prop, value, onChange }: PropEditorProps) {
       );
 
     case 'image':
-      return (
-        <input
-          type="url"
-          value={typeof value === 'string' ? value : ''}
-          placeholder="https://…/image.jpg"
-          onChange={(e) => onChange(e.target.value)}
-          className={inputClass}
-        />
-      );
+      return <ImageProp value={value} onChange={onChange} />;
 
     case 'select':
       return (
@@ -611,6 +606,14 @@ function PropEditor({ prop, value, onChange }: PropEditorProps) {
         />
       );
 
+    case 'snippet-picker':
+      return (
+        <SnippetPickerInput
+          value={typeof value === 'string' ? value : ''}
+          onChange={onChange}
+        />
+      );
+
     case 'item-array':
       return (
         <ItemArrayEditor
@@ -623,4 +626,59 @@ function PropEditor({ prop, value, onChange }: PropEditorProps) {
     default:
       return null;
   }
+}
+
+/**
+ * Image-prop control: URL text input + "Select from media library"
+ * button. Click the button to open the account-scoped media picker;
+ * picking a file writes its URL back through `onChange`. The picker
+ * opens scoped to the LP's accountKey (read from EditorContext).
+ *
+ * Note: this control only writes the URL prop. Companion `alt` props
+ * (when the schema has them) stay user-editable in their own field —
+ * we don't auto-fill across props to avoid surprising overwrites of
+ * intentionally-blank alt text on decorative images.
+ */
+function ImageProp({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (next: unknown) => void;
+}) {
+  const { accountKey } = useLandingPageEditor();
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  return (
+    <>
+      <div className="flex gap-1.5">
+        <input
+          type="url"
+          value={typeof value === 'string' ? value : ''}
+          placeholder="https://…/image.jpg"
+          onChange={(e) => onChange(e.target.value)}
+          className={`${inputClass} flex-1 min-w-0`}
+        />
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          title="Select from media library"
+          aria-label="Select from media library"
+          className="inline-flex items-center justify-center w-9 h-9 flex-shrink-0 rounded-md border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--accent)] transition-colors"
+        >
+          <PhotoIcon className="w-4 h-4 text-[var(--muted-foreground)]" />
+        </button>
+      </div>
+      {pickerOpen && (
+        <MediaPickerModal
+          accountKey={accountKey ?? undefined}
+          onSelect={(url) => {
+            onChange(url);
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+    </>
+  );
 }

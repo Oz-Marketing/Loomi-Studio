@@ -20,6 +20,8 @@ import * as React from 'react';
 import type { FormTemplate } from '@/lib/forms/types';
 
 export interface PreloadedForm {
+  /** Form slug — required for submissions to know where to POST. */
+  slug: string;
   schema: FormTemplate;
 }
 

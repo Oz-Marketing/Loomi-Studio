@@ -8,6 +8,9 @@ interface EditorState {
   template: EmailTemplate;
   selectedId: string | null;
   hoveredId: string | null;
+  /** Account scope — drives the media-library picker inside the
+   *  Image block's property control. Null for global context. */
+  accountKey: string | null;
 }
 
 /**
@@ -62,10 +65,13 @@ function generateId(): string {
 interface ProviderProps {
   template: EmailTemplate;
   onChange: (next: EmailTemplate) => void;
+  /** Account this email template belongs to. Drives the media-library
+   *  picker scope in the image property control. */
+  accountKey?: string | null;
   children: React.ReactNode;
 }
 
-export function EditorProvider({ template, onChange, children }: ProviderProps) {
+export function EditorProvider({ template, onChange, accountKey = null, children }: ProviderProps) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [hoveredId, setHoveredId] = React.useState<string | null>(null);
 
@@ -182,6 +188,7 @@ export function EditorProvider({ template, onChange, children }: ProviderProps) 
     template,
     selectedId,
     hoveredId,
+    accountKey,
     selectBlock: setSelectedId,
     setHovered: setHoveredId,
     updateBlockProps,

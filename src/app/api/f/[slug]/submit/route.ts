@@ -68,6 +68,12 @@ export async function POST(
   // submission (no-JS fallback).
   const rawData = await readBody(req);
 
+  // Pluck LP attribution + UTM hidden fields out of the raw payload
+  // BEFORE handing the rest to validateSubmission. These are meta
+  // fields the client injects, never user-visible form schema fields —
+  // we don't want them showing up in `submission.data`.
+  const attribution = extractAttribution(rawData);
+
   try {
     const result = await submitForm({
       form,
@@ -76,6 +82,7 @@ export async function POST(
         ipAddress: ip,
         userAgent: req.headers.get('user-agent'),
         referrer: req.headers.get('referer'),
+        ...attribution,
       },
     });
 
@@ -109,6 +116,42 @@ export async function POST(
       { status: 500 },
     );
   }
+}
+
+/**
+ * Pluck `__loomi_*` attribution fields out of the raw payload and
+ * delete them from the source object so they never appear in
+ * `submission.data`. The keys live in the `__loomi_` namespace so
+ * they can't collide with a customer's user-visible form field id.
+ *
+ * Returns a partial `SubmitContext` with the attribution slice; the
+ * caller spreads it into the full context.
+ */
+function extractAttribution(rawData: Record<string, unknown>): {
+  lpId?: string | null;
+  lpSlug?: string | null;
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  utmTerm?: string | null;
+  utmContent?: string | null;
+} {
+  const pick = (key: string): string | null => {
+    const raw = rawData[key];
+    delete rawData[key];
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    return trimmed.length === 0 ? null : trimmed.slice(0, 256);
+  };
+  return {
+    lpId: pick('__loomi_lp_id'),
+    lpSlug: pick('__loomi_lp_slug'),
+    utmSource: pick('__loomi_utm_source'),
+    utmMedium: pick('__loomi_utm_medium'),
+    utmCampaign: pick('__loomi_utm_campaign'),
+    utmTerm: pick('__loomi_utm_term'),
+    utmContent: pick('__loomi_utm_content'),
+  };
 }
 
 async function readBody(req: NextRequest): Promise<Record<string, unknown>> {

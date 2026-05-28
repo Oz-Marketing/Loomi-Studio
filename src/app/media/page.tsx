@@ -45,6 +45,10 @@ interface MediaFile {
   type: string;
   size?: number;
   thumbnailUrl?: string;
+  /** Accessible alt text — surfaced as the default `alt=` value when
+   *  the asset is inserted into HTML/landing-page content. Null until
+   *  the user provides one. */
+  altText?: string | null;
   createdAt?: string;
   updatedAt?: string;
   source?: 'esp' | 's3';
@@ -774,7 +778,7 @@ function MediaCard({
                       onClick={() => { onMenuClose(); onRename(); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                     >
-                      <PencilSquareIcon className="w-4 h-4" /> Rename
+                      <PencilSquareIcon className="w-4 h-4" /> Edit details
                     </button>
                   )}
                   {caps?.canDelete && onDelete && (
@@ -1038,6 +1042,10 @@ export default function MediaPage() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [renameFile, setRenameFile] = useState<MediaFile | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  // Edit-details modal also owns the alt-text field — seeded when the
+  // user opens the modal alongside renameValue, PATCHed together so
+  // a single Save covers both fields.
+  const [renameAltValue, setRenameAltValue] = useState('');
   const [renaming, setRenaming] = useState(false);
   const [deleteFile, setDeleteFile] = useState<MediaFile | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1511,14 +1519,32 @@ export default function MediaPage() {
     };
   }, [canDropUploadFiles, showUploadModal, stageFiles]);
 
-  // ── Rename ──
+  // ── Edit details (filename + alt text) ──
 
   const handleRename = async () => {
     if (!renameFile || !renameValue.trim()) return;
     setRenaming(true);
 
     try {
-      const body: Record<string, string> = { name: renameValue.trim() };
+      // Build a sparse PATCH body — only send fields the user actually
+      // changed so the API doesn't churn updatedAt unnecessarily.
+      // altText: null === "clear"; matches API contract.
+      const trimmedAlt = renameAltValue.trim();
+      const nextAlt: string | null = trimmedAlt.length === 0 ? null : trimmedAlt;
+      const currentAlt = renameFile.altText ?? null;
+
+      const body: Record<string, unknown> = {};
+      if (renameValue.trim() !== renameFile.name) {
+        body.name = renameValue.trim();
+      }
+      if (nextAlt !== currentAlt) {
+        body.altText = nextAlt;
+      }
+      if (Object.keys(body).length === 0) {
+        setRenameFile(null);
+        setRenaming(false);
+        return;
+      }
       if (effectiveAccountKey) body.accountKey = effectiveAccountKey;
 
       const res = await fetch(`/api/media/${encodeURIComponent(renameFile.id)}`, {
@@ -1538,13 +1564,13 @@ export default function MediaPage() {
             prev.map(f => (f.id === renameFile.id ? { ...f, ...data.file, source: 's3' as const } : f))
           );
         }
-        toast.success('File renamed');
+        toast.success('File updated');
         setRenameFile(null);
       } else {
-        toast.error(data.error || 'Failed to rename');
+        toast.error(data.error || 'Failed to update');
       }
     } catch {
-      toast.error('Failed to rename file');
+      toast.error('Failed to update file');
     }
 
     setRenaming(false);
@@ -2334,7 +2360,7 @@ export default function MediaPage() {
                       onPreview={() => setPreviewFile(f)}
                       onCopyUrl={() => copyUrl(f.url)}
                       onDownload={() => downloadFile(f.url, f.name)}
-                      onRename={() => { setRenameValue(f.name); setRenameFile(f); }}
+                      onRename={() => { setRenameValue(f.name); setRenameAltValue(f.altText ?? ''); setRenameFile(f); }}
                       onDelete={() => setDeleteFile(f)}
                     />
                   );
@@ -2572,7 +2598,7 @@ export default function MediaPage() {
                               }}
                               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                             >
-                              <PencilSquareIcon className="w-4 h-4" /> Rename
+                              <PencilSquareIcon className="w-4 h-4" /> Edit details
                             </button>
                           )}
                           {capabilities?.canMove && (
@@ -2628,7 +2654,7 @@ export default function MediaPage() {
                     onCopyUrl={() => copyUrl(f.url)}
                     onDownload={() => downloadFile(f.url, f.name)}
                     onMove={capabilities?.canMove ? () => openMoveModal([{ id: f.id, type: 'file', name: f.name }]) : undefined}
-                    onRename={capabilities?.canRename ? () => { setRenameValue(f.name); setRenameFile(f); } : undefined}
+                    onRename={capabilities?.canRename ? () => { setRenameValue(f.name); setRenameAltValue(f.altText ?? ''); setRenameFile(f); } : undefined}
                     onDelete={capabilities?.canDelete ? () => setDeleteFile(f) : undefined}
                   />
                 );
@@ -2781,23 +2807,43 @@ export default function MediaPage() {
         </div>
       )}
 
-      {/* ── Rename Modal ── */}
+      {/* ── Edit details Modal (filename + alt text) ── */}
       {renameFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => setRenameFile(null)}>
-          <div className="glass-modal w-[420px]" onClick={(e) => e.stopPropagation()}>
+          <div className="glass-modal w-[480px]" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-[var(--border)]">
-              <h3 className="text-base font-semibold">Rename File</h3>
+              <h3 className="text-base font-semibold">Edit file details</h3>
             </div>
-            <div className="p-5">
-              <label className="block text-sm text-[var(--muted-foreground)] mb-2">File name</label>
-              <input
-                type="text"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); }}
-                className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
-                autoFocus
-              />
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm text-[var(--muted-foreground)] mb-2">File name</label>
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); }}
+                  className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
+                  autoFocus
+                />
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-1.5">
+                  Display name only — the file's URL doesn't change.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm text-[var(--muted-foreground)] mb-2">
+                  Alt text
+                </label>
+                <textarea
+                  value={renameAltValue}
+                  onChange={(e) => setRenameAltValue(e.target.value)}
+                  placeholder="Describe what's in the image, for screen readers and SEO."
+                  rows={2}
+                  className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] resize-none"
+                />
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-1.5">
+                  Used as the default <code className="font-mono">alt</code> when this image is inserted into HTML or emails. Leave empty to clear.
+                </p>
+              </div>
             </div>
             <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
               <button

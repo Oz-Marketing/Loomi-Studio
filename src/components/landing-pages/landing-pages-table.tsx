@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  ArchiveBoxArrowDownIcon,
   ArrowTopRightOnSquareIcon,
   DocumentDuplicateIcon,
   EllipsisVerticalIcon,
@@ -17,6 +18,7 @@ interface LandingPagesTableProps {
   pages: LandingPageSummary[];
   onTogglePublish?: (page: LandingPageSummary, next: 'published' | 'draft') => void;
   onDuplicate?: (page: LandingPageSummary) => void;
+  onSaveAsTemplate?: (page: LandingPageSummary) => void;
   onDelete?: (page: LandingPageSummary) => void;
   isPublishUpdating?: (id: string) => boolean;
 }
@@ -31,6 +33,7 @@ export function LandingPagesTable({
   pages,
   onTogglePublish,
   onDuplicate,
+  onSaveAsTemplate,
   onDelete,
   isPublishUpdating,
 }: LandingPagesTableProps) {
@@ -65,6 +68,7 @@ export function LandingPagesTable({
               editHref={subHref(`/websites/landing-pages/${page.id}/edit`)}
               onTogglePublish={onTogglePublish}
               onDuplicate={onDuplicate}
+              onSaveAsTemplate={onSaveAsTemplate}
               onDelete={onDelete}
               publishing={isPublishUpdating?.(page.id) ?? false}
             />
@@ -81,6 +85,7 @@ function Row({
   editHref,
   onTogglePublish,
   onDuplicate,
+  onSaveAsTemplate,
   onDelete,
   publishing,
 }: {
@@ -89,6 +94,7 @@ function Row({
   editHref: string;
   onTogglePublish?: (page: LandingPageSummary, next: 'published' | 'draft') => void;
   onDuplicate?: (page: LandingPageSummary) => void;
+  onSaveAsTemplate?: (page: LandingPageSummary) => void;
   onDelete?: (page: LandingPageSummary) => void;
   publishing: boolean;
 }) {
@@ -146,6 +152,7 @@ function Row({
           page={page}
           editHref={editHref}
           onDuplicate={onDuplicate}
+          onSaveAsTemplate={onSaveAsTemplate}
           onDelete={onDelete}
         />
       </td>
@@ -157,11 +164,13 @@ function RowMenu({
   page,
   editHref,
   onDuplicate,
+  onSaveAsTemplate,
   onDelete,
 }: {
   page: LandingPageSummary;
   editHref: string;
   onDuplicate?: (page: LandingPageSummary) => void;
+  onSaveAsTemplate?: (page: LandingPageSummary) => void;
   onDelete?: (page: LandingPageSummary) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -235,6 +244,21 @@ function RowMenu({
             >
               <DocumentDuplicateIcon className="w-3.5 h-3.5" />
               Duplicate
+            </button>
+          )}
+          {onSaveAsTemplate && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+                onSaveAsTemplate(page);
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)]"
+            >
+              <ArchiveBoxArrowDownIcon className="w-3.5 h-3.5" />
+              Save as template
             </button>
           )}
           {onDelete && (

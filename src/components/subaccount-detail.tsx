@@ -7,6 +7,7 @@ import {
   ArrowLeftIcon,
   ArrowPathIcon,
   BuildingStorefrontIcon,
+  GlobeAltIcon,
   PaintBrushIcon,
   PencilSquareIcon,
   SwatchIcon,
@@ -22,6 +23,7 @@ import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
 import { UsersTab } from '@/components/settings/users-tab';
 import { AppearanceTab } from '@/components/settings/appearance-tab';
+import { AccountDomainsTab } from '@/components/account-domains-tab';
 // Sending + Suppressions tabs now live under /messaging/settings.
 import { OemMultiSelect } from '@/components/oem-multi-select';
 import { UserAvatar } from '@/components/user-avatar';
@@ -68,7 +70,7 @@ function validHexColor(value: string, fallback: string): string {
   return /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(value) ? value : fallback;
 }
 
-type DetailTab = 'company' | 'branding' | 'contacts' | 'users' | 'appearance';
+type DetailTab = 'company' | 'branding' | 'contacts' | 'domains' | 'users' | 'appearance';
 type AccountImageVariant = 'light' | 'dark' | 'white' | 'black' | 'storefront';
 
 type TabDef = { key: DetailTab; label: string; icon?: React.ComponentType<{ className?: string }> };
@@ -77,6 +79,7 @@ const TABS: TabDef[] = [
   { key: 'company', label: 'Company', icon: BuildingStorefrontIcon },
   { key: 'branding', label: 'Branding', icon: PaintBrushIcon },
   { key: 'contacts', label: 'Contacts', icon: UsersIcon },
+  { key: 'domains', label: 'Domains', icon: GlobeAltIcon },
 ];
 
 // Sending + Suppressions used to live here but moved into the
@@ -86,6 +89,7 @@ const TABS: TabDef[] = [
 const SETTINGS_TABS: TabDef[] = [
   { key: 'company', label: 'Company', icon: BuildingStorefrontIcon },
   { key: 'branding', label: 'Branding', icon: PaintBrushIcon },
+  { key: 'domains', label: 'Domains', icon: GlobeAltIcon },
   { key: 'users', label: 'Users', icon: UsersIcon },
   { key: 'appearance', label: 'Appearance', icon: SwatchIcon },
 ];
@@ -1019,6 +1023,9 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
         {showContactsTab && activeTab === 'contacts' && (
           <AccountContactsTab accountKey={key} />
         )}
+
+        {/* ════════════ DOMAINS TAB ════════════ */}
+        {activeTab === 'domains' && key && <AccountDomainsTab accountKey={key} />}
 
         {/* ════════════ USERS TAB (settings mode only) ════════════ */}
         {settingsMode && activeTab === 'users' && <UsersTab />}
