@@ -17,6 +17,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
+import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useLandingPageEditor } from './EditorContext';
 import { BLOCK_COMPONENTS } from '../components';
@@ -24,6 +25,7 @@ import { SectionBlock } from '../components/Section';
 import { ColumnsBlock } from '../components/Columns';
 import { blockSpacingStyle } from '../block-spacing';
 import { effectiveProps, type Block } from '../types';
+import { BlockDropGap } from './BlockDropGap';
 
 /**
  * Editor canvas. Renders the template using the real block
@@ -59,6 +61,13 @@ export function Canvas({ canUndo, canRedo, onUndo, onRedo }: CanvasProps = {}) {
     activeDevice === 'mobile'
       ? Math.min(MOBILE_PREVIEW_WIDTH, s.contentWidth)
       : s.contentWidth;
+
+  // Empty-canvas drop target — accepts palette chips when no blocks
+  // exist yet. The shell's drag-end handler routes drops on this id
+  // to insertBlock at top level.
+  const { setNodeRef: setEmptyDropRef, isOver: isEmptyOver } = useDroppable({
+    id: 'canvas-empty',
+  });
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -132,19 +141,27 @@ export function Canvas({ canUndo, canRedo, onUndo, onRedo }: CanvasProps = {}) {
               }}
             >
           {template.blocks.length === 0 ? (
-            <EmptyCanvasState />
+            <div ref={setEmptyDropRef}>
+              <EmptyCanvasState highlight={isEmptyOver} />
+            </div>
           ) : (
             <SortableContext
               items={template.blocks.map((b) => b.id)}
               strategy={verticalListSortingStrategy}
             >
+              {/* Drop gap above the first block — explicit insertion
+                  target for drops between top-of-canvas and block 0. */}
+              <BlockDropGap position="start" />
               {template.blocks.map((block, idx) => (
-                <EditableBlock
-                  key={block.id}
-                  block={block}
-                  index={idx}
-                  total={template.blocks.length}
-                />
+                <React.Fragment key={block.id}>
+                  <EditableBlock
+                    block={block}
+                    index={idx}
+                    total={template.blocks.length}
+                  />
+                  {/* Gap below each block — accepts drops to insert after. */}
+                  <BlockDropGap position="after" afterId={block.id} />
+                </React.Fragment>
               ))}
             </SortableContext>
           )}
@@ -477,14 +494,19 @@ function EmptyContainerDropZone({
   parentId: string;
   small?: boolean;
 }) {
-  // Selecting the parent (Section / column-slot) marks it as the
-  // insertion target — clicking a block in the left palette will then
-  // append into THIS parent (EditorContext.insertBlock infers
-  // "container selected → append-into").
+  // Drag-and-drop: this whole region is a droppable that accepts
+  // palette chips. The shell routes drops on `section-empty:<id>` to
+  // insert into THIS container.
+  // Click fallback: selecting the parent (Section / column-slot)
+  // marks it as the insertion target so a palette click via
+  // selection-inference still works.
   const { selectBlock, selectedId } = useLandingPageEditor();
+  const { setNodeRef, isOver } = useDroppable({ id: `section-empty:${parentId}` });
   const active = selectedId === parentId;
+  const highlighted = isOver || active;
   return (
     <div
+      ref={setNodeRef}
       onClick={(e) => {
         e.stopPropagation();
         selectBlock(parentId);
@@ -492,16 +514,18 @@ function EmptyContainerDropZone({
       className={`text-center font-medium rounded-md transition-colors cursor-pointer ${
         small ? 'py-4 px-3 text-[11px]' : 'py-6 px-4 text-xs'
       } ${
-        active
+        highlighted
           ? 'border-2 border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
           : 'border-2 border-dashed border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]'
       }`}
     >
-      {active
-        ? 'Pick a block on the left'
-        : small
-          ? 'Empty column — click, then add a block'
-          : 'Empty section — click, then add a block from the left'}
+      {isOver
+        ? 'Drop here'
+        : active
+          ? 'Pick a block on the left'
+          : small
+            ? 'Empty column — drag a block here'
+            : 'Empty section — drag a block here'}
     </div>
   );
 }
@@ -532,13 +556,23 @@ function Rail({
   );
 }
 
-function EmptyCanvasState() {
+function EmptyCanvasState({ highlight = false }: { highlight?: boolean }) {
   return (
-    <div className="m-12 p-16 text-center rounded-lg border-2 border-dashed border-[var(--border)] text-[var(--muted-foreground)]">
-      <p className="m-0 text-sm font-medium">No blocks yet.</p>
-      <p className="mt-2 text-xs">
-        Pick something from the panel on the left to get started.
+    <div
+      className={`m-12 p-16 text-center rounded-lg transition-colors ${
+        highlight
+          ? 'border-2 border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+          : 'border-2 border-dashed border-[var(--border)] text-[var(--muted-foreground)]'
+      }`}
+    >
+      <p className="m-0 text-sm font-medium">
+        {highlight ? 'Drop here' : 'No blocks yet.'}
       </p>
+      {!highlight && (
+        <p className="mt-2 text-xs">
+          Drag a block from the left, or click to append.
+        </p>
+      )}
     </div>
   );
 }

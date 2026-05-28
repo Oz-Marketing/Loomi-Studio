@@ -33,6 +33,10 @@ interface FormEditorShellProps {
   template: FormTemplate;
   onChange: (next: FormTemplate) => void;
 
+  /** Account scope — drives the media-library picker inside the Image
+   *  block's property control. */
+  accountKey?: string | null;
+
   canUndo?: boolean;
   canRedo?: boolean;
   onUndo?: () => void;
@@ -57,7 +61,11 @@ interface FormEditorShellProps {
  */
 export function FormEditorShell(props: FormEditorShellProps) {
   return (
-    <EditorProvider template={props.template} onChange={props.onChange}>
+    <EditorProvider
+      template={props.template}
+      onChange={props.onChange}
+      accountKey={props.accountKey ?? null}
+    >
       <DndShell {...props} />
     </EditorProvider>
   );

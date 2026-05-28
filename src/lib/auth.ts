@@ -77,7 +77,57 @@ function parseStoredAccountKeys(raw: string): string[] {
   }
 }
 
+// Cross-subdomain session sharing.
+//
+// In prod (`https://` NEXTAUTH_URL) we scope NextAuth cookies to `.loomilm.com`
+// so a single login covers every Loomi surface (studio, reporting, future
+// subdomains). NextAuth's default `__Host-` prefix on the CSRF cookie does
+// NOT permit a `domain` attribute, so we drop down to `__Secure-` for all
+// three cookies that participate in the auth flow.
+//
+// In dev (NEXTAUTH_URL=http://localhost:3000) we omit the domain and the
+// secure flag; sessions are scoped to whichever localhost host you signed in
+// on. Cross-subdomain testing locally (e.g. localhost ↔ reporting.localhost)
+// requires logging in on each — rare in practice.
+const useSecureCookies = process.env.NEXTAUTH_URL?.startsWith('https://') ?? false;
+const cookiePrefix = useSecureCookies ? '__Secure-' : '';
+const cookieDomain = useSecureCookies ? '.loomilm.com' : undefined;
+
 export const authOptions: NextAuthOptions = {
+  cookies: {
+    sessionToken: {
+      name: `${cookiePrefix}next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: useSecureCookies,
+        domain: cookieDomain,
+      },
+    },
+    callbackUrl: {
+      name: `${cookiePrefix}next-auth.callback-url`,
+      options: {
+        sameSite: 'lax',
+        path: '/',
+        secure: useSecureCookies,
+        domain: cookieDomain,
+      },
+    },
+    csrfToken: {
+      // NextAuth defaults this to `__Host-next-auth.csrf-token`, which
+      // forbids setting `domain`. We switch to `__Secure-` so the token
+      // can be shared across subdomains.
+      name: `${cookiePrefix}next-auth.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: useSecureCookies,
+        domain: cookieDomain,
+      },
+    },
+  },
   providers: [
     CredentialsProvider({
       name: 'Credentials',

@@ -16,6 +16,10 @@ interface EditorState {
    *  canvas's visual width AND the destination of property-panel
    *  writes (desktop → `props`, mobile → `mobileProps`). */
   activeDevice: LandingPageDevice;
+  /** Account scope for things the editor surfaces from elsewhere in
+   *  the app — currently the media library picker in the image
+   *  property control. Null for global/admin context. */
+  accountKey: string | null;
 }
 
 /**
@@ -209,10 +213,13 @@ function appendOrInsert(
 interface ProviderProps {
   template: LandingPageTemplate;
   onChange: (next: LandingPageTemplate) => void;
+  /** Account this landing page belongs to. Drives the media-library
+   *  picker scope in the image property control. */
+  accountKey?: string | null;
   children: React.ReactNode;
 }
 
-export function LandingPageEditorProvider({ template, onChange, children }: ProviderProps) {
+export function LandingPageEditorProvider({ template, onChange, accountKey = null, children }: ProviderProps) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [activeDevice, setActiveDevice] = React.useState<LandingPageDevice>('desktop');
 
@@ -406,6 +413,7 @@ export function LandingPageEditorProvider({ template, onChange, children }: Prov
     template,
     selectedId,
     activeDevice,
+    accountKey,
     selectBlock: setSelectedId,
     setActiveDevice,
     updateBlockProps,

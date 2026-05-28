@@ -147,6 +147,9 @@ model Account {
   loomiFlows               LoomiFlow[]
   forms                    Form[]
   landingPages             LandingPage[]
+  landingPageTemplates     AccountLandingPageTemplate[]
+  accountDomains           AccountDomain[]
+  snippets                 AccountSnippet[]
   mediaAssets              MediaAsset[]
   metaAdsPacerPlan         MetaAdsPacerPlan?
   metaAdsPacerAccountNotes MetaAdsPacerAccountNote[]
@@ -604,10 +607,28 @@ model FormSubmission {
   ipAddress String?
   userAgent String?
   referrer  String?
+  // Landing-page attribution. Set when the submission came from a
+  // form embedded on a Loomi LP — both the LP's id and the slug at
+  // submission time are stored (slug is denormalized so reports
+  // survive a slug rename). Null for direct /f/<slug> submissions
+  // where no LP context was attached.
+  lpId      String?
+  lp        LandingPage? @relation(fields: [lpId], references: [id], onDelete: SetNull)
+  lpSlug    String?
+  // First-touch UTM tags captured from the LP's `loomi_lp_utm`
+  // cookie when the submission fires. Lets marketing answer "what
+  // campaign generated this lead" without joining back through the
+  // LP event stream.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
   createdAt DateTime @default(now())
 
   @@index([formId, createdAt])
   @@index([contactId])
+  @@index([lpId, createdAt])
 }
 
 // ─────────────────────────────────────────────────────
@@ -640,13 +661,221 @@ model LandingPage {
   seoTitle        String?
   seoDescription  String?
   ogImageUrl      String?
+  // When true, the public page emits `<meta robots="noindex, nofollow">`
+  // AND the LP is excluded from /lp-sitemap.xml. Useful for password-
+  // protected drafts, internal-only campaigns, or pages we don't want
+  // search engines surfacing.
+  noindex         Boolean  @default(false)
+  // Per-LP browser tab icon URL. When null, the page inherits the
+  // studio's default favicon. Plumbed into Next.js Metadata.icons so
+  // the rendered <link rel="icon"> tag picks this up automatically.
+  faviconUrl      String?
+  // Tracking / analytics injection — surfaced as the "Tracking"
+  // section in the LP settings modal. The canonical pixel IDs are
+  // rendered server-side as the vendor's standard snippet (Meta,
+  // Google) so dealers don't need to paste raw HTML for the
+  // common cases. customHeadHtml + customBodyEndHtml are escape
+  // hatches for anything the curated fields don't cover. Each is
+  // length-capped at the validation layer (~10KB) to keep payloads
+  // sane without giving the impression we're sanitizing — admins
+  // can inject whatever they want on their own LP.
+  metaPixelId       String?
+  ga4MeasurementId  String?
+  gtmContainerId    String?
+  customHeadHtml    String?  @db.Text
+  customBodyEndHtml String?  @db.Text
   createdByUserId String?
   publishedAt     DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  events          LandingPageEvent[]
+  submissions     FormSubmission[]
+  // Reverse of AccountDomain.homeLandingPage — the AccountDomains
+  // (zero or more) configured to serve this LP at their root path.
+  asHomeForDomains AccountDomain[] @relation("AccountDomainHome")
+
   @@index([accountKey])
   @@index([accountKey, status])
+}
+
+// ─────────────────────────────────────────────────────
+// Account-level Reusable Snippets (header / footer / disclaimer)
+// ─────────────────────────────────────────────────────
+//
+// A reusable bundle of LP blocks an account can reference from
+// multiple LandingPages. Edit once, every LP that references it
+// re-renders with the new content on the next request.
+//
+// Storage: `schema` is { version: 1, blocks: Block[] } — same Block
+// shape as LandingPage but without the LP-level `settings` (snippets
+// don't carry their own canvas background / max-width; they render
+// inline within their host LP). Snippet blocks themselves can NOT
+// contain other snippet refs — cycle detection happens at the
+// validation layer.
+//
+// `kind` is purely cosmetic: it lets the picker group snippets by
+// intent (header / footer / disclaimer) without enforcing any
+// schema-level distinction. Generic is the catch-all.
+
+model AccountSnippet {
+  id              String   @id @default(cuid())
+  accountKey      String
+  account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  name            String
+  // header | footer | disclaimer | generic — UI grouping only.
+  kind            String   @default("generic")
+  // Same JSON shape as LandingPage.schema but without `settings`.
+  // Block ids must be unique within a snippet (independent of the LPs
+  // that reference it).
+  schema          Json
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([accountKey])
+  @@index([accountKey, kind])
+}
+
+// ─────────────────────────────────────────────────────
+// Account-level Custom Domains
+// ─────────────────────────────────────────────────────
+//
+// A customer wires their own subdomain (e.g. `offers.dealership.com`)
+// to point at our infra via CNAME. We resolve the hostname at request
+// time in middleware + the public LP route — visitors get LPs at
+// `<hostname>/<slug>`, fully branded as the dealer's own subdomain.
+//
+// Verification: when a domain is added we issue a random token. The
+// customer drops a TXT record at `_loomi.<hostname>` matching the
+// token; the Verify endpoint resolves DNS and marks `verifiedAt`. The
+// CNAME for traffic to actually reach us is checked implicitly at
+// runtime (unverified hostnames just 404).
+//
+// The optional `homeLandingPageId` lets a domain designate one LP as
+// the root-path "home" — `<hostname>/` serves that page, while
+// `<hostname>/<slug>` continues to resolve any other LP under the
+// same account.
+
+model AccountDomain {
+  id                  String   @id @default(cuid())
+  accountKey          String
+  account             Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  // Always stored lowercase, no scheme, no path. Middleware compares
+  // against the lowercased `Host` header at request time.
+  hostname            String   @unique
+  // Random opaque token shown to the customer + checked at the
+  // `_loomi.<hostname>` TXT record. Rotated on demand if compromised.
+  verificationToken   String
+  verifiedAt          DateTime?
+  // Optional: which LP serves the root path on this domain. Null =
+  // no `/` route; visitors hitting `/` get a 404 unless they include
+  // a slug path. Restricted to LPs in the same account at the
+  // application layer (Prisma doesn't enforce cross-FK constraints).
+  homeLandingPageId   String?
+  homeLandingPage     LandingPage? @relation("AccountDomainHome", fields: [homeLandingPageId], references: [id], onDelete: SetNull)
+  // Cloudflare-for-SaaS integration. When CLOUDFLARE_API_TOKEN is
+  // configured the verifyAccountDomain service registers the hostname
+  // with CF on success — they validate the customer's CNAME, issue
+  // an SSL cert, and route traffic to our fallback origin. The id
+  // they return is stored here so we can poll status + clean up on
+  // delete. Null until verification (or always null if CF isn't
+  // configured — DNS-only mode still works for dev / self-hosted).
+  cloudflareCustomHostnameId String?
+  // Last-known SSL status from CF: 'pending' (still validating /
+  // issuing cert), 'active' (cert installed, traffic routes),
+  // 'failed' (CF couldn't validate the CNAME or issue the cert),
+  // null (CF integration not configured or not yet called).
+  cloudflareSslStatus String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([accountKey])
+}
+
+// ─────────────────────────────────────────────────────
+// Account-saved Landing Page Templates
+// ─────────────────────────────────────────────────────
+//
+// Dealer-saved templates that show up in the "New Landing Page"
+// modal next to the built-in presets. A template is a snapshot of
+// an LP's schema at save time — once saved it's independent of the
+// source LP, so editing or deleting the source doesn't propagate.
+// The optional `sourceLpId` field is informational only (no FK
+// enforcement) so the template survives the source LP being deleted.
+
+model AccountLandingPageTemplate {
+  id              String   @id @default(cuid())
+  accountKey      String
+  account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  name            String
+  description     String?
+  // LandingPageContent JSON — same shape as LandingPage.schema.
+  // Deep-cloned when a new LP is built from this template so the
+  // template stays a stable snapshot.
+  schema          Json
+  // Informational pointer to the LP this template was saved from.
+  // Not an FK — we want the template to outlive the source LP.
+  sourceLpId      String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([accountKey, createdAt])
+}
+
+// ─────────────────────────────────────────────────────
+// Landing Page Events
+// ─────────────────────────────────────────────────────
+//
+// Visitor-side analytics events for published landing pages — page
+// views, scroll milestones, CTA clicks, and form submissions. Mirrors
+// the email-stats webhook pattern (CampaignEmailStats): write rows
+// as they happen, aggregate into a daily roll-up table later when the
+// dashboard view needs them.
+//
+// Authentication: public POST endpoint (visitors are anonymous), so
+// the API hashes the IP before storage and rate-limits via the anonId
+// cookie. Slug is denormalized so analytics queries that filter by
+// URL don't need a join.
+
+model LandingPageEvent {
+  id          String      @id @default(cuid())
+  pageId      String
+  page        LandingPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  slug        String // denormalized — published URL slug at the time of the event
+  // Event taxonomy:
+  //   view         — page mount (one per session per page)
+  //   cta_click    — element with [data-loomi-track="cta"] clicked
+  //   form_submit  — embedded form successfully submitted
+  //   scroll_25    — 25% scroll depth reached (first time in session)
+  //   scroll_50    — 50%
+  //   scroll_75    — 75%
+  //   scroll_100   — bottom reached
+  type        String
+  // Cookie-managed identifiers. Both nullable so server-issued events
+  // (rare) and pre-cookie requests still persist.
+  sessionId   String? // 30-min sliding session — counts unique visits
+  anonId      String? // 1-year browser cookie — counts unique visitors
+  referrer    String?
+  userAgent   String?
+  ipHash      String? // sha256(ip + daily salt) — privacy-preserving counter
+  // UTM tags captured at first-touch and persisted via cookie. Each
+  // event re-stamps current cookie state so we can attribute scroll +
+  // CTA + submit back to the source even when the URL no longer has
+  // them.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+  // Event-specific extras: { ctaLabel, ctaHref, formId, scrollDepth, etc. }
+  meta        Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([pageId, createdAt])
+  @@index([pageId, type, createdAt])
+  @@index([slug, createdAt])
 }
 
 // ─────────────────────────────────────────────────────
@@ -919,6 +1148,7 @@ model MediaAsset {
   width        Int? // image-only
   height       Int? // image-only
   thumbnailKey String? // "media/_admin/{id}/thumb.webp"
+  altText      String? // accessible alt text for images — used as the default alt= when inserting <img> from the picker, editable across the media library
   category     String? // "brand" | "ad-creative" | "oem" | "general"
   tags         String? // JSON string[] for future DAM filtering
   uploadedBy   String? // User ID

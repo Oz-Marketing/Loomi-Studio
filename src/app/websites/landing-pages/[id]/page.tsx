@@ -3,25 +3,39 @@
 import * as React from 'react';
 import { use } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { toast } from 'sonner';
 import {
+  ArchiveBoxArrowDownIcon,
   ArrowLeftIcon,
   ArrowTopRightOnSquareIcon,
+  ChartBarIcon,
   CheckCircleIcon,
   ClipboardIcon,
   ClockIcon,
   Cog6ToothIcon,
+  DocumentDuplicateIcon,
   DocumentTextIcon,
+  EllipsisVerticalIcon,
   PencilSquareIcon,
   RectangleStackIcon,
+  Squares2X2Icon,
 } from '@heroicons/react/24/outline';
 import { AdminOnly } from '@/components/route-guard';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { LandingPagePreviewThumbnail } from '@/components/landing-pages/landing-page-preview-thumbnail';
-import { LandingPageSettingsModal } from '@/components/landing-pages/landing-page-settings-modal';
+import { LandingPageAnalytics } from '@/components/landing-pages/landing-page-analytics';
+import { LandingPageSettings } from '@/components/landing-pages/landing-page-settings';
 import { HelpTip } from '@/components/ui/help-tip';
 import type { LandingPageDetail } from '@/lib/services/landing-pages';
+
+type DetailTab = 'overview' | 'analytics' | 'settings';
+const TABS: { key: DetailTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { key: 'overview', label: 'Overview', icon: Squares2X2Icon },
+  { key: 'analytics', label: 'Analytics', icon: ChartBarIcon },
+  { key: 'settings', label: 'Settings', icon: Cog6ToothIcon },
+];
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
@@ -35,6 +49,7 @@ export default function LandingPageOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const subHref = useSubaccountHref();
   const { data, mutate, isLoading } = useSWR<{ page: LandingPageDetail }>(
     `/api/landing-pages/${id}`,
@@ -60,9 +75,11 @@ export default function LandingPageOverviewPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [publishing, setPublishing] = React.useState(false);
   const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
+  const [duplicating, setDuplicating] = React.useState(false);
+  const [savingAsTemplate, setSavingAsTemplate] = React.useState(false);
+  const [activeTab, setActiveTab] = React.useState<DetailTab>('overview');
 
   const page = data?.page;
 
@@ -95,6 +112,62 @@ export default function LandingPageOverviewPage({
       setTimeout(() => setCopiedKey(null), 1400);
     } catch {
       /* clipboard blocked — silent */
+    }
+  }
+
+  async function duplicate() {
+    if (!page || duplicating) return;
+    setDuplicating(true);
+    try {
+      const res = await fetch(`/api/landing-pages/${page.id}/clone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not duplicate.');
+        return;
+      }
+      // Land the user on the new page's overview so they can rename
+      // / customize. The clone service starts the new LP as a draft
+      // so the public URL doesn't immediately 200 with a duplicate
+      // of an active page.
+      toast.success('Duplicated.');
+      router.push(subHref(`/websites/landing-pages/${payload.page.id}`));
+    } finally {
+      setDuplicating(false);
+    }
+  }
+
+  async function saveAsTemplate() {
+    if (!page || savingAsTemplate) return;
+    const defaultName = page.name ? `${page.name} template` : 'My template';
+    const name = window.prompt(
+      'Save this landing page as a reusable template for the account? Give it a name (e.g. "Spring promo").',
+      defaultName,
+    );
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      toast.error('Template name is required.');
+      return;
+    }
+    setSavingAsTemplate(true);
+    try {
+      const res = await fetch(`/api/landing-pages/${page.id}/save-as-template`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not save template.');
+        return;
+      }
+      toast.success(`Saved "${trimmed}" as a template.`);
+    } finally {
+      setSavingAsTemplate(false);
     }
   }
 
@@ -150,25 +223,6 @@ export default function LandingPageOverviewPage({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            <div className="flex items-center gap-2 mr-1">
-              <span className="text-xs text-[var(--muted-foreground)]">
-                {published ? 'Published' : 'Draft'}
-              </span>
-              <PublishSwitch
-                active={published}
-                updating={publishing}
-                onToggle={() => void togglePublish()}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Page settings"
-              title="Settings"
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-            >
-              <Cog6ToothIcon className="w-5 h-5" />
-            </button>
             {published && (
               <a
                 href={`/lp/${page.slug}`}
@@ -181,6 +235,12 @@ export default function LandingPageOverviewPage({
                 Live
               </a>
             )}
+            <HeaderActionsMenu
+              onDuplicate={() => void duplicate()}
+              onSaveAsTemplate={() => void saveAsTemplate()}
+              duplicating={duplicating}
+              savingAsTemplate={savingAsTemplate}
+            />
             <Link
               href={subHref(`/websites/landing-pages/${page.id}/edit`)}
               className="inline-flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90"
@@ -191,7 +251,85 @@ export default function LandingPageOverviewPage({
           </div>
         </div>
 
-        {/* Stat cards */}
+        {/* Tab bar — Overview / Analytics / Settings on the left,
+            Draft/Publish toggle on the right. Sharing the row keeps
+            the publish state visually anchored to the page-level
+            actions instead of floating up by the title. */}
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)]">
+          <div className="flex items-center gap-1">
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  aria-pressed={active}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    active
+                      ? 'border-[var(--primary)] text-[var(--foreground)]'
+                      : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2 pb-1">
+            <span className="text-xs text-[var(--muted-foreground)]">
+              {published ? 'Published' : 'Draft'}
+            </span>
+            <PublishSwitch
+              active={published}
+              updating={publishing}
+              onToggle={() => void togglePublish()}
+            />
+          </div>
+        </div>
+
+        {activeTab === 'analytics' ? (
+          <LandingPageAnalytics pageId={page.id} />
+        ) : activeTab === 'settings' ? (
+          <LandingPageSettings
+            page={page}
+            onUpdated={(next) => void mutate({ page: next }, { revalidate: false })}
+          />
+        ) : (
+          <OverviewBody
+            page={page}
+            iframeSnippet={iframeSnippet}
+            published={published}
+            copiedKey={copiedKey}
+            onCopy={copy}
+          />
+        )}
+      </div>
+    </AdminOnly>
+  );
+}
+
+// ── Overview tab body ──────────────────────────────────────────────
+//
+// Lifted out of the page so the tab switch is just a single conditional
+// in the parent JSX. State (publishing, copy feedback) still lives in
+// the page component — the body takes everything it needs as props.
+
+interface OverviewBodyProps {
+  page: LandingPageDetail;
+  iframeSnippet: string;
+  published: boolean;
+  copiedKey: string | null;
+  onCopy: (key: string, text: string) => void;
+}
+
+function OverviewBody({ page, iframeSnippet, published, copiedKey, onCopy }: OverviewBodyProps) {
+  const subHref = useSubaccountHref();
+  return (
+    <>
+      {/* Stat cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <StatCard
             label="Status"
@@ -274,7 +412,7 @@ export default function LandingPageOverviewPage({
                 </a>
                 <button
                   type="button"
-                  onClick={() => void copy('url', page.publicUrl)}
+                  onClick={() => onCopy('url', page.publicUrl)}
                   className="inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
                   aria-label="Copy URL"
                 >
@@ -286,6 +424,12 @@ export default function LandingPageOverviewPage({
                 </button>
               </div>
             </div>
+
+            <CustomDomainLinks
+              page={page}
+              copiedKey={copiedKey}
+              onCopy={onCopy}
+            />
 
             <div className="border-t border-[var(--border)] pt-4">
               <h4 className="text-xs font-semibold mb-1">Embed (iframe)</h4>
@@ -302,7 +446,7 @@ export default function LandingPageOverviewPage({
                 />
                 <button
                   type="button"
-                  onClick={() => void copy('iframe', iframeSnippet)}
+                  onClick={() => onCopy('iframe', iframeSnippet)}
                   className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
                   aria-label="Copy iframe"
                 >
@@ -316,15 +460,7 @@ export default function LandingPageOverviewPage({
             </div>
           </section>
         </div>
-      </div>
-
-      <LandingPageSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        page={page}
-        onUpdated={(next) => void mutate({ page: next }, { revalidate: false })}
-      />
-    </AdminOnly>
+    </>
   );
 }
 
@@ -335,6 +471,89 @@ function formatDate(input: string | Date): string {
   const d = typeof input === 'string' ? new Date(input) : input;
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Three-dot menu sitting to the left of "Edit Page" on the overview
+ * header. Hosts secondary actions (Duplicate, Save as template) that
+ * used to live as standalone buttons. Same kebab pattern as the LP
+ * list view, just hand-rolled here since this is a one-off site.
+ */
+function HeaderActionsMenu({
+  onDuplicate,
+  onSaveAsTemplate,
+  duplicating,
+  savingAsTemplate,
+}: {
+  onDuplicate: () => void;
+  onSaveAsTemplate: () => void;
+  duplicating: boolean;
+  savingAsTemplate: boolean;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="More actions"
+        className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] hover:bg-[var(--muted)] transition-colors"
+      >
+        <EllipsisVerticalIcon className="w-4 h-4" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-30 w-52 glass-dropdown shadow-lg p-1"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onDuplicate();
+            }}
+            disabled={duplicating}
+            className="w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50"
+          >
+            <DocumentDuplicateIcon className="w-3.5 h-3.5" />
+            {duplicating ? 'Duplicating…' : 'Duplicate'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onSaveAsTemplate();
+            }}
+            disabled={savingAsTemplate}
+            className="w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50"
+          >
+            <ArchiveBoxArrowDownIcon className="w-3.5 h-3.5" />
+            {savingAsTemplate ? 'Saving…' : 'Save as template'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PublishSwitch({
@@ -403,6 +622,84 @@ function StatCard({
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// ── Custom-domain URL list ─────────────────────────────────────────
+//
+// Lists every verified AccountDomain for this LP's account in the
+// Share section. Each verified domain yields one URL — either the
+// root path (if the domain has this LP set as its `homeLandingPageId`)
+// or the slug path. Falls back to nothing when the account has no
+// verified domains, so the section disappears for accounts that
+// haven't set custom domains up.
+
+interface AccountDomainSummary {
+  id: string;
+  hostname: string;
+  verifiedAt: string | null;
+  homeLandingPageId: string | null;
+}
+
+function CustomDomainLinks({
+  page,
+  copiedKey,
+  onCopy,
+}: {
+  page: LandingPageDetail;
+  copiedKey: string | null;
+  onCopy: (key: string, text: string) => void;
+}) {
+  const { data } = useSWR<{ domains: AccountDomainSummary[] }>(
+    `/api/account-domains?accountKey=${encodeURIComponent(page.accountKey)}`,
+    fetcher,
+  );
+  const verified = (data?.domains ?? []).filter((d) => d.verifiedAt);
+  if (verified.length === 0) return null;
+
+  return (
+    <div className="border-t border-[var(--border)] pt-4">
+      <h4 className="text-xs font-semibold mb-1">Custom domain</h4>
+      <p className="text-[11px] text-[var(--muted-foreground)] mb-2">
+        This page is also reachable at:
+      </p>
+      <ul className="space-y-1.5">
+        {verified.map((d) => {
+          const isHome = d.homeLandingPageId === page.id;
+          const url = `https://${d.hostname}${isHome ? '/' : `/${page.slug}`}`;
+          const copyKey = `customDomain:${d.id}`;
+          return (
+            <li key={d.id} className="flex items-center gap-2">
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 truncate text-xs font-mono text-[var(--primary)] hover:underline"
+              >
+                {url}
+              </a>
+              {isHome && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-500/15 text-emerald-300 uppercase tracking-wider">
+                  Home
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => onCopy(copyKey, url)}
+                className="inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+                aria-label="Copy URL"
+              >
+                {copiedKey === copyKey ? (
+                  <CheckCircleIcon className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <ClipboardIcon className="w-4 h-4" />
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

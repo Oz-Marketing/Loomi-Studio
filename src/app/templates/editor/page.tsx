@@ -9112,6 +9112,7 @@ export default function TemplateEditorPage() {
           <V2EditorShell
             template={(parseV2Template(code) as EmailTemplate) ?? { version: "2", subject: "", preheader: "", settings: { bodyBg: "#f5f5f5", contentBg: "#ffffff", contentWidth: 600, fontFamily: "Helvetica, Arial, sans-serif", textColor: "#1a1a1a" }, blocks: [] }}
             onChange={(next) => handleCodeChange(JSON.stringify(next, null, 2))}
+            accountKey={mediaPickerAccountKey ?? null}
             previewContacts={previewContacts}
             selectedContactId={selectedPreviewContactId}
             onSelectContact={setSelectedPreviewContactId}

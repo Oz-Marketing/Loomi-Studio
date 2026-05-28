@@ -1,11 +1,15 @@
 'use client';
 
 import * as React from 'react';
+import { CodeBracketIcon } from '@heroicons/react/24/outline';
 import { LandingPageRenderer } from '@/lib/landing-pages/render';
-import type { LandingPageTemplate } from '@/lib/landing-pages/types';
+import {
+  isHtmlLandingPageTemplate,
+  type LandingPageContent,
+} from '@/lib/landing-pages/types';
 
 interface LandingPagePreviewThumbnailProps {
-  template: LandingPageTemplate;
+  template: LandingPageContent;
   height?: number;
 }
 
@@ -48,6 +52,25 @@ export function LandingPagePreviewThumbnail({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // HTML-mode pages don't have a block tree to render at a small scale
+  // — show a static "HTML" placeholder card instead. The card view's
+  // visual stays consistent and we don't have to spin up an iframe at
+  // thumbnail size just to render arbitrary CSS.
+  if (isHtmlLandingPageTemplate(template)) {
+    return (
+      <div
+        ref={containerRef}
+        className="relative overflow-hidden flex items-center justify-center bg-[var(--muted)]"
+        style={{ height }}
+      >
+        <div className="flex flex-col items-center gap-2 text-[var(--muted-foreground)]">
+          <CodeBracketIcon className="w-7 h-7" />
+          <span className="text-[11px] uppercase tracking-[0.16em]">HTML page</span>
+        </div>
+      </div>
+    );
+  }
 
   const naturalWidth = template.settings.contentWidth || 1140;
   const scale = containerWidth > 0 ? containerWidth / naturalWidth : 0;

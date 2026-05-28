@@ -125,6 +125,7 @@ const websitesNav: NavItem = {
   children: [
     { href: '/websites/forms', label: 'Forms', icon: DocumentTextIcon },
     { href: '/websites/landing-pages', label: 'Landing Pages', icon: RectangleStackIcon },
+    { href: '/websites/snippets', label: 'Reusable Blocks', icon: Squares2X2Icon },
   ],
 };
 

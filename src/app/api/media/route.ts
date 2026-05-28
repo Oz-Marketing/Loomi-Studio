@@ -105,6 +105,7 @@ export async function GET(req: NextRequest) {
     width: a.width,
     height: a.height,
     thumbnailUrl: a.thumbnailKey ? s3PublicUrl(a.thumbnailKey) : undefined,
+    altText: a.altText,
     category: a.category,
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
@@ -143,6 +144,13 @@ export async function POST(req: NextRequest) {
   const accountKey = (formData.get('accountKey') as string | null) || null;
   const file = formData.get('file') as File | null;
   const category = (formData.get('category') as string | null) || 'general';
+  // Optional accessible alt text — caller (e.g. media library uploader)
+  // can set it now, or it can be added later via PATCH.
+  const altTextRaw = formData.get('altText');
+  const altText =
+    typeof altTextRaw === 'string' && altTextRaw.trim().length > 0
+      ? altTextRaw.trim()
+      : null;
 
   if (!file) {
     return NextResponse.json({ error: 'file is required' }, { status: 400 });
@@ -202,6 +210,7 @@ export async function POST(req: NextRequest) {
         width,
         height,
         thumbnailKey,
+        altText,
         category,
         uploadedBy: session!.user.id,
       },
@@ -218,6 +227,7 @@ export async function POST(req: NextRequest) {
           width: asset.width,
           height: asset.height,
           thumbnailUrl: asset.thumbnailKey ? s3PublicUrl(asset.thumbnailKey) : undefined,
+          altText: asset.altText,
           category: asset.category,
           createdAt: asset.createdAt.toISOString(),
           source: 's3' as const,

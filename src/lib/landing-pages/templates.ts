@@ -9,23 +9,28 @@
  * Adding a template: define it here, register in PRESETS, and the
  * picker modal lights up automatically.
  */
-import type { LandingPageTemplate } from './types';
-import { DEFAULT_LP_SETTINGS } from './types';
+import type { LandingPageContent, LandingPageTemplate } from './types';
+import { DEFAULT_LP_SETTINGS, emptyHtmlLandingPageTemplate } from './types';
 
 export interface LandingPageTemplatePreset {
   id: string;
   name: string;
   description: string;
+  /** Editor mode the preset produces. Drives both the editor shell
+   *  chosen on create and how the picker modal renders the card
+   *  (block-tree thumbnail vs. static HTML tile). */
+  mode: 'blocks' | 'html';
   /** Heroicon name (string match) used by the picker chip. */
   icon:
     | 'sparkles'
     | 'cursor-arrow-rays'
     | 'rocket-launch'
     | 'calendar-days'
-    | 'megaphone';
+    | 'megaphone'
+    | 'code-bracket';
   /** Short label shown under the icon (e.g. "5 blocks"). */
   meta: string;
-  build: () => LandingPageTemplate;
+  build: () => LandingPageContent;
 }
 
 function makeId(prefix: string, idx: number): string {
@@ -41,9 +46,10 @@ const BLANK: LandingPageTemplatePreset = {
   id: 'blank',
   name: 'Start from scratch',
   description: 'Empty canvas. Build the page block-by-block.',
+  mode: 'blocks',
   icon: 'sparkles',
   meta: 'Empty',
-  build: () => ({
+  build: (): LandingPageTemplate => ({
     version: '1',
     settings: { ...DEFAULT_LP_SETTINGS },
     blocks: [],
@@ -61,6 +67,7 @@ const LEAD_CAPTURE: LandingPageTemplatePreset = {
   id: 'lead-capture',
   name: 'Lead capture',
   description: 'Hero + features + testimonial + FAQ + closing CTA. Wire in a form to capture leads.',
+  mode: 'blocks',
   icon: 'cursor-arrow-rays',
   meta: '7 blocks',
   build: () => ({
@@ -158,6 +165,7 @@ const COMING_SOON: LandingPageTemplatePreset = {
   id: 'coming-soon',
   name: 'Coming soon',
   description: 'Single-screen launch teaser. Hero + signup form. Drop a domain on this and walk away.',
+  mode: 'blocks',
   icon: 'rocket-launch',
   meta: '2 blocks',
   build: () => ({
@@ -203,6 +211,7 @@ const EVENT: LandingPageTemplatePreset = {
   id: 'event',
   name: 'Event / webinar',
   description: 'Date-driven landing page for webinars, workshops, or product demos.',
+  mode: 'blocks',
   icon: 'calendar-days',
   meta: '6 blocks',
   build: () => ({
@@ -282,6 +291,7 @@ const PRODUCT_LAUNCH: LandingPageTemplatePreset = {
   id: 'product-launch',
   name: 'Product launch',
   description: 'Hero with image, features, social proof, big closing CTA. Visual-forward.',
+  mode: 'blocks',
   icon: 'megaphone',
   meta: '5 blocks',
   build: () => ({
@@ -347,12 +357,30 @@ const PRODUCT_LAUNCH: LandingPageTemplatePreset = {
   }),
 };
 
+// ── Blank HTML ──────────────────────────────────────────────────
+//
+// Opt-in to the full-HTML editor. The page's body is a single string
+// the user owns in Monaco; page-level settings (font, max width, etc.)
+// are bypassed. Forms get embedded via `<div data-loomi-form="...">`
+// tags, which the public page hydrates with the real interactive form.
+
+const BLANK_HTML: LandingPageTemplatePreset = {
+  id: 'blank-html',
+  name: 'HTML page',
+  description: 'Code-only. Write the page body in HTML and embed forms via a tag. For users who want full control.',
+  mode: 'html',
+  icon: 'code-bracket',
+  meta: 'HTML',
+  build: () => emptyHtmlLandingPageTemplate(),
+};
+
 export const LP_TEMPLATE_PRESETS: LandingPageTemplatePreset[] = [
   BLANK,
   LEAD_CAPTURE,
   PRODUCT_LAUNCH,
   EVENT,
   COMING_SOON,
+  BLANK_HTML,
 ];
 
 export function getLandingPagePreset(id: string): LandingPageTemplatePreset | undefined {

@@ -11,6 +11,8 @@ import {
   listLandingPages,
 } from '@/lib/services/landing-pages';
 import { getLandingPagePreset } from '@/lib/landing-pages/templates';
+import { getLpTemplate } from '@/lib/services/lp-templates';
+import type { LandingPageContent } from '@/lib/landing-pages/types';
 
 export async function GET() {
   const { session, error } = await requireRole('developer', 'super_admin', 'admin');
@@ -37,12 +39,41 @@ export async function POST(req: NextRequest) {
   const scope = getAccountScope(session!);
   if (!canAccessAccount(scope, accountKey)) return forbidden();
 
-  // Pick the preset by id (blank is the fallback). preset.build() is
-  // called fresh on every create so each new page gets unique block
-  // ids — no risk of two pages sharing the same id from the same
-  // module-level frozen object.
-  const preset = getLandingPagePreset(templateId) ?? getLandingPagePreset('blank')!;
-  const schema = preset.build();
+  // Resolve the schema from one of two source kinds:
+  //   1. Built-in preset by id ("blank" / "lead-capture" / etc.)
+  //      → call preset.build() fresh on every create so each new
+  //        page gets unique block ids (no risk of two pages sharing
+  //        ids from a module-level frozen object).
+  //   2. Account-saved template by id prefix "account:<uuid>"
+  //      → load the AccountLandingPageTemplate row + deep-clone its
+  //        schema. Scope-checked via getAccountScope so users can't
+  //        seed from another account's template.
+  let schema: LandingPageContent;
+  if (templateId.startsWith('account:')) {
+    const templateUuid = templateId.slice('account:'.length);
+    const template = await getLpTemplate(templateUuid, scope);
+    if (!template) {
+      return NextResponse.json({ error: 'Template not found' }, { status: 404 });
+    }
+    if (template.accountKey !== accountKey) {
+      // User picked a template from one account but is creating an
+      // LP in another. Both accounts are in their scope (since
+      // getLpTemplate returned non-null) but mixing account schemas
+      // is suspicious — block it.
+      return NextResponse.json(
+        { error: 'Template belongs to a different account.' },
+        { status: 403 },
+      );
+    }
+    // Deep clone so new block ids etc. can be regenerated downstream
+    // if needed (current behavior keeps the original ids; LP routes
+    // don't care, but cloning protects against future code that
+    // mutates `schema`).
+    schema = JSON.parse(JSON.stringify(template.schema)) as LandingPageContent;
+  } else {
+    const preset = getLandingPagePreset(templateId) ?? getLandingPagePreset('blank')!;
+    schema = preset.build();
+  }
 
   try {
     const page = await createLandingPage({
@@ -51,7 +82,15 @@ export async function POST(req: NextRequest) {
       schema,
       createdByUserId: session!.user.id,
     });
-    return NextResponse.json({ page, redirect: templateId === 'blank' ? 'edit' : 'overview' }, { status: 201 });
+    // Blank presets (both block-blank and html-blank) drop users
+    // straight into the editor — there's nothing to "overview" yet.
+    // Account templates always have filled-in content, so they
+    // route to the overview like other prefilled presets.
+    const goStraightToEditor = templateId === 'blank' || templateId === 'blank-html';
+    return NextResponse.json(
+      { page, redirect: goStraightToEditor ? 'edit' : 'overview' },
+      { status: 201 },
+    );
   } catch (err) {
     if (err instanceof LandingPageServiceError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

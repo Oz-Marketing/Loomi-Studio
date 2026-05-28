@@ -100,6 +100,31 @@ export default function LandingPagesPage() {
     await mutate();
   }
 
+  async function saveAsTemplate(page: LandingPageSummary) {
+    const defaultName = page.name ? `${page.name} template` : 'My template';
+    const name = window.prompt(
+      'Save this landing page as a reusable template for the account? Give it a name (e.g. "Spring promo").',
+      defaultName,
+    );
+    if (name === null) return; // cancelled
+    const trimmed = name.trim();
+    if (!trimmed) {
+      toast.error('Template name is required.');
+      return;
+    }
+    const res = await fetch(`/api/landing-pages/${page.id}/save-as-template`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(payload.error || 'Could not save template.');
+      return;
+    }
+    toast.success(`Saved "${trimmed}" as a template.`);
+  }
+
   async function destroy(page: LandingPageSummary) {
     const ok = await confirm({
       title: `Delete "${page.name || 'Untitled'}"?`,
@@ -182,6 +207,7 @@ export default function LandingPagesPage() {
                 accountName={accountName}
                 onTogglePublish={togglePublish}
                 onDuplicate={duplicate}
+                onSaveAsTemplate={saveAsTemplate}
                 onDelete={destroy}
                 isPublishUpdating={publishingIds.has(page.id)}
               />
@@ -192,6 +218,7 @@ export default function LandingPagesPage() {
             pages={visible}
             onTogglePublish={togglePublish}
             onDuplicate={duplicate}
+            onSaveAsTemplate={saveAsTemplate}
             onDelete={destroy}
             isPublishUpdating={(id) => publishingIds.has(id)}
           />

@@ -9,6 +9,9 @@ interface EditorState {
   template: FormTemplate;
   selectedId: string | null;
   hoveredId: string | null;
+  /** Account scope — drives the media-library picker scope used by
+   *  the Image block's property control. Null for global context. */
+  accountKey: string | null;
 }
 
 /**
@@ -63,10 +66,13 @@ function generateId(): string {
 interface ProviderProps {
   template: FormTemplate;
   onChange: (next: FormTemplate) => void;
+  /** Account this form belongs to. Drives the media-library picker
+   *  scope in the image property control. */
+  accountKey?: string | null;
   children: React.ReactNode;
 }
 
-export function EditorProvider({ template, onChange, children }: ProviderProps) {
+export function EditorProvider({ template, onChange, accountKey = null, children }: ProviderProps) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [hoveredId, setHoveredId] = React.useState<string | null>(null);
 
@@ -183,6 +189,7 @@ export function EditorProvider({ template, onChange, children }: ProviderProps) 
     template,
     selectedId,
     hoveredId,
+    accountKey,
     selectBlock: setSelectedId,
     setHovered: setHoveredId,
     updateBlockProps,

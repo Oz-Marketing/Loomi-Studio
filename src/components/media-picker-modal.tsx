@@ -24,13 +24,28 @@ interface MediaFile {
   type: string;
   size?: number;
   thumbnailUrl?: string;
+  /** Accessible alt text editable elsewhere in the library (admin
+   *  page, landing-page embed picker). Surfaced here on the model so
+   *  consumers that wrap MediaPickerModal can read it if needed — the
+   *  picker UI itself doesn't render it, since email-template blocks
+   *  carry their own alt prop. */
+  altText?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
 
 export interface MediaPickerModalProps {
   accountKey?: string;
-  onSelect: (url: string) => void;
+  /** Fired when the user clicks a media tile.
+   *
+   *  - First arg is the URL (the original onSelect contract, preserved
+   *    for backward compat — callers that only need the URL keep
+   *    working unchanged).
+   *  - Second arg is the full `MediaFile` so callers that want to
+   *    auto-populate companion fields (e.g. an `alt` prop next to the
+   *    image-URL input) can read `altText`, `width`, etc. without a
+   *    second round-trip. */
+  onSelect: (url: string, file?: MediaFile) => void;
   onClose: () => void;
   fullScreen?: boolean;
 }
@@ -246,7 +261,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
                 return (
                   <button
                     key={f.id}
-                    onClick={() => onSelect(f.url)}
+                    onClick={() => onSelect(f.url, f)}
                     className="text-left rounded-lg overflow-hidden border border-transparent hover:border-[var(--primary)] hover:ring-1 hover:ring-[var(--primary)]/30 transition-all group"
                     title={f.name}
                   >

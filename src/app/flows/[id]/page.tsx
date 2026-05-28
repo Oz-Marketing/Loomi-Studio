@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useMemo, useRef, useState } from 'react';
+import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
@@ -22,8 +22,9 @@ import {
   Squares2X2Icon,
   ArrowPathIcon,
   ArrowRightIcon,
+  Cog6ToothIcon,
+  ExclamationTriangleIcon,
   InformationCircleIcon,
-  EllipsisHorizontalIcon,
   TrashIcon,
   PencilIcon,
 } from '@heroicons/react/24/outline';
@@ -34,6 +35,12 @@ import { FlowIcon } from '@/components/icon-map';
 import { FlowDiagram, type FlowNode } from '@/components/flows/flow-diagram';
 import { DeployFlowModal } from '@/components/flows/deploy-flow-modal';
 import { AccountAvatar } from '@/components/account-avatar';
+
+type DetailTab = 'overview' | 'settings';
+const TABS: { key: DetailTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { key: 'overview', label: 'Overview', icon: Squares2X2Icon },
+  { key: 'settings', label: 'Settings', icon: Cog6ToothIcon },
+];
 
 // Types mirror the API shape (loomi-flows service serializes nulls to
 // empty strings + ISO strings for dates).
@@ -225,30 +232,10 @@ function FlowOverview({ flowId }: { flowId: string }) {
   const { confirm, prompt } = useLoomiDialog();
   const [deployOpen, setDeployOpen] = useState(false);
   const [resyncing, setResyncing] = useState(false);
-  // Header overflow menu state. Hosts the destructive Archive +
-  // Delete actions so they stay one click removed from the primary
-  // Deploy / Edit / Publish controls.
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const headerMenuRef = useRef<HTMLDivElement>(null);
-
-  // Click-outside + Esc to close the header overflow menu.
-  useEffect(() => {
-    if (!headerMenuOpen) return;
-    const onPointer = (e: MouseEvent) => {
-      if (!headerMenuRef.current?.contains(e.target as Node)) {
-        setHeaderMenuOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setHeaderMenuOpen(false);
-    };
-    window.addEventListener('mousedown', onPointer);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onPointer);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [headerMenuOpen]);
+  // Overview/Settings tab switcher. Rename + archive + delete used
+  // to hide behind a header overflow menu — now they live in a
+  // first-class Settings tab so admins can find them without hunting.
+  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   // Per-instance resync state for the Deployments list — each row's
   // Update button shows its own spinner without locking the others.
   const [resyncingInstanceIds, setResyncingInstanceIds] = useState<Set<string>>(
@@ -403,7 +390,6 @@ function FlowOverview({ flowId }: { flowId: string }) {
 
   async function handleRename() {
     if (!flow) return;
-    setHeaderMenuOpen(false);
     const next = await prompt({
       title: 'Rename flow',
       message: 'Pick a new name for this flow.',
@@ -433,7 +419,6 @@ function FlowOverview({ flowId }: { flowId: string }) {
   // archived/deleted flow's overview.
   async function handleArchive() {
     if (!flow) return;
-    setHeaderMenuOpen(false);
     const ok = await confirm({
       title: 'Archive flow?',
       message: `"${flow.name || 'Untitled flow'}" will be hidden from the flows list and auto-deleted in 30 days. Active enrollments stop on the next tick.`,
@@ -453,7 +438,6 @@ function FlowOverview({ flowId }: { flowId: string }) {
 
   async function handleDelete() {
     if (!flow) return;
-    setHeaderMenuOpen(false);
     const ok = await confirm({
       title: 'Delete flow permanently?',
       message: `"${flow.name || 'Untitled flow'}" and all its steps, triggers, and enrollment history will be permanently removed. This cannot be undone.`,
@@ -538,60 +522,8 @@ function FlowOverview({ flowId }: { flowId: string }) {
                 />
               </div>
             )}
-            {/* Overflow menu — destructive actions sit one click away
-                from the primary Deploy/Edit controls. Borderless to
-                read as a tertiary control. Admin-only. Positioned to
-                the left of Deploy so the destructive options are the
-                first item the eye hits in the action cluster. */}
-            {isAdmin && (
-              <div className="relative" ref={headerMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setHeaderMenuOpen((v) => !v)}
-                  aria-haspopup="menu"
-                  aria-expanded={headerMenuOpen}
-                  title="More actions"
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                >
-                  <EllipsisHorizontalIcon className="w-5 h-5" />
-                </button>
-                {headerMenuOpen && (
-                  <div
-                    role="menu"
-                    className="absolute right-0 top-full mt-1 z-30 w-48 glass-dropdown shadow-lg"
-                  >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={handleRename}
-                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                    >
-                      <PencilIcon className="w-3.5 h-3.5" />
-                      Rename
-                    </button>
-                    <div className="my-1 h-px bg-[var(--border)]" />
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={handleArchive}
-                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                    >
-                      <ArchiveBoxIcon className="w-3.5 h-3.5" />
-                      Archive
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={handleDelete}
-                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-md text-red-400 hover:bg-red-500/10 transition-colors"
-                    >
-                      <TrashIcon className="w-3.5 h-3.5" />
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Overflow menu removed — rename/archive/delete now live
+                in the Settings tab below. */}
             {isAdmin && !flow.accountKey && (
               <button
                 type="button"
@@ -632,6 +564,44 @@ function FlowOverview({ flowId }: { flowId: string }) {
         />
       )}
 
+      {/* Tab bar — Overview / Settings. Renamed/archive/delete used
+          to hide behind a header overflow menu; promoted into a
+          first-class Settings tab so admins can find them. */}
+      <div className="flex items-center gap-1 border-b border-[var(--border)]">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.key;
+          // Settings tab is admin-only — sub-account users see the
+          // overview but can't archive/delete flows.
+          if (tab.key === 'settings' && !isAdmin) return null;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              aria-pressed={active}
+              className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                active
+                  ? 'border-[var(--primary)] text-[var(--foreground)]'
+                  : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === 'settings' ? (
+        <FlowSettingsTab
+          flowName={flow.name || 'Untitled flow'}
+          onRename={handleRename}
+          onArchive={handleArchive}
+          onDelete={handleDelete}
+        />
+      ) : (
+        <>
       {/* Instance banner: "Deployed from template X". Shown on any
           flow that has a parentTemplate, regardless of role. The link
           back to the template works for sub-account users too because
@@ -1075,6 +1045,95 @@ function FlowOverview({ flowId }: { flowId: string }) {
           )}
         </div>
       )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Settings tab body — admin-only destructive actions for the flow.
+ * Mirrors the LP detail page's "Settings" tab shape with a danger-zone
+ * card per action. Heavier-weight than a one-line button row, but
+ * makes the consequences obvious (each action gets a description).
+ */
+function FlowSettingsTab({
+  flowName,
+  onRename,
+  onArchive,
+  onDelete,
+}: {
+  flowName: string;
+  onRename: () => void | Promise<void>;
+  onArchive: () => void | Promise<void>;
+  onDelete: () => void | Promise<void>;
+}) {
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <div className="glass-card rounded-2xl p-5">
+        <div className="flex items-start gap-2 mb-3">
+          <PencilIcon className="mt-0.5 w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
+          <div>
+            <h3 className="text-sm font-semibold leading-tight">Rename</h3>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+              Change the flow&rsquo;s display name. The flow id stays the same — links
+              and deployed instances aren&rsquo;t affected.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void onRename()}
+          className="inline-flex items-center gap-1.5 px-3 h-9 text-sm rounded-lg border border-[var(--border)] hover:border-[var(--primary)] hover:bg-[var(--muted)] transition-colors"
+        >
+          <PencilIcon className="w-4 h-4" />
+          Rename &ldquo;{flowName}&rdquo;
+        </button>
+      </div>
+
+      {/* Archive — soft delete. Recoverable for 30 days. */}
+      <section className="rounded-2xl p-5 border border-amber-500/30 bg-amber-500/5">
+        <div className="flex items-start gap-2 mb-3">
+          <ArchiveBoxIcon className="mt-0.5 w-4 h-4 text-amber-400 flex-shrink-0" />
+          <div>
+            <h3 className="text-sm font-semibold leading-tight text-amber-300">Archive</h3>
+            <p className="text-xs text-amber-200/80 mt-0.5">
+              Hide this flow from the list and stop active enrollments on the next tick.
+              Recoverable for 30 days, then auto-deleted.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void onArchive()}
+          className="inline-flex items-center gap-1.5 px-3 h-9 text-sm font-semibold rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 transition-colors"
+        >
+          <ArchiveBoxIcon className="w-4 h-4" />
+          Archive flow
+        </button>
+      </section>
+
+      {/* Danger zone — permanent delete. */}
+      <section className="rounded-2xl p-5 border border-rose-500/30 bg-rose-500/5">
+        <div className="flex items-start gap-2 mb-3">
+          <ExclamationTriangleIcon className="mt-0.5 w-4 h-4 text-rose-400 flex-shrink-0" />
+          <div>
+            <h3 className="text-sm font-semibold leading-tight text-rose-300">Danger zone</h3>
+            <p className="text-xs text-rose-200/80 mt-0.5">
+              Permanently delete the flow + every step, trigger, and enrollment history
+              row. Cannot be undone.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void onDelete()}
+          className="inline-flex items-center gap-1.5 px-3 h-9 text-sm font-semibold rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 transition-colors"
+        >
+          <TrashIcon className="w-4 h-4" />
+          Delete forever
+        </button>
+      </section>
     </div>
   );
 }

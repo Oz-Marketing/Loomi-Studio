@@ -26,6 +26,7 @@ import { FaqBlock } from './Faq';
 import { VideoBlock } from './Video';
 import { LogoStripBlock } from './LogoStrip';
 import { EmbeddedFormBlock } from './EmbeddedForm';
+import { SnippetBlock } from './Snippet';
 import { HtmlBlock } from './Html';
 
 // Common prop bag — every block component accepts an arbitrary
@@ -50,6 +51,7 @@ export const BLOCK_COMPONENTS: Record<LandingPageBlockType, AnyBlockComponent> =
   video: VideoBlock as AnyBlockComponent,
   logo_strip: LogoStripBlock as AnyBlockComponent,
   embedded_form: EmbeddedFormBlock as AnyBlockComponent,
+  snippet: SnippetBlock as AnyBlockComponent,
   html: HtmlBlock as AnyBlockComponent,
 };
 
@@ -73,5 +75,6 @@ export {
   VideoBlock,
   LogoStripBlock,
   EmbeddedFormBlock,
+  SnippetBlock,
   HtmlBlock,
 };

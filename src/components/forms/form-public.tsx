@@ -12,7 +12,15 @@ interface FormPublicProps {
    * We post height messages to the parent so the script-tag embed can
    * auto-resize the surrounding iframe.
    */
-  embed: boolean;
+  embed?: boolean;
+  /**
+   * Landing-page attribution surfaced when this form is rendered
+   * inside a Loomi LP. The submission handler injects the LP id +
+   * slug as hidden `__loomi_*` fields so the API stamps them onto
+   * the FormSubmission row. UTMs come from the `loomi_lp_utm`
+   * cookie that LpTracker sets — they're picked up at submit time.
+   */
+  attribution?: { pageId: string; pageSlug: string };
 }
 
 interface SubmitResponse {
@@ -42,7 +50,7 @@ type Phase = 'idle' | 'submitting' | 'success' | 'error';
  * When in embed mode we also broadcast our scroll height to the parent
  * window so the iframe loader can match its height to ours.
  */
-export function FormPublic({ slug, template, embed }: FormPublicProps) {
+export function FormPublic({ slug, template, embed, attribution }: FormPublicProps) {
   const [phase, setPhase] = React.useState<Phase>('idle');
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
   const [topError, setTopError] = React.useState<string | null>(null);
@@ -86,6 +94,23 @@ export function FormPublic({ slug, template, embed }: FormPublicProps) {
 
     const formData = new FormData(event.currentTarget);
 
+    // Attach LP attribution (id + slug from React context) and UTMs
+    // (from the loomi_lp_utm cookie LpTracker maintains) as hidden
+    // `__loomi_*` fields. The submit API plucks these out before
+    // validation so they never appear in submission.data.
+    if (attribution) {
+      formData.set('__loomi_lp_id', attribution.pageId);
+      formData.set('__loomi_lp_slug', attribution.pageSlug);
+    }
+    const utms = readLpUtmCookie();
+    if (utms) {
+      if (utms.source) formData.set('__loomi_utm_source', utms.source);
+      if (utms.medium) formData.set('__loomi_utm_medium', utms.medium);
+      if (utms.campaign) formData.set('__loomi_utm_campaign', utms.campaign);
+      if (utms.term) formData.set('__loomi_utm_term', utms.term);
+      if (utms.content) formData.set('__loomi_utm_content', utms.content);
+    }
+
     let res: Response;
     try {
       res = await fetch(`/api/f/${slug}/submit`, {
@@ -119,6 +144,18 @@ export function FormPublic({ slug, template, embed }: FormPublicProps) {
       // analytics events from this signal.
       if (embed && window.parent !== window) {
         window.parent.postMessage({ type: 'loomi-form-submitted', slug }, '*');
+      }
+      // Same signal but as a same-window event so the LP-page
+      // tracker (which lives in the same tree, not in a parent
+      // iframe) can fire a form_submit analytics event.
+      try {
+        window.dispatchEvent(
+          new CustomEvent('loomi:form-submitted', {
+            detail: { slug, submissionId: payload.submissionId },
+          }),
+        );
+      } catch {
+        /* CustomEvent unsupported — analytics opt-out */
       }
       return;
     }
@@ -230,4 +267,36 @@ export function FormPublic({ slug, template, embed }: FormPublicProps) {
       </form>
     </div>
   );
+}
+
+/**
+ * Read the `loomi_lp_utm` cookie LpTracker writes on first visit.
+ * Used by LP-embedded forms to attach first-touch UTMs to their
+ * submission without round-tripping through React context. Returns
+ * null when the cookie is missing or malformed.
+ */
+interface LpUtm {
+  source?: string;
+  medium?: string;
+  campaign?: string;
+  term?: string;
+  content?: string;
+}
+
+function readLpUtmCookie(): LpUtm | null {
+  if (typeof document === 'undefined') return null;
+  const target = 'loomi_lp_utm=';
+  for (const part of document.cookie.split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed.startsWith(target)) continue;
+    try {
+      const value = decodeURIComponent(trimmed.slice(target.length));
+      const parsed = JSON.parse(value);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return parsed as LpUtm;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }

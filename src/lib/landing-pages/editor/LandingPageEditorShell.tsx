@@ -3,27 +3,38 @@
 import * as React from 'react';
 import {
   DndContext,
+  DragOverlay,
+  MeasuringStrategy,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragStartEvent,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
 import { LandingPageEditorProvider, useLandingPageEditor } from './EditorContext';
 import { Canvas } from './Canvas';
 import { Sidebar } from './Sidebar';
-import type { LandingPageTemplate } from '../types';
+import { PaletteIcon } from './PaletteIcon';
+import { BLOCK_SCHEMA_BY_TYPE } from '../schemas';
+import type { Block, LandingPageBlockType, LandingPageTemplate } from '../types';
 
 /**
  * 3-pane editor shell: block palette on the left, canvas in the
- * middle, property panel on the right. The DndContext wrapper makes
- * blocks draggable to reorder within their parent — palette-to-canvas
- * dragging stays click-to-insert for now (which suits the dense
- * marketing-block library, and dnd-kit's drag-overlay UX would need
- * more thought for blocks that take up half a screen each).
+ * middle, property panel on the right. A single shared DndContext
+ * handles both palette-to-canvas drops (insert a new block) and
+ * within-canvas reordering (move an existing block). Palette chips
+ * carry id `palette:<type>`; existing blocks carry their own id from
+ * useSortable in EditableBlock — handleDragEnd splits on that prefix.
  */
 export interface LandingPageEditorShellProps {
   template: LandingPageTemplate;
   onChange: (next: LandingPageTemplate) => void;
+  /** Account scope — drives the media-library picker inside the
+   *  Image block's property control. */
+  accountKey?: string | null;
   /** Undo/redo plumbing — surfaced in the canvas action bar, the
    *  same way the forms editor's FormActionBar exposes them. */
   canUndo?: boolean;
@@ -41,13 +52,14 @@ const SIDEBAR_STEP_PX = 24;
 export function LandingPageEditorShell({
   template,
   onChange,
+  accountKey,
   canUndo,
   canRedo,
   onUndo,
   onRedo,
 }: LandingPageEditorShellProps) {
   return (
-    <LandingPageEditorProvider template={template} onChange={onChange}>
+    <LandingPageEditorProvider template={template} onChange={onChange} accountKey={accountKey}>
       <DndShell
         canUndo={canUndo}
         canRedo={canRedo}
@@ -70,9 +82,11 @@ function DndShell({
     selectBlock,
     deleteBlock,
     duplicateBlock,
+    insertBlock,
     reorderInParent,
     moveBlockTo,
   } = useLandingPageEditor();
+  const [activeDragId, setActiveDragId] = React.useState<string | null>(null);
 
   // ── Resizable sidebar ──
   const [sidebarWidth, setSidebarWidth] = React.useState(SIDEBAR_DEFAULT_WIDTH);
@@ -177,12 +191,106 @@ function DndShell({
     return () => window.removeEventListener('keydown', handler);
   }, [selectedId, selectBlock, deleteBlock, duplicateBlock]);
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  };
+  const handleDragCancel = () => setActiveDragId(null);
+
+  // Prefer pointerWithin so the thin drop gaps + section-empty zones
+  // are easy hit targets; fall back to rectIntersection when the
+  // pointer is outside any droppable (matches the forms editor).
+  const collisionDetection: CollisionDetection = (args) => {
+    const within = pointerWithin(args);
+    if (within.length > 0) return within;
+    return rectIntersection(args);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDragId(null);
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    if (!over) return;
 
     const activeId = String(active.id);
     const overId = String(over.id);
+    if (activeId === overId) return;
+
+    const isPaletteChip = activeId.startsWith('palette:');
+    const chipType = isPaletteChip
+      ? (activeId.slice('palette:'.length) as LandingPageBlockType)
+      : null;
+
+    // ── Palette chip → insert a new block ──
+    if (chipType) {
+      if (overId === 'canvas-empty') {
+        insertBlock(chipType, { parentId: null, afterId: 'end' });
+        return;
+      }
+      if (overId === 'gap:start') {
+        insertBlock(chipType, { parentId: null, afterId: null });
+        return;
+      }
+      if (overId.startsWith('gap:after:')) {
+        const afterId = overId.slice('gap:after:'.length);
+        insertBlock(chipType, { parentId: null, afterId });
+        return;
+      }
+      if (overId.startsWith('section-empty:')) {
+        const sectionId = overId.slice('section-empty:'.length);
+        insertBlock(chipType, { parentId: sectionId, afterId: 'end' });
+        return;
+      }
+
+      // Dropped onto an existing block (its useSortable id).
+      const overBlock = findBlock(template.blocks, overId);
+      if (!overBlock) return;
+
+      // Containers (Section, Columns) always land at top level after
+      // the dropped-on block's top-level ancestor — nesting a Section
+      // inside another Section is not allowed in the LP schema.
+      if (chipType === 'section' || chipType === 'columns') {
+        const topAncestor = findTopLevelAncestor(template.blocks, overId);
+        insertBlock(chipType, {
+          parentId: null,
+          afterId: topAncestor?.id ?? 'end',
+        });
+        return;
+      }
+
+      // Leaf chip dropped onto a Section → insert as last child of
+      // that section.
+      if (overBlock.type === 'section') {
+        insertBlock(chipType, { parentId: overBlock.id, afterId: 'end' });
+        return;
+      }
+
+      // Leaf chip dropped onto a leaf → insert after it in the same
+      // parent (works for both top-level and nested leaves).
+      const containing = findContainingList(template.blocks, overId);
+      insertBlock(chipType, {
+        parentId: containing?.parentId ?? null,
+        afterId: overId,
+      });
+      return;
+    }
+
+    // ── Existing block → reorder / move ──
+    // Drops on gaps and empty containers move the block to that exact
+    // position. moveBlockTo guards against cycle-creating moves
+    // (dropping a Section onto its own descendant).
+    if (overId === 'gap:start') {
+      moveBlockTo(activeId, { parentId: null, afterId: null });
+      return;
+    }
+    if (overId.startsWith('gap:after:')) {
+      const afterId = overId.slice('gap:after:'.length);
+      moveBlockTo(activeId, { parentId: null, afterId });
+      return;
+    }
+    if (overId.startsWith('section-empty:')) {
+      const sectionId = overId.slice('section-empty:'.length);
+      moveBlockTo(activeId, { parentId: sectionId, afterId: 'end' });
+      return;
+    }
 
     const activeParentList = findContainingList(template.blocks, activeId);
     const overParentList = findContainingList(template.blocks, overId);
@@ -199,11 +307,9 @@ function DndShell({
       return;
     }
 
-    // Cross-container drag — the user is moving a block from one
-    // Section/column slot to a different one (or out to top level).
-    // Insert after the hovered block within ITS parent. cycle-prevention
-    // lives in moveBlockTo (rejects dropping a Section onto its own
-    // descendant — would corrupt the tree).
+    // Cross-container drag — moving a block from one Section/column
+    // slot to a different one (or out to top level). Insert after the
+    // hovered block within ITS parent.
     moveBlockTo(activeId, {
       parentId: overParentList.parentId,
       afterId: overId,
@@ -211,7 +317,18 @@ function DndShell({
   };
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      // Re-measure droppable rects on each drag move — the drop gaps
+      // start at h-0 and expand to h-6 once a drag begins. The default
+      // WhileDragging strategy caches rects at drag start, before the
+      // gaps have re-rendered, so drops would never register on them.
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
       <div className="flex w-full h-full min-h-0 gap-4">
         <div
           className="flex-shrink-0 min-h-0 flex"
@@ -259,7 +376,25 @@ function DndShell({
           <Canvas canUndo={canUndo} canRedo={canRedo} onUndo={onUndo} onRedo={onRedo} />
         </div>
       </div>
+
+      <DragOverlay>
+        {activeDragId && activeDragId.startsWith('palette:') ? (
+          <PaletteDragPreview
+            type={activeDragId.slice('palette:'.length) as LandingPageBlockType}
+          />
+        ) : null}
+      </DragOverlay>
     </DndContext>
+  );
+}
+
+function PaletteDragPreview({ type }: { type: LandingPageBlockType }) {
+  const schema = BLOCK_SCHEMA_BY_TYPE[type];
+  return (
+    <div className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-[12px] font-semibold shadow-lg bg-[var(--primary)] text-white">
+      {schema ? <PaletteIcon name={schema.icon} className="w-4 h-4" /> : null}
+      <span>{schema?.label ?? type}</span>
+    </div>
   );
 }
 
@@ -269,9 +404,9 @@ function DndShell({
  * array. Used by the DnD handler to confirm same-parent drops.
  */
 function findContainingList(
-  blocks: import('../types').Block[],
+  blocks: Block[],
   id: string,
-): { parentId: string | null; siblings: import('../types').Block[] } | null {
+): { parentId: string | null; siblings: Block[] } | null {
   if (blocks.some((b) => b.id === id)) {
     return { parentId: null, siblings: blocks };
   }
@@ -284,4 +419,36 @@ function findContainingList(
     if (deeper) return deeper;
   }
   return null;
+}
+
+/** Walk the tree to find a block by id. */
+function findBlock(blocks: Block[], id: string): Block | undefined {
+  for (const b of blocks) {
+    if (b.id === id) return b;
+    if (b.children) {
+      const inner = findBlock(b.children, id);
+      if (inner) return inner;
+    }
+  }
+  return undefined;
+}
+
+/** Find the top-level block that contains (or equals) the given id.
+ *  Used when a palette container chip (Section / Columns) is dropped
+ *  onto a nested block — the new container goes after the top-level
+ *  ancestor instead of being nested inside it. */
+function findTopLevelAncestor(blocks: Block[], id: string): Block | null {
+  for (const b of blocks) {
+    if (b.id === id) return b;
+    if (b.children && containsId(b.children, id)) return b;
+  }
+  return null;
+}
+
+function containsId(blocks: Block[], id: string): boolean {
+  for (const b of blocks) {
+    if (b.id === id) return true;
+    if (b.children && containsId(b.children, id)) return true;
+  }
+  return false;
 }

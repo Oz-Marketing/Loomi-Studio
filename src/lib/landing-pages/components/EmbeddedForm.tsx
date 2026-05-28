@@ -3,9 +3,11 @@
 import * as React from 'react';
 import useSWR from 'swr';
 import { FormRenderer } from '@/lib/forms/render';
+import { FormPublic } from '@/components/forms/form-public';
 import { parseFormTemplate } from '@/lib/forms/types';
 import type { FormDetail } from '@/lib/services/forms';
 import { usePreloadedForm } from '../preloaded-forms-context';
+import { useLpAttribution } from '../lp-attribution-context';
 
 export interface EmbeddedFormProps {
   formId?: string;
@@ -20,18 +22,23 @@ const fetcher = async (url: string) => {
 };
 
 /**
- * EmbeddedForm — renders one of the user's Forms inline using the
- * same FormRenderer the public /f/[slug] page uses. Submissions go
- * to the form's own submission endpoint, NOT the landing page.
+ * EmbeddedForm — renders one of the user's Forms inline.
  *
- * Two render modes:
- *  - Public LP (server): the renderer wraps us in a PreloadedForms
- *    context with form schemas already fetched server-side. We use
- *    those directly — no client fetch, no auth dependency, works for
- *    anonymous visitors.
- *  - Editor preview (client): no context preload, so we fall back to
- *    SWR-fetching /api/forms/[id]. Live edits to the embedded form
- *    show up in the LP canvas.
+ * Two display paths depending on context:
+ *  - **Inside an LP** (LpAttributionProvider is mounted): renders
+ *    `<FormPublic>` so the form is interactive — submits POST to
+ *    /api/f/<slug>/submit, stamps the LP id + slug + UTM cookie
+ *    contents onto the resulting FormSubmission row. The preloaded
+ *    schema map supplies the form's slug + template so anonymous
+ *    visitors don't need to hit the auth'd /api/forms/[id] endpoint.
+ *  - **Inside the editor canvas** (no LpAttributionProvider): falls
+ *    back to `<FormRenderer>` (static markup, no submit). The editor
+ *    doesn't want a submittable form in its preview, and the SWR
+ *    fetch path works there since the editor is authenticated.
+ *
+ * The pick-by-context approach keeps the same component working
+ * for both the public LP page (interactive forms with attribution)
+ * and the LP editor canvas (visual preview only).
  */
 export const EmbeddedFormBlock: React.FC<EmbeddedFormProps> = ({
   formId,
@@ -39,6 +46,7 @@ export const EmbeddedFormBlock: React.FC<EmbeddedFormProps> = ({
   align = 'center',
 }) => {
   const preloaded = usePreloadedForm(formId);
+  const attribution = useLpAttribution();
 
   // Only fire the SWR fetch when no preloaded schema is available
   // AND we have a formId to fetch. Passing `null` to useSWR disables
@@ -63,11 +71,23 @@ export const EmbeddedFormBlock: React.FC<EmbeddedFormProps> = ({
     );
   }
 
-  // Server-preloaded path — preferred for the public LP page.
+  // Server-preloaded path — preferred for the public LP page. When
+  // we have LP attribution available, render the interactive form
+  // (FormPublic). Without attribution we're in editor preview mode
+  // so we render the static FormRenderer instead — clicking submit
+  // there would just confuse users.
   if (preloaded) {
     return (
       <div style={wrapperStyle}>
-        <FormRenderer template={preloaded.schema} />
+        {attribution ? (
+          <FormPublic
+            slug={preloaded.slug}
+            template={preloaded.schema}
+            attribution={attribution}
+          />
+        ) : (
+          <FormRenderer template={preloaded.schema} />
+        )}
       </div>
     );
   }
@@ -97,6 +117,9 @@ export const EmbeddedFormBlock: React.FC<EmbeddedFormProps> = ({
     );
   }
 
+  // Editor preview path — no LP attribution, no preloaded slug.
+  // Render the static view; the editor canvas doesn't expect users
+  // to actually submit from here.
   return (
     <div style={wrapperStyle}>
       <FormRenderer template={template} />

@@ -25,6 +25,7 @@ export type FieldType =
   | 'range'
   | 'unit'
   | 'form-picker' // LP-specific: dropdown of the account's Forms
+  | 'snippet-picker' // LP-specific: dropdown of the account's reusable snippets
   | 'item-array'; // ordered list of objects (FeatureGrid items, FAQ items, etc.)
 
 export interface PropSchema {
@@ -496,6 +497,21 @@ export const EMBEDDED_FORM_SCHEMA: BlockSchema = {
   ],
 };
 
+export const SNIPPET_SCHEMA: BlockSchema = {
+  type: 'snippet',
+  label: 'Reusable block',
+  icon: 'squares-2x2',
+  description:
+    'Drop in a saved header, footer, or disclaimer. Edit it once at the account level; every page that references it updates.',
+  category: 'embed',
+  defaults: {
+    snippetId: '',
+  },
+  props: [
+    { key: 'snippetId', label: 'Snippet', type: 'snippet-picker', default: '', group: 'content' },
+  ],
+};
+
 export const HTML_SCHEMA: BlockSchema = {
   type: 'html',
   label: 'Custom HTML',
@@ -558,6 +574,7 @@ export const ALL_BLOCK_SCHEMAS: BlockSchema[] = [
   VIDEO_SCHEMA,
   LOGO_STRIP_SCHEMA,
   EMBEDDED_FORM_SCHEMA,
+  SNIPPET_SCHEMA,
   HTML_SCHEMA,
 ].map(withSpacing);
 

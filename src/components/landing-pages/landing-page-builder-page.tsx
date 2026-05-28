@@ -16,11 +16,13 @@ import {
 import { AdminOnly } from '@/components/route-guard';
 import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { LandingPageEditorShell } from '@/lib/landing-pages/editor/LandingPageEditorShell';
+import { LandingPageHtmlEditorShell } from '@/lib/landing-pages/editor/LandingPageHtmlEditorShell';
 import { LandingPageSettingsModal } from '@/components/landing-pages/landing-page-settings-modal';
 import {
   emptyLandingPageTemplate,
-  parseLandingPageTemplate,
-  type LandingPageTemplate,
+  isHtmlLandingPageTemplate,
+  parseLandingPageContent,
+  type LandingPageContent,
 } from '@/lib/landing-pages/types';
 import type { LandingPageDetail } from '@/lib/services/landing-pages';
 
@@ -54,9 +56,9 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
   );
   const page = data?.page;
 
-  const [template, setTemplate] = React.useState<LandingPageTemplate | null>(null);
-  const [past, setPast] = React.useState<LandingPageTemplate[]>([]);
-  const [future, setFuture] = React.useState<LandingPageTemplate[]>([]);
+  const [template, setTemplate] = React.useState<LandingPageContent | null>(null);
+  const [past, setPast] = React.useState<LandingPageContent[]>([]);
+  const [future, setFuture] = React.useState<LandingPageContent[]>([]);
   const [saveStatus, setSaveStatus] = React.useState<SaveStatus>('idle');
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -66,7 +68,7 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
   // back to the server.
   React.useEffect(() => {
     if (page && !template) {
-      const parsed = parseLandingPageTemplate(page.schema) ?? emptyLandingPageTemplate();
+      const parsed = parseLandingPageContent(page.schema) ?? emptyLandingPageTemplate();
       setTemplate(parsed);
       latestRef.current = parsed;
       savedRef.current = parsed;
@@ -74,8 +76,8 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
   }, [page, template]);
 
   // Refs for the unmount-flush trick.
-  const latestRef = React.useRef<LandingPageTemplate | null>(null);
-  const savedRef = React.useRef<LandingPageTemplate | null>(null);
+  const latestRef = React.useRef<LandingPageContent | null>(null);
+  const savedRef = React.useRef<LandingPageContent | null>(null);
   const initialRender = React.useRef(true);
 
   React.useEffect(() => {
@@ -84,7 +86,7 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
 
   // ── Layer 1: debounced autosave ──
   const patchSchema = React.useCallback(
-    async (next: LandingPageTemplate) => {
+    async (next: LandingPageContent) => {
       setSaveStatus('saving');
       const res = await fetch(`/api/landing-pages/${id}`, {
         method: 'PATCH',
@@ -185,7 +187,7 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
   // commits the new template. Undo pops past → current, current →
   // future; redo is the mirror.
   const applyChange = React.useCallback(
-    (next: LandingPageTemplate) => {
+    (next: LandingPageContent) => {
       setPast((items) => {
         if (!template) return items;
         return [...items.slice(-(HISTORY_LIMIT - 1)), template];
@@ -408,10 +410,21 @@ export function LandingPageBuilderPage({ id }: { id: string }) {
         <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">
           Loading editor…
         </div>
+      ) : isHtmlLandingPageTemplate(template) ? (
+        <LandingPageHtmlEditorShell
+          template={template}
+          onChange={applyChange}
+          accountKey={page?.accountKey ?? null}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={undo}
+          onRedo={redo}
+        />
       ) : (
         <LandingPageEditorShell
           template={template}
           onChange={applyChange}
+          accountKey={page?.accountKey ?? null}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={undo}

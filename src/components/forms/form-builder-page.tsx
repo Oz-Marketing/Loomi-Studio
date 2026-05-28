@@ -233,6 +233,7 @@ export function FormBuilderPage() {
       <FormEditorShell
         template={template}
         onChange={handleChange}
+        accountKey={form.accountKey}
         canUndo={past.length > 0}
         canRedo={future.length > 0}
         onUndo={undo}

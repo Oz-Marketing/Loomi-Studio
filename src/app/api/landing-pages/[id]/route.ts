@@ -45,6 +45,13 @@ export async function PATCH(
       seoTitle: body?.seoTitle,
       seoDescription: body?.seoDescription,
       ogImageUrl: body?.ogImageUrl,
+      noindex: body?.noindex,
+      faviconUrl: body?.faviconUrl,
+      metaPixelId: body?.metaPixelId,
+      ga4MeasurementId: body?.ga4MeasurementId,
+      gtmContainerId: body?.gtmContainerId,
+      customHeadHtml: body?.customHeadHtml,
+      customBodyEndHtml: body?.customBodyEndHtml,
     });
     return NextResponse.json({ page });
   } catch (err) {

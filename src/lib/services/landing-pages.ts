@@ -2,9 +2,10 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import {
   emptyLandingPageTemplate,
+  isHtmlLandingPageTemplate,
   isV1LandingPageTemplate,
-  parseLandingPageTemplate,
-  type LandingPageTemplate,
+  parseLandingPageContent,
+  type LandingPageContent,
 } from '@/lib/landing-pages/types';
 import { isValidSlug, slugify } from '@/lib/landing-pages/schemas';
 
@@ -33,11 +34,24 @@ export interface LandingPageSummary {
   /** Parsed LandingPageTemplate — included on every list response so
    *  the card view can render a preview thumbnail without per-card
    *  refetching. Falls back to an empty template on parse failure. */
-  schema: LandingPageTemplate;
+  schema: LandingPageContent;
   /** SEO + share preview metadata. Null when unset. */
   seoTitle: string | null;
   seoDescription: string | null;
   ogImageUrl: string | null;
+  /** When true, the public page renders `<meta robots="noindex">` and
+   *  the LP is excluded from /lp-sitemap.xml. */
+  noindex: boolean;
+  /** Optional per-LP favicon URL; falls back to the studio default. */
+  faviconUrl: string | null;
+  /** Tracking / analytics injection. The curated fields render as
+   *  the vendor's standard snippets on the public page; the custom
+   *  HTML strings drop verbatim into <head> / pre-</body>. */
+  metaPixelId: string | null;
+  ga4MeasurementId: string | null;
+  gtmContainerId: string | null;
+  customHeadHtml: string | null;
+  customBodyEndHtml: string | null;
 }
 
 export interface LandingPageDetail extends LandingPageSummary {
@@ -56,6 +70,13 @@ interface LandingPageRow {
   seoTitle: string | null;
   seoDescription: string | null;
   ogImageUrl: string | null;
+  noindex: boolean;
+  faviconUrl: string | null;
+  metaPixelId: string | null;
+  ga4MeasurementId: string | null;
+  gtmContainerId: string | null;
+  customHeadHtml: string | null;
+  customBodyEndHtml: string | null;
   createdByUserId: string | null;
   publishedAt: Date | null;
   createdAt: Date;
@@ -63,7 +84,10 @@ interface LandingPageRow {
 }
 
 function toSummary(row: LandingPageRow): LandingPageSummary {
-  const parsed = parseLandingPageTemplate(row.schema) ?? emptyLandingPageTemplate();
+  // parseLandingPageContent returns either a blocks-mode or html-mode
+  // template; falls back to an empty blocks template so the table and
+  // builder always get a valid shape to render.
+  const parsed = parseLandingPageContent(row.schema) ?? emptyLandingPageTemplate();
   return {
     id: row.id,
     accountKey: row.accountKey,
@@ -78,6 +102,13 @@ function toSummary(row: LandingPageRow): LandingPageSummary {
     seoTitle: row.seoTitle,
     seoDescription: row.seoDescription,
     ogImageUrl: row.ogImageUrl,
+    noindex: row.noindex,
+    faviconUrl: row.faviconUrl,
+    metaPixelId: row.metaPixelId,
+    ga4MeasurementId: row.ga4MeasurementId,
+    gtmContainerId: row.gtmContainerId,
+    customHeadHtml: row.customHeadHtml,
+    customBodyEndHtml: row.customBodyEndHtml,
   };
 }
 
@@ -137,13 +168,39 @@ export async function getPublishedLandingPageBySlug(slug: string): Promise<Landi
   return toDetail(row);
 }
 
+/** Resolve a published LP scoped to a specific account. Used by the
+ *  custom-domain code path: the hostname identifies the account, and
+ *  the slug identifies the page within that account. Returns null
+ *  when no published LP with that slug exists in the account, even
+ *  if a same-slug LP exists in another account (slugs are globally
+ *  unique today, but this guard is here so we stay safe if that
+ *  changes). */
+export async function getPublishedLandingPageByAccountAndSlug(
+  accountKey: string,
+  slug: string,
+): Promise<LandingPageDetail | null> {
+  const row = await prisma.landingPage.findFirst({
+    where: { accountKey, slug, status: 'published' },
+  });
+  if (!row) return null;
+  return toDetail(row);
+}
+
+/** Fetch one published LP by id. Used by the custom-domain home
+ *  resolver — the AccountDomain row stores the LP id, not a slug. */
+export async function getPublishedLandingPageById(id: string): Promise<LandingPageDetail | null> {
+  const row = await prisma.landingPage.findUnique({ where: { id } });
+  if (!row || row.status !== 'published') return null;
+  return toDetail(row);
+}
+
 // ── Create / update / delete ───────────────────────────────────────
 
 export interface CreateLandingPageInput {
   accountKey: string;
   name: string;
   slug?: string;
-  schema?: LandingPageTemplate;
+  schema?: LandingPageContent;
   createdByUserId?: string;
 }
 
@@ -179,6 +236,13 @@ export async function updateLandingPage(
     seoTitle?: unknown;
     seoDescription?: unknown;
     ogImageUrl?: unknown;
+    noindex?: unknown;
+    faviconUrl?: unknown;
+    metaPixelId?: unknown;
+    ga4MeasurementId?: unknown;
+    gtmContainerId?: unknown;
+    customHeadHtml?: unknown;
+    customBodyEndHtml?: unknown;
   },
 ): Promise<LandingPageDetail> {
   const existing = await prisma.landingPage.findUnique({ where: { id } });
@@ -216,8 +280,8 @@ export async function updateLandingPage(
   }
 
   if (patch.schema !== undefined) {
-    if (!isV1LandingPageTemplate(patch.schema)) {
-      throw new LandingPageServiceError('Schema must be a v1 LandingPageTemplate.');
+    if (!isV1LandingPageTemplate(patch.schema) && !isHtmlLandingPageTemplate(patch.schema)) {
+      throw new LandingPageServiceError('Schema must be a v1 LandingPageTemplate or HTML template.');
     }
     data.schema = patch.schema as unknown as Prisma.InputJsonValue;
   }
@@ -244,8 +308,85 @@ export async function updateLandingPage(
     data.ogImageUrl = typeof patch.ogImageUrl === 'string' ? patch.ogImageUrl.trim() || null : null;
   }
 
+  if (patch.noindex !== undefined) {
+    if (typeof patch.noindex !== 'boolean') {
+      throw new LandingPageServiceError('noindex must be a boolean.');
+    }
+    data.noindex = patch.noindex;
+  }
+
+  if (patch.faviconUrl !== undefined) {
+    if (patch.faviconUrl !== null && typeof patch.faviconUrl !== 'string') {
+      throw new LandingPageServiceError('faviconUrl must be a string or null.');
+    }
+    data.faviconUrl =
+      typeof patch.faviconUrl === 'string' ? patch.faviconUrl.trim() || null : null;
+  }
+
+  // ── Tracking fields ──
+  // Light format validation on the curated pixel IDs so users get a
+  // friendly error instead of a silently-broken pixel on the live
+  // page. The custom HTML strings are length-capped only — by design
+  // we don't try to sanitize them; admins are trusted to inject
+  // whatever they want on their own LP.
+  if (patch.metaPixelId !== undefined) {
+    data.metaPixelId = parsePixelId(patch.metaPixelId, /^[0-9]{8,20}$/i, 'Meta Pixel ID');
+  }
+  if (patch.ga4MeasurementId !== undefined) {
+    data.ga4MeasurementId = parsePixelId(
+      patch.ga4MeasurementId,
+      /^G-[A-Z0-9]{6,20}$/i,
+      'GA4 Measurement ID (expected format: G-XXXXXXXXXX)',
+    );
+  }
+  if (patch.gtmContainerId !== undefined) {
+    data.gtmContainerId = parsePixelId(
+      patch.gtmContainerId,
+      /^GTM-[A-Z0-9]{4,12}$/i,
+      'GTM Container ID (expected format: GTM-XXXXXX)',
+    );
+  }
+  if (patch.customHeadHtml !== undefined) {
+    data.customHeadHtml = parseCustomHtml(patch.customHeadHtml, 'customHeadHtml');
+  }
+  if (patch.customBodyEndHtml !== undefined) {
+    data.customBodyEndHtml = parseCustomHtml(patch.customBodyEndHtml, 'customBodyEndHtml');
+  }
+
   const row = await prisma.landingPage.update({ where: { id }, data });
   return toDetail(row);
+}
+
+/** Normalize + validate a pixel ID string. Empty/null clears the
+ *  field; non-empty must match the expected pattern. */
+function parsePixelId(value: unknown, pattern: RegExp, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') {
+    throw new LandingPageServiceError(`${label} must be a string or null.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (!pattern.test(trimmed)) {
+    throw new LandingPageServiceError(`${label} format is invalid.`);
+  }
+  return trimmed;
+}
+
+const MAX_CUSTOM_HTML_BYTES = 10 * 1024; // 10KB ceiling per field
+
+function parseCustomHtml(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') {
+    throw new LandingPageServiceError(`${label} must be a string or null.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (Buffer.byteLength(trimmed, 'utf8') > MAX_CUSTOM_HTML_BYTES) {
+    throw new LandingPageServiceError(
+      `${label} exceeds the 10KB size limit. Move bulky resources to an external file and reference them here.`,
+    );
+  }
+  return trimmed;
 }
 
 export async function deleteLandingPage(
