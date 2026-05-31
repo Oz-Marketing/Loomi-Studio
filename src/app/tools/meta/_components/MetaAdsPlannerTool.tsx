@@ -7657,51 +7657,46 @@ function PacerRow({
               </button>
             </div>
           ) : (
-            // Editing — input, then a Push to Meta action once the value changes.
-            <div className="space-y-1.5">
+            // Editing — the input, a full-width Push action shown only once the
+            // value changes, and a tidy right-aligned Cancel / Done row.
+            <div className="space-y-2">
               <DollarInput
                 value={ad.pacerDailyBudget}
                 onChange={onDailyBudgetChange}
                 placeholder="0.00"
               />
-              <div className="flex items-center gap-2">
-                {dailyChanged ? (
-                  <button
-                    type="button"
-                    onClick={pushDaily}
-                    disabled={pushing || readOnly}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary)] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <MetaLogoIcon className="w-3 h-3" />
-                    {pushing ? 'Pushing…' : 'Push to Meta'}
-                  </button>
-                ) : (
-                  <span className="text-[10px] text-[var(--muted-foreground)]">
-                    Change the value to push it to Meta
-                  </span>
-                )}
-                <div className="ml-auto flex items-center gap-2">
-                  {/* Cancel restores the original value; Done keeps the edit. */}
-                  <button
-                    type="button"
-                    onClick={cancelDailyEdit}
-                    disabled={pushing}
-                    className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDailyEditing(false);
-                      setPushMsg(null);
-                    }}
-                    disabled={pushing}
-                    className="text-[10px] font-semibold text-[var(--foreground)] hover:opacity-80 disabled:opacity-50"
-                  >
-                    Done
-                  </button>
-                </div>
+              {dailyChanged && (
+                <button
+                  type="button"
+                  onClick={pushDaily}
+                  disabled={pushing || readOnly}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--primary)] px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <MetaLogoIcon className="w-3.5 h-3.5" />
+                  {pushing ? 'Pushing…' : 'Push to Meta'}
+                </button>
+              )}
+              <div className="flex items-center justify-end gap-4 text-[11px]">
+                {/* Cancel restores the original value; Done keeps the edit. */}
+                <button
+                  type="button"
+                  onClick={cancelDailyEdit}
+                  disabled={pushing}
+                  className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDailyEditing(false);
+                    setPushMsg(null);
+                  }}
+                  disabled={pushing}
+                  className="font-semibold text-[var(--primary)] hover:opacity-80 disabled:opacity-50"
+                >
+                  Done
+                </button>
               </div>
               {pushMsg && (
                 <div
