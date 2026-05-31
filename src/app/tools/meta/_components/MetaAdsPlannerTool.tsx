@@ -7515,12 +7515,13 @@ function PacerRow({
       <div className="grid grid-cols-1 md:grid-cols-[minmax(0,340px)_minmax(0,180px)] gap-4 mb-3.5">
         <Field label="Actual Spend">
           {syncedFromMeta ? (
-            // Meta owns the spend once synced — show it read-only, not an input.
+            // Meta owns the spend once synced — plain read-only value, not a
+            // box that looks editable.
             <div
-              className="flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--input)]/50 px-3 py-2 text-sm cursor-default"
+              className="flex items-center gap-2 py-2 cursor-default"
               title="Actual spend is pulled from Meta and isn't editable here. Re-run Sync from Meta to refresh."
             >
-              <span className="tabular-nums text-[var(--foreground)]">
+              <span className="text-sm font-semibold tabular-nums text-[var(--foreground)]">
                 {fmt(num(ad.pacerActual) ?? 0)}
               </span>
               <span className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
@@ -7636,9 +7637,10 @@ function PacerRow({
               placeholder="0.00"
             />
           ) : !dailyEditing ? (
-            // Synced — hard-coded display with a pencil to reveal the input.
-            <div className="flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--input)]/50 px-3 py-2 text-sm">
-              <span className="tabular-nums text-[var(--foreground)]">
+            // Synced — plain read-only value with a pencil to reveal the input.
+            // Not a box that looks editable until you click the pencil.
+            <div className="flex items-center gap-2 py-2">
+              <span className="text-sm font-semibold tabular-nums text-[var(--foreground)]">
                 {ad.pacerDailyBudget != null && ad.pacerDailyBudget !== ''
                   ? fmt(num(ad.pacerDailyBudget) ?? 0)
                   : '—'}
