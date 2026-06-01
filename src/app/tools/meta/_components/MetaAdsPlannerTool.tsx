@@ -52,6 +52,7 @@ import { toast } from '@/lib/toast';
 import { AccountAvatar } from '@/components/account-avatar';
 import { UserAvatar } from '@/components/user-avatar';
 import { MetaLogoIcon } from '@/components/icons/meta-logo';
+import { BellIcon, BellOffIcon } from '@/components/icons/bell';
 import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
@@ -7234,6 +7235,10 @@ function PacerRow({
   const [pushMsg, setPushMsg] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
+  // Full-run spend is opt-in per ad: a multi-month lifetime ad often only
+  // needs its current-month figure, so we hide the full run behind a toggle and
+  // show it only when the user asks for that ad.
+  const [showRunSpend, setShowRunSpend] = useState(false);
   const dailyChanged =
     dailyEditing && (ad.pacerDailyBudget ?? '') !== (dailyStart ?? '');
   const beginDailyEdit = () => {
@@ -7310,11 +7315,20 @@ function PacerRow({
   //   - values:     budget number + /day or total suffix (carries type)
   //   - verdict:    loud health pill with leading icon (the answer)
   const summaryRow = (
-    <button
-      type="button"
+    // A div (not a button) so the inline Mute toggle can be a real nested
+    // button. Row still expands on click / Enter / Space.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onToggleExpanded}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggleExpanded();
+        }
+      }}
       aria-expanded={expanded}
-      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--muted)]/30 transition-colors"
+      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--muted)]/30 transition-colors cursor-pointer"
     >
       {expanded ? (
         <ChevronDownIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" />
@@ -7342,6 +7356,36 @@ function PacerRow({
           {ad.adStatus || 'No status'}
         </span>
       </div>
+      {/* Mute alerts — inline icon toggle, its own aligned column to the left
+          of Actual. Bell = alerts on; bell-with-slash (amber) = muted. Stops
+          propagation so it doesn't expand the row. */}
+      <span className="flex items-center justify-center flex-shrink-0 w-7">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMuteToggle();
+          }}
+          disabled={readOnly}
+          title={
+            ad.alertsMuted
+              ? 'Alerts muted for this ad — click to unmute'
+              : 'Mute pacing / dark / flight alerts for this ad'
+          }
+          aria-label={ad.alertsMuted ? 'Unmute alerts' : 'Mute alerts'}
+          className={`inline-flex items-center justify-center rounded p-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+            ad.alertsMuted
+              ? 'text-[#f59e0b] hover:text-[#f59e0b]/80'
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          {ad.alertsMuted ? (
+            <BellOffIcon className="w-4 h-4" />
+          ) : (
+            <BellIcon className="w-4 h-4" />
+          )}
+        </button>
+      </span>
       {/* Actual spend — labelled so the bare number isn't ambiguous. Fixed
           width + right-aligned so it forms a consistent column down the list. */}
       <span className="hidden sm:inline-flex items-baseline justify-end gap-1 text-[11px] tabular-nums whitespace-nowrap flex-shrink-0 w-[132px]">
@@ -7392,7 +7436,7 @@ function PacerRow({
         <HealthIcon className="w-3 h-3 flex-shrink-0" />
         {health.short}
       </span>
-    </button>
+    </div>
   );
 
   return (
@@ -7470,46 +7514,21 @@ function PacerRow({
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2 flex-shrink-0">
-          {/* Per-ad alert mute (Change 9) — its own chip in the header so the
-              toggle reads as a clear control instead of getting lost among the
-              sync timestamps below. */}
-          <button
-            type="button"
-            onClick={onMuteToggle}
-            disabled={readOnly}
-            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-              ad.alertsMuted
-                ? 'border-[rgba(245,158,11,0.45)] bg-[rgba(245,158,11,0.12)] text-[#f59e0b]'
-                : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
-            }`}
-            title={
-              ad.alertsMuted
-                ? 'Alerts muted for this ad — click to unmute'
-                : 'Mute pacing/dark/flight alerts for this ad'
-            }
-          >
-            {ad.alertsMuted ? (
-              <MinusCircleIcon className="w-3.5 h-3.5" />
-            ) : (
-              <ExclamationTriangleIcon className="w-3.5 h-3.5" />
-            )}
-            {ad.alertsMuted ? 'Alerts muted' : 'Mute alerts'}
-          </button>
-          {ad.flightStart && ad.flightEnd && (
-            <div className="text-right">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Flight
-              </div>
-              <div className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
-                {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
-              </div>
-              <div className="text-[10px] text-[var(--muted-foreground)]">
-                {calcDays(ad.flightStart, ad.flightEnd)} days
-              </div>
+        {/* Mute alerts now lives inline on the summary row (left of Actual),
+            so the header just carries the Flight window. */}
+        {ad.flightStart && ad.flightEnd && (
+          <div className="text-right flex-shrink-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              Flight
             </div>
-          )}
-        </div>
+            <div className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
+              {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
+            </div>
+            <div className="text-[10px] text-[var(--muted-foreground)]">
+              {calcDays(ad.flightStart, ad.flightEnd)} days
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Editable inputs row — just the two values reps actually edit.
@@ -7589,33 +7608,45 @@ function PacerRow({
                 </span>
               </div>
             )}
-            {/* Full-run (all-month) spend — surfaced only when the ad's total
-                run exceeds this month's spend, i.e. a multi-month ad whose full
-                date-range spend isn't captured by the monthly Actual above. The
-                monthly figure is still what drives this month's pacing. */}
+            {/* Full-run (all-month) spend — opt-in per ad. Only offered when the
+                ad's total run exceeds this month's spend (a genuine multi-month
+                ad). Hidden behind a toggle so a lifetime ad you only care about
+                this month for stays uncluttered; click to see the full date
+                range. The monthly Actual above always drives this month's pacing. */}
             {(() => {
               const run = num(ad.pacerRunSpend);
               const month = num(ad.pacerActual) ?? 0;
               if (run == null || run <= month + 0.005) return null;
               return (
-                <div
-                  className="mt-1 flex items-start gap-1 text-[10px] text-[var(--muted-foreground)]"
-                  title="Total spend across the ad's entire flight (all months), pulled from Meta. The monthly Actual above is what drives this month's pacing."
-                >
-                  <MetaLogoIcon className="w-3 h-3 flex-shrink-0 mt-px" />
-                  <span>
-                    Full run:{' '}
-                    <span className="font-semibold tabular-nums text-[var(--foreground)]">
-                      {fmt(run)}
-                    </span>
-                    {(ad.metaStartDate || ad.metaEndDate) && (
-                      <>
-                        {' '}·{' '}
-                        {ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'} →{' '}
-                        {ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}
-                      </>
-                    )}
-                  </span>
+                <div className="mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowRunSpend((v) => !v)}
+                    className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                  >
+                    <MetaLogoIcon className="w-3 h-3 flex-shrink-0" />
+                    {showRunSpend ? 'Hide full-run spend' : 'View full-run spend'}
+                  </button>
+                  {showRunSpend && (
+                    <div
+                      className="mt-1 flex items-start gap-1 text-[10px] text-[var(--muted-foreground)]"
+                      title="Total spend across the ad's entire flight (all months), pulled from Meta. The monthly Actual above is what drives this month's pacing."
+                    >
+                      <span>
+                        Full run:{' '}
+                        <span className="font-semibold tabular-nums text-[var(--foreground)]">
+                          {fmt(run)}
+                        </span>
+                        {(ad.metaStartDate || ad.metaEndDate) && (
+                          <>
+                            {' '}·{' '}
+                            {ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'} →{' '}
+                            {ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })()}
