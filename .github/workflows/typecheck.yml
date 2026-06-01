@@ -1,4 +1,4 @@
-name: ESP Verify
+name: Typecheck
 
 on:
   pull_request:
