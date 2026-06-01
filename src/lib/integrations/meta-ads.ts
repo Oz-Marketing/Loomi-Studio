@@ -457,16 +457,18 @@ export async function syncPeriodFromMeta(
       metaEndDate: metaScheduleDate(adSet.end_time, accountTz),
     };
 
-    // ABO ad sets expose the budget here (CBO ad sets are null — the budget
-    // sits on the campaign, so the target stays manual). Daily for Daily ads,
-    // lifetime for Lifetime ads.
+    // Pull the live Daily rate so the pacer reflects Meta (and Push-to-Meta can
+    // edit it). ABO ad sets expose it; CBO ad sets are null (budget on the
+    // campaign), so it stays manual.
+    //
+    // We deliberately NEVER write `allocation` — that's the team's PLANNED
+    // target spend, not an actual/Meta number, and must stay untouched by sync.
+    // This previously clobbered Lifetime ads with Meta's lifetime_budget, which
+    // for a multi-month run spans the whole flight and overwrote the per-month
+    // planned figure (and reverted manual corrections on the next sync).
     if (ad.budgetType !== 'Lifetime' && adSet.daily_budget != null) {
       const dollars = Number(adSet.daily_budget) / 100;
       if (Number.isFinite(dollars)) data.pacerDailyBudget = dollars.toFixed(2);
-    }
-    if (ad.budgetType === 'Lifetime' && adSet.lifetime_budget != null) {
-      const dollars = Number(adSet.lifetime_budget) / 100;
-      if (Number.isFinite(dollars)) data.allocation = dollars.toFixed(2);
     }
 
     ops.push(prisma.metaAdsPacerAd.update({ where: { id: ad.id }, data }));
