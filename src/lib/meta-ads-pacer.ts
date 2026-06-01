@@ -747,9 +747,15 @@ export interface ReconciliationMonth {
   /** Actual spend data exists (tracked ads or a backfilled figure). */
   hasActual: boolean;
   clientBudget: number; // gross (base + added) client budget
-  spendTarget: number; // clientBudget × markup — the variance basis
+  spendTarget: number; // clientBudget × markup — the base (pre-carryover) target
+  /**
+   * Spend target including carryover applied INTO this month (spendTarget +
+   * appliedIn) — matches the Pacer's adjusted target. Only the live month
+   * receives carryover; for every other month this equals spendTarget.
+   */
+  adjustedSpendTarget: number;
   actual: number; // Σ pacerActual, or historicalActual for backfilled months
-  variance: number; // actual − spendTarget (>0 overspent, <0 underspent)
+  variance: number; // actual − adjustedSpendTarget (>0 overspent, <0 underspent)
   carryover: number; // −variance (>0 = "spend this much more", <0 = "less")
   exceedsThreshold: boolean;
   appliedOut: number; // Σ ledger amount sourced FROM this month (consumed)
@@ -876,8 +882,14 @@ export async function getYearReconciliation(
         ? (histActual as number)
         : 0;
     const hasActual = tracked ? actualByPeriod.has(period) : isBackfilled;
+    const appliedIn = appliedInByPeriod.get(period) ?? 0;
     const spendTarget = clientBudget * markup;
-    const variance = actual - spendTarget;
+    // The live month's target includes carryover applied INTO it, mirroring the
+    // Pacer's adjusted target (base × markup + carryover). Past months never
+    // receive carryover (appliedIn = 0), so theirs is unchanged — and their
+    // over/under stays measured against their own original target.
+    const adjustedSpendTarget = spendTarget + appliedIn;
+    const variance = actual - adjustedSpendTarget;
     const carryover = -variance;
     const appliedOut = appliedOutByPeriod.get(period) ?? 0;
     return {
@@ -888,13 +900,14 @@ export async function getYearReconciliation(
       hasActual,
       clientBudget,
       spendTarget,
+      adjustedSpendTarget,
       actual,
       variance,
       carryover,
       exceedsThreshold: Math.abs(variance) >= CARRYOVER_THRESHOLD,
       appliedOut,
       unapplied: carryover - appliedOut,
-      appliedIn: appliedInByPeriod.get(period) ?? 0,
+      appliedIn,
     };
   });
 

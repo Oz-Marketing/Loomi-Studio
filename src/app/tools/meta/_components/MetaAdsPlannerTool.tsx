@@ -53,6 +53,7 @@ import { AccountAvatar } from '@/components/account-avatar';
 import { UserAvatar } from '@/components/user-avatar';
 import { MetaLogoIcon } from '@/components/icons/meta-logo';
 import { BellIcon, BellOffIcon } from '@/components/icons/bell';
+import { InvestmentIcon } from '@/components/icons/investment';
 import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
@@ -8758,6 +8759,7 @@ interface ReconMonth {
   hasActual: boolean;
   clientBudget: number;
   spendTarget: number;
+  adjustedSpendTarget: number;
   actual: number;
   variance: number;
   carryover: number;
@@ -8874,7 +8876,7 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
     <div>
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <h2 className="m-0 flex items-center gap-2 text-base font-bold tracking-tight text-[var(--foreground)]">
-          <CalculatorIcon className="w-4 h-4" />
+          <InvestmentIcon className="w-4 h-4" />
           Reconciliation
         </h2>
         <div className="flex items-center gap-2 flex-wrap">
@@ -9063,10 +9065,9 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                             </span>
                           )}
                         </div>
-                        {m.appliedIn !== 0 && (
+                        {isLive && (
                           <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                            received {m.appliedIn > 0 ? '+' : '−'}
-                            {fmt(Math.abs(m.appliedIn))} carryover
+                            target month — over/under lands here
                           </div>
                         )}
                       </td>
@@ -9101,14 +9102,25 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                               Save
                             </button>
                           </div>
-                        ) : m.hasTarget ? (
+                        ) : m.hasTarget || m.appliedIn !== 0 ? (
                           <>
-                            <div className="text-[var(--foreground)]">
-                              {fmt(m.spendTarget)}
+                            <div className="text-[var(--foreground)] font-semibold">
+                              {fmt(m.adjustedSpendTarget)}
                             </div>
-                            <div className="text-[9px] text-[var(--muted-foreground)]">
-                              {fmt(m.clientBudget)} × {Math.round(data.markup * 100)}%
-                            </div>
+                            {m.hasTarget && (
+                              <div className="text-[9px] text-[var(--muted-foreground)]">
+                                {fmt(m.clientBudget)} × {Math.round(data.markup * 100)}%
+                              </div>
+                            )}
+                            {m.appliedIn !== 0 && (
+                              <div
+                                className="text-[9px]"
+                                style={{ color: COLORS.lifetime }}
+                              >
+                                {m.appliedIn > 0 ? '+' : '−'}
+                                {fmt(Math.abs(m.appliedIn))} carryover
+                              </div>
+                            )}
                           </>
                         ) : (
                           <span className="text-[var(--muted-foreground)]">—</span>
@@ -9134,10 +9146,17 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                         ) : applied ? (
                           <div className="flex items-center justify-end gap-2">
                             <span
-                              className="text-[10px] font-medium"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold"
                               style={{ color: COLORS.success }}
+                              title={`This month's over/under was applied into ${
+                                data.targetPeriod
+                                  ? fmtPeriodLong(data.targetPeriod)
+                                  : 'the live month'
+                              }`}
                             >
-                              Applied
+                              <CheckIcon className="w-3 h-3" />
+                              Applied {m.appliedOut >= 0 ? '+' : '−'}
+                              {fmt(Math.abs(m.appliedOut))}
                             </span>
                             <button
                               type="button"
@@ -10935,7 +10954,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
                   : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
               }`}
             >
-              <CalculatorIcon className="w-3.5 h-3.5" />
+              <InvestmentIcon className="w-3.5 h-3.5" />
               Reconciliation
             </button>
           )}
