@@ -31,6 +31,9 @@ export const META_MARGIN_FIELDS = [
   'cost_per_conversion',
 ] as const;
 
+/** StackAdapt marks up the same cost fields as Meta. */
+export const STACKADAPT_MARGIN_FIELDS = META_MARGIN_FIELDS;
+
 /** Cost fields Google Ads marks up. (Google reports `cost` / `avg_cpc`.) */
 export const GOOGLE_MARGIN_FIELDS = [
   'cost',
@@ -70,6 +73,14 @@ export function applyMetaMargins<T extends object>(
   marginPercent: number,
 ): T & Record<string, number> {
   return applyMargins(data, marginPercent, META_MARGIN_FIELDS);
+}
+
+/** StackAdapt margin markup (same cost fields as Meta). */
+export function applyStackAdaptMargins<T extends object>(
+  data: T,
+  marginPercent: number,
+): T & Record<string, number> {
+  return applyMargins(data, marginPercent, STACKADAPT_MARGIN_FIELDS);
 }
 
 /** Google Ads margin markup (cost, avg_cpc, cost_per_conversion). */

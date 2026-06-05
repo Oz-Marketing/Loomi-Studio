@@ -3,7 +3,9 @@ import {
   applyMargins,
   applyMetaMargins,
   applyGoogleMargins,
+  applyStackAdaptMargins,
   META_MARGIN_FIELDS,
+  STACKADAPT_MARGIN_FIELDS,
   GOOGLE_MARGIN_FIELDS,
 } from './margins';
 
@@ -66,8 +68,21 @@ describe('applyMargins (Oz parity)', () => {
     expect(out).not.toHaveProperty('actual_spend');
   });
 
+  it('StackAdapt marks up the same fields as Meta', () => {
+    const out = applyStackAdaptMargins(
+      { spend: 100, cpc: 2.5, cpm: 12, cost_per_conversion: 40 },
+      23,
+    );
+    expect(out.spend).toBe(129.87012987012986);
+    expect(out.cpc).toBe(3.2467532467532467);
+    expect(out.cpm).toBe(15.584415584415584);
+    expect(out.cost_per_conversion).toBe(51.94805194805195);
+    expect(out.actual_spend).toBe(100);
+  });
+
   it('exposes the documented per-platform field sets', () => {
     expect(META_MARGIN_FIELDS).toEqual(['spend', 'cpc', 'cpm', 'cost_per_conversion']);
+    expect(STACKADAPT_MARGIN_FIELDS).toEqual(['spend', 'cpc', 'cpm', 'cost_per_conversion']);
     expect(GOOGLE_MARGIN_FIELDS).toEqual(['cost', 'avg_cpc', 'cost_per_conversion']);
   });
 
