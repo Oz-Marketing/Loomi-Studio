@@ -153,6 +153,13 @@ model Account {
   // Ported from Oz Dealer Tools' per-org google_ads_customer_id / google_ads_margin.
   googleAdsCustomerId       String?
   googleAdsMargin           Float?
+  // GoHighLevel email reporting: a per-sub-account Private Integration Token
+  // (AES-256-GCM encrypted at rest via src/lib/crypto/encryption.ts) + the GHL
+  // locationId it reports on. The /emails/schedule API returns delivery counts
+  // only — engagement (opens/clicks) requires a marketplace OAuth app, not a
+  // PIT. Ported from Oz Dealer Tools' per-org ghl_api_key / ghl_location_id.
+  ghlApiKey                 String?
+  ghlLocationId             String?
   // IANA timezone of the Meta ad account (e.g. "America/New_York"), cached
   // from the Marketing API on each sync. Meta resets the daily budget at
   // midnight in THIS zone, so the Pacer's time-left math runs against it.
