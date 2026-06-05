@@ -135,6 +135,11 @@ model Account {
   // pull spend. The access token itself is a single agency-wide System User
   // token in env (META_SYSTEM_USER_TOKEN), not per-account.
   metaAdAccountId           String?
+  // Reporting margin (percent, 0–100) applied to Meta media-cost fields in the
+  // Ads report: billed = actual / (1 - margin/100). Ported from Oz Dealer
+  // Tools' per-org `facebook_ads_margin`. Distinct from `markup` above (the
+  // Pacer's spend multiplier). null / 0 = bill cost at face value.
+  facebookAdsMargin         Float?
   // IANA timezone of the Meta ad account (e.g. "America/New_York"), cached
   // from the Marketing API on each sync. Meta resets the daily budget at
   // midnight in THIS zone, so the Pacer's time-left math runs against it.
