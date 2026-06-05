@@ -47,7 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/contacts', label: 'Contacts', icon: UsersIcon },
   { href: '/engagement', label: 'Engagement', icon: PaperAirplaneIcon },
   { href: '/websites', label: 'Websites', icon: GlobeAltIcon },
-  { href: '/ads', label: 'Ads', icon: MegaphoneIcon },
+  { href: '/ads', label: 'Digital Ads', icon: MegaphoneIcon },
 ];
 
 export function ReportingSidebar() {

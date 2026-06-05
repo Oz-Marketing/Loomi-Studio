@@ -1,67 +1,29 @@
 'use client';
 
 /**
- * Ads reporting — tabbed by paid platform (Meta, StackAdapt, … Google later).
- *
- * The shell owns the shared date range + comparison controls and the active
- * tab; each platform tab fetches its own live report (margin applied
- * server-side) and renders its own visuals. Range/comparison persist across
- * tab switches so you can compare the same window platform-to-platform.
+ * Digital Ads hub — the landing for the paid-media report group. Shows one
+ * card per platform (live ones link into their report; upcoming ones are
+ * disabled "coming soon"). The cards, tab bar, and routes all derive from the
+ * report registry in _components/reports-config.
  */
 
-import { useMemo, useState } from 'react';
-import { MegaphoneIcon, TvIcon, ChartBarIcon } from '@heroicons/react/24/outline';
+import Link from 'next/link';
+import { ChartBarIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
-import { useTheme } from '@/contexts/theme-context';
 import { ReportingPageHeader } from '../_components/page-header';
-import {
-  type DateRangeKey,
-  type CustomDateRange,
-  RangeControls,
-  EmptyState,
-  metaLookbackFloor,
-  resolveBounds,
-} from './_components/shared';
-import { MetaReport } from './_components/meta-report';
-import { StackAdaptReport } from './_components/stackadapt-report';
+import { EmptyState } from './_components/shared';
+import { DIGITAL_ADS_REPORTS, type ReportDef } from './_components/reports-config';
 
-type Tab = 'meta' | 'stackadapt';
-
-const TABS: { key: Tab; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [
-  { key: 'meta', label: 'Meta', icon: MegaphoneIcon },
-  { key: 'stackadapt', label: 'StackAdapt', icon: TvIcon },
-];
-
-export default function ReportingAdsPage() {
+export default function DigitalAdsHub() {
   const { accountKey, accountData } = useAccount();
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
-
-  const [tab, setTab] = useState<Tab>('meta');
-  const [rangeKey, setRangeKey] = useState<DateRangeKey>('6m');
-  const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
-  const [compareTo, setCompareTo] = useState<string>('none');
-  const floor = useMemo(() => metaLookbackFloor(), []);
-  const { from, to } = useMemo(() => resolveBounds(rangeKey, customRange), [rangeKey, customRange]);
-
-  // Clamp a custom range's start to the lookback floor before it hits the API.
-  const handleCustomRange = (r: CustomDateRange) => {
-    const floorDate = new Date(`${floor}T00:00:00`);
-    setCustomRange({ start: r.start < floorDate ? floorDate : r.start, end: r.end });
-  };
-  const onJump = (k: DateRangeKey) => {
-    setCustomRange(null);
-    setRangeKey(k);
-  };
-
   const dealer = accountData?.dealer || 'all accounts';
 
   return (
     <>
       <ReportingPageHeader
         eyebrow="Ads"
-        title="Ad reporting"
-        subtitle={`Paid performance across Meta and StackAdapt — ${accountKey ? dealer : 'select an account'}.`}
+        title="Digital Ads"
+        subtitle={`Paid-media performance across every platform — ${accountKey ? dealer : 'select an account'}.`}
       />
 
       {!accountKey ? (
@@ -71,45 +33,54 @@ export default function ReportingAdsPage() {
           body="Choose a sub-account from the top bar to see its paid-media performance."
         />
       ) : (
-        <>
-          {/* Tabs + controls */}
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5">
-              {TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    tab === t.key
-                      ? 'bg-[var(--primary)] text-white'
-                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                  }`}
-                >
-                  <t.icon className="h-3.5 w-3.5" />
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <RangeControls
-              rangeKey={rangeKey}
-              onRangeKey={setRangeKey}
-              customRange={customRange}
-              onCustomRange={handleCustomRange}
-              compareTo={compareTo}
-              onCompareTo={setCompareTo}
-              floor={floor}
-            />
-          </div>
-
-          <div className="mt-8">
-            {tab === 'meta' ? (
-              <MetaReport accountKey={accountKey} from={from} to={to} compareTo={compareTo} isDark={isDark} onJump={onJump} />
-            ) : (
-              <StackAdaptReport accountKey={accountKey} from={from} to={to} compareTo={compareTo} isDark={isDark} onJump={onJump} />
-            )}
-          </div>
-        </>
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          {DIGITAL_ADS_REPORTS.map((r) => (
+            <ReportCard key={r.key} report={r} />
+          ))}
+        </div>
       )}
     </>
+  );
+}
+
+function ReportCard({ report }: { report: ReportDef }) {
+  const { icon: Icon, label, blurb, status } = report;
+
+  const inner = (
+    <>
+      <div className="flex items-start justify-between">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--primary)]/10 text-[var(--primary)]">
+          <Icon className="h-5 w-5" />
+        </div>
+        {status === 'soon' ? (
+          <span className="rounded-full bg-[var(--muted)] px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+            Coming soon
+          </span>
+        ) : (
+          <ArrowRightIcon className="h-4 w-4 text-[var(--muted-foreground)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--primary)]" />
+        )}
+      </div>
+      <div className="mt-4">
+        <p className="text-base font-semibold text-[var(--foreground)]">{label}</p>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">{blurb}</p>
+      </div>
+    </>
+  );
+
+  if (status !== 'live') {
+    return (
+      <div className="glass-section-card rounded-2xl border border-dashed border-[var(--border)] p-5 opacity-60">
+        {inner}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={`/ads/${report.key}`}
+      className="glass-section-card group rounded-2xl border border-[var(--border)] p-5 transition-colors hover:border-[var(--primary)]/40"
+    >
+      {inner}
+    </Link>
   );
 }
