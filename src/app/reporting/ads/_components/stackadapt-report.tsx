@@ -36,6 +36,7 @@ import {
   Muted,
   EmptyState,
   LoadingState,
+  DataTable,
   DailyChart,
   SpendBar,
   SpendDonut,
@@ -188,29 +189,11 @@ export function StackAdaptReport({
 function PerfTable({ rows, firstCol = 'Campaign' }: { rows: Row[]; firstCol?: string }) {
   const sorted = [...rows].sort((a, b) => b.spend - a.spend);
   return (
-    <div className="mt-5 overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-            <th className="py-2 pr-3">{firstCol}</th>
-            <th className="px-3 py-2 text-right">Spend</th>
-            <th className="px-3 py-2 text-right">Impr.</th>
-            <th className="px-3 py-2 text-right">CPM</th>
-            <th className="py-2 pl-3 text-right">Conv.</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r) => (
-            <tr key={r.id || r.name} className="border-t border-[var(--border)]">
-              <td className="max-w-[260px] truncate py-2.5 pr-3" title={r.name}>{r.name}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums">{usd(r.spend)}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums">{num(r.impressions)}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums">{usd(r.cpm)}</td>
-              <td className="py-2.5 pl-3 text-right tabular-nums">{num(r.conversions)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="mt-5">
+      <DataTable
+        head={[firstCol, 'Spend', 'Impr.', 'CPM', 'Conv.']}
+        rows={sorted.map((r) => [r.name, usd(r.spend), num(r.impressions), usd(r.cpm), num(r.conversions)])}
+      />
     </div>
   );
 }

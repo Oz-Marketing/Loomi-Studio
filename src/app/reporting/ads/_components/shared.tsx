@@ -191,6 +191,67 @@ export function Muted({ children }: { children: React.ReactNode }) {
   return <p className="text-xs text-[var(--muted-foreground)]">{children}</p>;
 }
 
+/**
+ * Compact data table for report breakdowns. Long lists collapse to `maxRows`
+ * with a "Show all" toggle; when expanded they scroll inside a bounded box with
+ * a sticky header, so a 50-keyword list never dominates the page. First column
+ * is left-aligned + truncated, the rest right-aligned tabular numbers.
+ */
+export function DataTable({
+  head,
+  rows,
+  maxRows = 8,
+}: {
+  head: string[];
+  rows: (string | number)[][];
+  maxRows?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const overflowing = rows.length > maxRows;
+  const visible = expanded ? rows : rows.slice(0, maxRows);
+
+  return (
+    <div>
+      <div className={`overflow-x-auto ${expanded && overflowing ? 'max-h-[24rem] overflow-y-auto' : ''}`}>
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 z-10 bg-[var(--card)]">
+            <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+              {head.map((h, i) => (
+                <th key={h} className={`py-2 ${i === 0 ? 'pr-3' : 'px-3 text-right'}`}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((r, ri) => (
+              <tr key={ri} className="border-t border-[var(--border)] transition-colors hover:bg-[var(--muted)]/40">
+                {r.map((cell, ci) => (
+                  <td
+                    key={ci}
+                    className={`py-2.5 tabular-nums ${ci === 0 ? 'max-w-[280px] truncate pr-3' : 'px-3 text-right'}`}
+                    title={ci === 0 ? String(cell) : undefined}
+                  >
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {overflowing && (
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="mt-2 text-[11px] font-medium text-[var(--primary)] hover:underline"
+        >
+          {expanded ? 'Show less' : `Show all ${rows.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function EmptyState({
   icon: Icon,
   title,

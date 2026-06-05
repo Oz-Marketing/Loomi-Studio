@@ -42,6 +42,7 @@ import {
   Muted,
   EmptyState,
   LoadingState,
+  DataTable,
   DailyChart,
   SpendBar,
   SpendDonut,
@@ -340,25 +341,38 @@ function CampaignTable({
   to: string;
 }) {
   const sorted = [...campaigns].sort((a, b) => b.cost - a.cost);
+  const [showAll, setShowAll] = useState(false);
+  const overflowing = sorted.length > 8;
+  const visible = showAll ? sorted : sorted.slice(0, 8);
   return (
-    <div className="mt-5 overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-            <th className="py-2 pr-3">Campaign</th>
-            <th className="px-3 py-2 text-right">Spend</th>
-            <th className="px-3 py-2 text-right">Impr.</th>
-            <th className="px-3 py-2 text-right">Clicks</th>
-            <th className="px-3 py-2 text-right">CTR</th>
-            <th className="py-2 pl-3 text-right">Conv.</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((c) => (
-            <CampaignRowExpandable key={c.id || c.name} campaign={c} accountKey={accountKey} from={from} to={to} />
-          ))}
-        </tbody>
-      </table>
+    <div className="mt-5">
+      <div className={`overflow-x-auto ${showAll && overflowing ? 'max-h-[24rem] overflow-y-auto' : ''}`}>
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 z-10 bg-[var(--card)]">
+            <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+              <th className="py-2 pr-3">Campaign</th>
+              <th className="px-3 py-2 text-right">Spend</th>
+              <th className="px-3 py-2 text-right">Impr.</th>
+              <th className="px-3 py-2 text-right">Clicks</th>
+              <th className="px-3 py-2 text-right">CTR</th>
+              <th className="py-2 pl-3 text-right">Conv.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((c) => (
+              <CampaignRowExpandable key={c.id || c.name} campaign={c} accountKey={accountKey} from={from} to={to} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {overflowing && (
+        <button
+          onClick={() => setShowAll((s) => !s)}
+          className="mt-2 text-[11px] font-medium text-[var(--primary)] hover:underline"
+        >
+          {showAll ? 'Show less' : `Show all ${sorted.length}`}
+        </button>
+      )}
     </div>
   );
 }
@@ -438,37 +452,7 @@ function CampaignRowExpandable({
   );
 }
 
-// ── Generic string-cell table ──
-
+// Search terms / keywords / locations / auction tables — collapsible + scrollable.
 function SimpleTable({ head, rows }: { head: string[]; rows: (string | number)[][] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-            {head.map((h, i) => (
-              <th key={h} className={`py-2 ${i === 0 ? 'pr-3' : 'px-3'} ${i === 0 ? '' : 'text-right'}`}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, ri) => (
-            <tr key={ri} className="border-t border-[var(--border)]">
-              {r.map((cell, ci) => (
-                <td
-                  key={ci}
-                  className={`py-2.5 tabular-nums ${ci === 0 ? 'max-w-[280px] truncate pr-3' : 'px-3 text-right'}`}
-                  title={ci === 0 ? String(cell) : undefined}
-                >
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <DataTable head={head} rows={rows} />;
 }
