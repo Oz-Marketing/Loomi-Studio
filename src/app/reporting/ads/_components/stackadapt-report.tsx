@@ -11,9 +11,10 @@ import useSWR from 'swr';
 import {
   CurrencyDollarIcon,
   EyeIcon,
-  CursorArrowRaysIcon,
-  ChartBarIcon,
+  UserGroupIcon,
+  ArrowPathIcon,
   BoltIcon,
+  ChartBarIcon,
   CheckBadgeIcon,
   ExclamationTriangleIcon,
   LinkSlashIcon,
@@ -28,10 +29,8 @@ import {
   usd,
   num,
   compact,
-  pctText,
   prettyDate,
   pctDelta,
-  pointDelta,
   Kpi,
   Section,
   Muted,
@@ -134,18 +133,24 @@ export function StackAdaptReport({
         )}
       </p>
 
+      {/* OTT/CTV is impression-based — no clicks/CTR/CPC. Surface reach,
+          frequency and CPM instead. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <Kpi icon={CurrencyDollarIcon} label="Spend" value={usd(m.spend)} secondary={`${usd(m.cpm)} CPM`} tone="primary" delta={pctDelta(m.spend, cmp?.spend)} />
+        <Kpi icon={CurrencyDollarIcon} label="Spend" value={usd(m.spend)} tone="primary" delta={pctDelta(m.spend, cmp?.spend)} />
         <Kpi icon={EyeIcon} label="Impressions" value={compact(m.impressions)} secondary={num(m.impressions)} tone="sky" delta={pctDelta(m.impressions, cmp?.impressions)} />
-        <Kpi icon={CursorArrowRaysIcon} label="Clicks" value={compact(m.clicks)} secondary={num(m.clicks)} tone="violet" delta={pctDelta(m.clicks, cmp?.clicks)} />
-        <Kpi icon={ChartBarIcon} label="CTR" value={pctText(m.ctr)} tone="emerald" delta={pointDelta(m.ctr, cmp?.ctr)} />
-        <Kpi icon={BoltIcon} label="CPC" value={usd(m.cpc)} tone="amber" delta={pctDelta(m.cpc, cmp?.cpc, true)} />
-        <Kpi icon={CheckBadgeIcon} label="Conversions" value={num(m.conversions)} secondary={m.conversions > 0 ? `${usd(m.cost_per_conversion)} / conv` : `${m.frequency.toFixed(1)} freq.`} tone="zinc" delta={pctDelta(m.conversions, cmp?.conversions)} />
+        <Kpi icon={UserGroupIcon} label="Reach" value={compact(m.unique_impressions)} secondary={`${num(m.unique_impressions)} unique`} tone="violet" delta={pctDelta(m.unique_impressions, cmp?.unique_impressions)} />
+        <Kpi icon={ArrowPathIcon} label="Frequency" value={m.frequency.toFixed(1)} secondary="avg / user" tone="zinc" />
+        <Kpi icon={BoltIcon} label="CPM" value={usd(m.cpm)} tone="amber" delta={pctDelta(m.cpm, cmp?.cpm, true)} />
+        <Kpi icon={CheckBadgeIcon} label="Conversions" value={num(m.conversions)} secondary={m.conversions > 0 ? `${usd(m.cost_per_conversion)} / conv` : undefined} tone="emerald" delta={pctDelta(m.conversions, cmp?.conversions)} />
       </div>
 
       {data.daily.length > 1 && (
         <Section title="Daily performance" icon={ArrowTrendingUpIcon} subtitle={`${data.daily.length} days`}>
-          <DailyChart rows={data.daily} isDark={isDark} />
+          <DailyChart
+            rows={data.daily.map((d) => ({ date: d.date, spend: d.spend, secondary: d.impressions }))}
+            secondaryName="Impressions"
+            isDark={isDark}
+          />
         </Section>
       )}
 
@@ -179,7 +184,7 @@ export function StackAdaptReport({
   );
 }
 
-/** Shared spend/impr/clicks/ctr/conv table for campaigns, groups, creatives. */
+/** Spend/impr/CPM/conv table for campaigns, groups, creatives (no clicks — OTT). */
 function PerfTable({ rows, firstCol = 'Campaign' }: { rows: Row[]; firstCol?: string }) {
   const sorted = [...rows].sort((a, b) => b.spend - a.spend);
   return (
@@ -190,8 +195,7 @@ function PerfTable({ rows, firstCol = 'Campaign' }: { rows: Row[]; firstCol?: st
             <th className="py-2 pr-3">{firstCol}</th>
             <th className="px-3 py-2 text-right">Spend</th>
             <th className="px-3 py-2 text-right">Impr.</th>
-            <th className="px-3 py-2 text-right">Clicks</th>
-            <th className="px-3 py-2 text-right">CTR</th>
+            <th className="px-3 py-2 text-right">CPM</th>
             <th className="py-2 pl-3 text-right">Conv.</th>
           </tr>
         </thead>
@@ -201,8 +205,7 @@ function PerfTable({ rows, firstCol = 'Campaign' }: { rows: Row[]; firstCol?: st
               <td className="max-w-[260px] truncate py-2.5 pr-3" title={r.name}>{r.name}</td>
               <td className="px-3 py-2.5 text-right tabular-nums">{usd(r.spend)}</td>
               <td className="px-3 py-2.5 text-right tabular-nums">{num(r.impressions)}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums">{num(r.clicks)}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums">{pctText(r.ctr)}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums">{usd(r.cpm)}</td>
               <td className="py-2.5 pl-3 text-right tabular-nums">{num(r.conversions)}</td>
             </tr>
           ))}

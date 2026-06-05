@@ -165,7 +165,7 @@ export function MetaReport({
 
       {data.daily.length > 1 && (
         <Section title="Daily performance" icon={ArrowTrendingUpIcon} subtitle={`${data.daily.length} days`}>
-          <DailyChart rows={data.daily} isDark={isDark} />
+          <DailyChart rows={data.daily.map((d) => ({ date: d.date, spend: d.spend, secondary: d.clicks }))} isDark={isDark} />
         </Section>
       )}
 

@@ -221,7 +221,7 @@ export function GoogleReport({
 
       {data.daily.length > 1 && (
         <Section title="Daily performance" icon={ArrowTrendingUpIcon} subtitle={`${data.daily.length} days`}>
-          <DailyChart rows={data.daily.map((d) => ({ date: d.date, spend: d.cost, clicks: d.clicks }))} isDark={isDark} />
+          <DailyChart rows={data.daily.map((d) => ({ date: d.date, spend: d.cost, secondary: d.clicks }))} isDark={isDark} />
         </Section>
       )}
 

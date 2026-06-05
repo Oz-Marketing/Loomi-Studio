@@ -362,20 +362,23 @@ const gridColor = (isDark: boolean) =>
   isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 const chartFg = (isDark: boolean) => (isDark ? '#9ca3af' : '#525252');
 
-/** Daily spend (area) + clicks (line), dual axis. */
+/** Daily spend (area) + a second metric (line), dual axis. */
 export function DailyChart({
   rows,
   isDark,
+  secondaryName = 'Clicks',
 }: {
-  rows: { date: string; spend: number; clicks: number }[];
+  rows: { date: string; spend: number; secondary: number }[];
   isDark: boolean;
+  /** Label for the line series (the second metric), e.g. "Clicks" or "Impressions". */
+  secondaryName?: string;
 }) {
   const series = useMemo(
     () => [
       { name: 'Spend', type: 'area', data: rows.map((r) => [new Date(`${r.date}T00:00:00Z`).getTime(), Number(r.spend.toFixed(2))]) },
-      { name: 'Clicks', type: 'line', data: rows.map((r) => [new Date(`${r.date}T00:00:00Z`).getTime(), r.clicks]) },
+      { name: secondaryName, type: 'line', data: rows.map((r) => [new Date(`${r.date}T00:00:00Z`).getTime(), r.secondary]) },
     ],
-    [rows],
+    [rows, secondaryName],
   );
   const options: ApexOptions = useMemo(
     () => ({
