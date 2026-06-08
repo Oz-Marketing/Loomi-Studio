@@ -3,8 +3,8 @@
 /**
  * Email Campaigns tab — GoHighLevel email performance. Fetches
  * /api/reporting/email and renders delivery KPIs, a status breakdown, and the
- * campaign list. GHL's schedule API reports delivery only (no opens/clicks via
- * a Private Integration token), so engagement shows a note when absent.
+ * campaign list. GHL's email API reports delivery only (opens/clicks/bounces
+ * aren't exposed by the API), so engagement shows a note when absent.
  */
 
 import useSWR from 'swr';
@@ -122,9 +122,8 @@ export function EmailReport({
         <div className="flex items-start gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 p-3.5">
           <InformationCircleIcon className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--muted-foreground)]" />
           <p className="text-xs text-[var(--muted-foreground)]">
-            GoHighLevel&apos;s schedule API reports <span className="font-medium text-[var(--foreground)]">delivery only</span> over a
-            Private Integration token — opens, clicks and bounces require a GHL marketplace OAuth app, so engagement
-            rates read 0 here.
+            GoHighLevel&apos;s email API reports <span className="font-medium text-[var(--foreground)]">delivery only</span> —
+            opens, clicks and bounces aren&apos;t exposed by its API, so engagement rates read 0 here.
           </p>
         </div>
       )}
