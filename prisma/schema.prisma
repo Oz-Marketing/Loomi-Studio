@@ -801,7 +801,13 @@ model CrmDestination {
   // The CRM's ADF lead-intake email address(es) (dealer-specific, issued by
   // the CRM). Stored as a JSON array of strings; each lead is emailed to every
   // address, so one provider can fan out to multiple intake inboxes.
-  leadEmails      String   @default("[]")
+  //
+  // @map keeps the PHYSICAL column named `leadEmail` (its pre-rename name) so
+  // `prisma db push` — which can't detect renames and would otherwise DROP the
+  // old column + ADD a fresh one, blanking every connected dealer on deploy —
+  // sees no column change. Existing single-address values stay in place and
+  // parseLeadEmails() reads them as a one-element list.
+  leadEmails      String   @default("[]") @map("leadEmail")
   enabled         Boolean  @default(true)
   createdByUserId String?
   createdAt       DateTime @default(now())
