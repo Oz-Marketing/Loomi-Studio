@@ -11,6 +11,7 @@
 import type { Form, FormSubmission } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getBoss } from '@/lib/queue/boss';
+import { parseLeadEmails } from './lead-emails';
 
 export const DELIVER_CRM_LEAD_QUEUE = 'loomi.deliver-crm-lead';
 
@@ -48,16 +49,31 @@ export async function enqueueFormSubmissionCrmLeads(args: {
 
   const destinations = await prisma.crmDestination.findMany({
     where: { accountKey: form.accountKey, enabled: true },
-    select: { id: true },
+    select: { id: true, leadEmails: true },
   });
   if (destinations.length === 0) return;
+
+  // Fan out to one delivery per (destination, intake address). Tracking each
+  // address separately means a retry only re-sends to the address that failed,
+  // not to every inbox on the destination.
+  const targets: { destinationId: string; recipientEmail: string }[] = [];
+  for (const destination of destinations) {
+    for (const recipientEmail of parseLeadEmails(destination.leadEmails)) {
+      targets.push({ destinationId: destination.id, recipientEmail });
+    }
+  }
+  if (targets.length === 0) return;
 
   await ensureQueue();
   const boss = await getBoss();
 
-  for (const destination of destinations) {
+  for (const target of targets) {
     const delivery = await prisma.crmDelivery.create({
-      data: { destinationId: destination.id, submissionId: submission.id },
+      data: {
+        destinationId: target.destinationId,
+        submissionId: submission.id,
+        recipientEmail: target.recipientEmail,
+      },
       select: { id: true },
     });
     const job: DeliverCrmLeadJob = { deliveryId: delivery.id };

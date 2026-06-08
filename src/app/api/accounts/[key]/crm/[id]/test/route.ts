@@ -72,15 +72,19 @@ export async function POST(_req: NextRequest, { params }: RouteParams) {
     } as unknown as Contact,
   };
 
+  // Send the test to a single address (the first) — a test shouldn't blast a
+  // sample lead into every connected CRM inbox.
+  const testRecipient = parseLeadEmails(destination.leadEmails).slice(0, 1);
+
   const startedAt = Date.now();
   try {
     const { messageId } = await sendLeadEmail({
       accountKey: key,
-      to: parseLeadEmails(destination.leadEmails),
+      to: testRecipient,
       subject: buildAdfSubject(adfInput),
       xml: buildAdfXml(adfInput),
     });
-    return NextResponse.json({ ok: true, messageId, latencyMs: Date.now() - startedAt });
+    return NextResponse.json({ ok: true, messageId, sentTo: testRecipient[0] ?? null, latencyMs: Date.now() - startedAt });
   } catch (err) {
     const message =
       err instanceof LeadEmailError

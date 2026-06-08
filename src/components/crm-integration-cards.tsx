@@ -245,7 +245,12 @@ function ProviderModal({
     try {
       const res = await fetch(`${crmBase}/${destination.id}/test`, { method: 'POST' });
       const payload = await res.json().catch(() => ({}));
-      if (payload.ok) toast.success('Test lead sent — check the CRM inbox.');
+      if (payload.ok)
+        toast.success(
+          payload.sentTo
+            ? `Test lead sent to ${payload.sentTo} — check the CRM inbox.`
+            : 'Test lead sent — check the CRM inbox.',
+        );
       else toast.error(payload.error ? `Test failed: ${payload.error}` : 'Test failed');
     } catch {
       toast.error('Network error — please retry.');
