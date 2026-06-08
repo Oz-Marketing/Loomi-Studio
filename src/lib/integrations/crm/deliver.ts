@@ -22,6 +22,7 @@
 import { prisma } from '@/lib/prisma';
 import { buildAdfXml, buildAdfSubject, hasUsableProspect } from './adf';
 import { sendLeadEmail, LeadEmailError } from './send-lead-email';
+import { parseLeadEmails } from './lead-emails';
 import { MAX_DELIVERY_ATTEMPTS } from './dispatch';
 
 /** Thrown to signal pg-boss the job should be retried. */
@@ -99,9 +100,16 @@ export async function deliverCrmLead(deliveryId: string): Promise<void> {
   const subject = buildAdfSubject(adfInput);
 
   try {
+    // This delivery targets one address (the fan-out in dispatch). Legacy rows
+    // created before the fan-out have no recipientEmail — fall back to all of
+    // the destination's addresses so in-flight leads still go out.
+    const recipients = delivery.recipientEmail
+      ? [delivery.recipientEmail]
+      : parseLeadEmails(destination.leadEmails);
+
     const { messageId } = await sendLeadEmail({
       accountKey: form.accountKey,
-      to: destination.leadEmail,
+      to: recipients,
       subject,
       xml,
     });

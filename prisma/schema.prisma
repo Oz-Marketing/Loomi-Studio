@@ -798,9 +798,16 @@ model CrmDestination {
   account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
   // CRM platform — drives the card label and any provider-specific quirks.
   provider        String // tekion | vinsolutions
-  // The CRM's ADF lead-intake email address (dealer-specific, issued by
-  // the CRM). Leads are routed to the right store by this address.
-  leadEmail       String
+  // The CRM's ADF lead-intake email address(es) (dealer-specific, issued by
+  // the CRM). Stored as a JSON array of strings; each lead is emailed to every
+  // address, so one provider can fan out to multiple intake inboxes.
+  //
+  // @map keeps the PHYSICAL column named `leadEmail` (its pre-rename name) so
+  // `prisma db push` — which can't detect renames and would otherwise DROP the
+  // old column + ADD a fresh one, blanking every connected dealer on deploy —
+  // sees no column change. Existing single-address values stay in place and
+  // parseLeadEmails() reads them as a one-element list.
+  leadEmails      String   @default("[]") @map("leadEmail")
   enabled         Boolean  @default(true)
   createdByUserId String?
   createdAt       DateTime @default(now())
@@ -821,6 +828,12 @@ model CrmDelivery {
   // FormSubmission.id this delivery is for. No relation — submissions can
   // be pruned independently and we don't want a cascade to wipe the log.
   submissionId  String
+  // The single intake address this delivery targets. A submission fans out to
+  // one CrmDelivery per address on the destination, so a retry only re-sends to
+  // the address that actually failed (no duplicates to the ones that
+  // succeeded). Nullable for legacy rows created before the fan-out (those
+  // fall back to emailing all of the destination's addresses).
+  recipientEmail String?
   status        String         @default("pending") // pending | sent | failed
   attempts      Int            @default(0)
   // Provider message id from the email send (SendGrid X-Message-Id or the
