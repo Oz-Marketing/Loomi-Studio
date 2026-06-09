@@ -75,9 +75,8 @@ const PROVIDERS: ProviderMeta[] = [
     label: 'HubSpot',
     blurb: 'Push qualified leads into HubSpot as contacts.',
     kind: 'api',
-    // No hosted logo yet — LogoBox renders a branded text fallback. Drop a
-    // HubSpot logo on Spaces and set its URL here to show the real mark.
-    logo: '',
+    logo: 'https://loomi-media.sfo3.digitaloceanspaces.com/media/_admin/55ba011e8325429c9d890c408cdb371a/HubSpot_Logo.svg.png',
+    // Brand tint kept as the text fallback if the hosted logo ever 404s.
     accent: '#ff7a59',
   },
 ];
@@ -128,6 +127,7 @@ export function CrmIntegrationCards({ accountKey }: { accountKey: string }) {
             <HubspotModal
               accountKey={accountKey}
               label={activeMeta.label}
+              logo={activeMeta.logo}
               accent={activeMeta.accent}
               destination={byProvider.get(activeMeta.value) ?? null}
               onClose={() => setActive(null)}
@@ -458,6 +458,7 @@ function ProviderModal({
 function HubspotModal({
   accountKey,
   label,
+  logo,
   accent,
   destination,
   onClose,
@@ -465,6 +466,7 @@ function HubspotModal({
 }: {
   accountKey: string;
   label: string;
+  logo: string;
   accent?: string;
   destination: Destination | null;
   onClose: () => void;
@@ -628,7 +630,7 @@ function HubspotModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative flex h-28 w-full items-center justify-center border-b border-[var(--border)] bg-white px-8 py-6">
-          <LogoBox logo="" label={label} accent={accent} max="max-h-14" />
+          <LogoBox logo={logo} label={label} accent={accent} max="max-h-14" />
           <button
             type="button"
             onClick={onClose}
