@@ -39,6 +39,15 @@ describe('applyMargins (Oz parity)', () => {
     expect(applyMetaMargins(input, 0)).not.toHaveProperty('actual_spend');
   });
 
+  it('returns data untouched for an out-of-range margin (>= 100), never Infinity/negative', () => {
+    const input = { spend: 100, cpc: 2.5 };
+    // margin == 100 would divide by zero (→ Infinity → JSON null); margin > 100
+    // would flip the sign. Both are config errors → fall back to face value.
+    expect(applyMetaMargins(input, 100)).toEqual({ spend: 100, cpc: 2.5 });
+    expect(applyMetaMargins(input, 150)).toEqual({ spend: 100, cpc: 2.5 });
+    expect(applyMetaMargins(input, 100)).not.toHaveProperty('actual_spend');
+  });
+
   it('skips fields that are missing or not > 0', () => {
     const out = applyMetaMargins({ spend: 0, cpc: 2.5 }, 23);
     // spend == 0 is left alone (no markup, no actual_spend).

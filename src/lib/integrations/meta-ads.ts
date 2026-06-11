@@ -73,6 +73,19 @@ interface GraphErrorBody {
   error?: { message?: string; code?: number; type?: string };
 }
 
+/**
+ * Build the network-failure message for a MetaSyncError, with the agency token
+ * scrubbed. The token rides in the request URL (GET) / body (POST), and some
+ * undici fetch failures echo the full URL into `err.message` — which the
+ * reporting routes return to the client verbatim (`{ error: err.message }`).
+ * Strip `access_token` / `appsecret_proof` so a secret can never surface there.
+ */
+function graphNetworkError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : 'network error';
+  const scrubbed = raw.replace(/(access_token|appsecret_proof)=[^&\s'")]+/gi, '$1=***');
+  return `Could not reach the Facebook Graph API: ${scrubbed}`;
+}
+
 async function metaGraphFetch<T>(
   cfg: MetaConfig,
   path: string,
@@ -96,10 +109,7 @@ async function metaGraphFetch<T>(
   try {
     res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
   } catch (err) {
-    throw new MetaSyncError(
-      `Could not reach the Facebook Graph API: ${err instanceof Error ? err.message : 'network error'}`,
-      'graph_error',
-    );
+    throw new MetaSyncError(graphNetworkError(err), 'graph_error');
   }
 
   const json = (await res.json().catch(() => null)) as (T & GraphErrorBody) | null;
@@ -167,10 +177,7 @@ async function metaGraphPost(
       body: body.toString(),
     });
   } catch (err) {
-    throw new MetaSyncError(
-      `Could not reach the Facebook Graph API: ${err instanceof Error ? err.message : 'network error'}`,
-      'graph_error',
-    );
+    throw new MetaSyncError(graphNetworkError(err), 'graph_error');
   }
 
   const json = (await res.json().catch(() => null)) as GraphErrorBody | null;

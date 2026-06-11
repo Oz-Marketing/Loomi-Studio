@@ -51,7 +51,11 @@ export function applyMargins<T extends object>(
   fields: readonly string[],
 ): T & Record<string, number> {
   // Mirror PHP `if ($marginPercent <= 0) return $data;` — also catches NaN.
-  if (!(marginPercent > 0)) return data as T & Record<string, number>;
+  // Also guard the upper bound the PHP never did: margin == 100 divides by zero
+  // (→ Infinity, which serializes to JSON null), and margin > 100 flips the sign
+  // (→ negative billed cost). A margin in [100, ∞) is a config error, so fall
+  // back to face value (no markup) rather than emit garbage into the report.
+  if (!(marginPercent > 0) || marginPercent >= 100) return data as T & Record<string, number>;
 
   const d = marginPercent / 100;
   const out = { ...data } as Record<string, unknown>;
