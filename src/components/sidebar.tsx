@@ -35,7 +35,7 @@ import { useSidebarCollapse } from '@/contexts/sidebar-collapse-context';
 import { SidebarTooltip, SidebarPopout } from '@/components/sidebar-collapsed-ui';
 import { appendThemeParam, getOtherSurfaceUrl } from '@/lib/cross-site';
 import { FlowIcon } from '@/components/icon-map';
-import { MetaLogoIcon } from '@/components/icons/meta-logo';
+import { MetaBrandIcon, GoogleAdsBrandIcon } from '@/components/icons/platform-logos';
 import { AccountSwitcher } from '@/components/account-switcher';
 import { DevImpersonate } from '@/components/dev-impersonate';
 import { AppLogo } from '@/components/app-logo';
@@ -64,7 +64,7 @@ const toolsNavItem: NavItem = {
     {
       href: '/tools/meta',
       label: 'Meta',
-      icon: MetaLogoIcon,
+      icon: MetaBrandIcon,
       absolute: true,
       children: [
         {
@@ -74,6 +74,24 @@ const toolsNavItem: NavItem = {
         },
         {
           href: '/tools/meta/ad-pacer',
+          label: 'Ad Pacer',
+          absolute: true,
+        },
+      ],
+    },
+    {
+      href: '/tools/google',
+      label: 'Google',
+      icon: GoogleAdsBrandIcon,
+      absolute: true,
+      children: [
+        {
+          href: '/tools/google/ad-planner',
+          label: 'Ad Planner',
+          absolute: true,
+        },
+        {
+          href: '/tools/google/ad-pacer',
           label: 'Ad Pacer',
           absolute: true,
         },

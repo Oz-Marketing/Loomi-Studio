@@ -51,7 +51,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from '@/lib/toast';
 import { AccountAvatar } from '@/components/account-avatar';
 import { UserAvatar } from '@/components/user-avatar';
-import { MetaLogoIcon } from '@/components/icons/meta-logo';
+import { MetaBrandIcon } from '@/components/icons/platform-logos';
 import { BellIcon, BellOffIcon } from '@/components/icons/bell';
 import { InvestmentIcon } from '@/components/icons/investment';
 import { useAccount } from '@/contexts/account-context';
@@ -7623,7 +7623,7 @@ function PacerRow({
                 {fmt(num(ad.pacerActual) ?? 0)}
               </span>
               <span className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-                <MetaLogoIcon className="w-3 h-3" />
+                <MetaBrandIcon className="w-3 h-3" />
                 from Meta
               </span>
             </div>
@@ -7656,12 +7656,12 @@ function PacerRow({
                 className="mt-1 flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]"
                 title="Spend pulled from the linked Meta ad set. Re-run Sync from Meta to refresh."
               >
-                <MetaLogoIcon className="w-3 h-3 flex-shrink-0" />
+                <MetaBrandIcon className="w-3 h-3 flex-shrink-0" />
                 <span>Synced from Meta · {fmtSyncedAgo(ad.pacerSyncedAt)}</span>
               </div>
             ) : ad.metaObjectId ? (
               <div className="mt-1 flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-                <MetaLogoIcon className="w-3 h-3 flex-shrink-0" />
+                <MetaBrandIcon className="w-3 h-3 flex-shrink-0" />
                 <span>Linked — click &ldquo;Sync from Meta&rdquo; to pull spend</span>
               </div>
             ) : null}
@@ -7700,7 +7700,7 @@ function PacerRow({
                     onClick={() => setShowRunSpend((v) => !v)}
                     className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
                   >
-                    <MetaLogoIcon className="w-3 h-3 flex-shrink-0" />
+                    <MetaBrandIcon className="w-3 h-3 flex-shrink-0" />
                     {showRunSpend ? 'Hide full-run spend' : 'View full-run spend'}
                   </button>
                   {showRunSpend && (
@@ -7812,7 +7812,7 @@ function PacerRow({
                   disabled={pushing || readOnly}
                   className="flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--primary)] px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <MetaLogoIcon className="w-3.5 h-3.5" />
+                  <MetaBrandIcon className="w-3.5 h-3.5" />
                   {pushing ? 'Pushing…' : 'Push to Meta'}
                 </button>
               )}
@@ -11215,7 +11215,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
         }`}
       >
         <div className="flex items-center gap-3">
-          <MetaLogoIcon className="w-8 h-8" />
+          <MetaBrandIcon className="w-8 h-8" />
           <div>
             <h2 className="text-2xl font-bold">
               {mode === 'planner' ? 'Meta Ad Planner' : 'Meta Ad Pacer'}
@@ -11415,7 +11415,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
               {syncingMeta ? (
                 <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <MetaLogoIcon className="w-3.5 h-3.5" />
+                <MetaBrandIcon className="w-3.5 h-3.5" />
               )}
               {syncingMeta ? 'Syncing…' : 'Sync from Meta'}
             </button>
