@@ -177,7 +177,22 @@ describe('isCrossMonthStraddler (§1)', () => {
     ).toBe(false);
   });
 
-  it("uses Meta's actual dates over the planner's for the boundary test", () => {
+  it('detects on the planner FLIGHT window, not Meta\'s actual run dates', () => {
+    // Planned cross-month (May 29 → Jun 5) flags, even though Meta reported a
+    // single-month run — detection follows the plan.
+    expect(
+      isCrossMonthStraddler(
+        mk({
+          flightStart: '2026-05-29',
+          flightEnd: '2026-06-05',
+          metaStartDate: '2026-06-01',
+          metaEndDate: '2026-06-10',
+          allocation: '80',
+          pacerActual: '49.79',
+        }),
+      ),
+    ).toBe(true);
+    // Inverse: planned single-month, but Meta straddled → NOT flagged.
     expect(
       isCrossMonthStraddler(
         mk({
@@ -189,7 +204,7 @@ describe('isCrossMonthStraddler (§1)', () => {
           pacerActual: '49.79',
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does NOT flag a LIFETIME straddler (owned by §3 / §2b, not §1)', () => {
