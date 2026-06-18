@@ -32,7 +32,7 @@ export default function DigitalAdsReportPage() {
   if (!def || def.status !== 'live' || !Report) {
     return (
       <>
-        <ReportingPageHeader eyebrow="Digital Ads" title="Report not found" subtitle="" />
+        <ReportingPageHeader icon={ExclamationTriangleIcon} title="Report not found" />
         <EmptyState
           icon={ExclamationTriangleIcon}
           title="That report isn't available"
@@ -48,7 +48,7 @@ export default function DigitalAdsReportPage() {
   return (
     <>
       <ReportingPageHeader
-        eyebrow="Digital Ads"
+        icon={def.icon}
         title={def.label}
         subtitle={`${def.blurb} — ${accountKey ? dealer : 'select an account'}.`}
       />

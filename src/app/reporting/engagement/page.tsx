@@ -1,5 +1,6 @@
 'use client';
 
+import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { EngagementSection } from '@/components/campaigns/engagement-section';
 import { FlowsAnalyticsBody } from '@/components/flows/flows-analytics-body';
@@ -31,7 +32,7 @@ export default function ReportingEngagementPage() {
   return (
     <>
       <ReportingPageHeader
-        eyebrow="Engagement"
+        icon={ChatBubbleLeftRightIcon}
         title="Engagement reporting"
         subtitle={`Campaign performance, email engagement, and flow throughput — ${dealerName}.`}
       />
