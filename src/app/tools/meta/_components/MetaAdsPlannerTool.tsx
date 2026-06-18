@@ -9226,6 +9226,10 @@ interface ReconData {
   ytdVariance: number;
   ytdCarryover: number;
   ytdUnapplied: number;
+  // §4: lifetime drift incl. the in-progress live month (health gauge), and the
+  // settled months still carrying unapplied over/under (named in the UI).
+  ytdVarianceInclLive: number;
+  unappliedMonths: string[];
   appliedThisMonth: { base: number; added: number; total: number };
   // §5: individual ledger entries, newest first — powers both-ends provenance.
   applications: CarryoverApplication[];
@@ -9323,6 +9327,19 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
   const net = data?.ytdUnapplied ?? 0;
   const netReconciled = Math.abs(net) < 0.005;
   const canApply = !!data?.targetPeriod && !netReconciled;
+  // §4: the health-gauge total (lifetime drift incl. the in-progress live
+  // month, variance convention) — distinct from `net` (the settle-able queue).
+  const inclLive = data?.ytdVarianceInclLive ?? 0;
+  const inclLiveGauge = overUnder(inclLive);
+  // §4: name the settled months still carrying unapplied over/under.
+  const unappliedMonthsLabel = (data?.unappliedMonths ?? [])
+    .map((p) =>
+      new Date(Number(p.slice(0, 4)), Number(p.slice(5, 7)) - 1, 1).toLocaleDateString(
+        'en-US',
+        { month: 'short' },
+      ),
+    )
+    .join(', ');
 
   return (
     <div>
@@ -9399,8 +9416,8 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                 {netReconciled
                   ? 'No outstanding over/under across settled months.'
                   : net > 0
-                    ? `Underspent overall — apply to add ${fmt(net)} to ${data.targetPeriod ? fmtPeriodLong(data.targetPeriod) : 'the live month'}.`
-                    : `Overspent overall — apply to pull ${fmt(-net)} from ${data.targetPeriod ? fmtPeriodLong(data.targetPeriod) : 'the live month'}.`}
+                    ? `Underspent ${unappliedMonthsLabel ? `across ${unappliedMonthsLabel}` : 'across settled months'} — apply to add ${fmt(net)} to ${data.targetPeriod ? fmtPeriodLong(data.targetPeriod) : 'the live month'}.`
+                    : `Overspent ${unappliedMonthsLabel ? `across ${unappliedMonthsLabel}` : 'across settled months'} — apply to pull ${fmt(-net)} from ${data.targetPeriod ? fmtPeriodLong(data.targetPeriod) : 'the live month'}.`}
               </div>
               {data.appliedThisMonth.total !== 0 && data.targetPeriod && (
                 <div className="text-[11px] text-[var(--muted-foreground)] mt-2 flex items-center gap-2 flex-wrap">
@@ -9421,6 +9438,30 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                   </button>
                 </div>
               )}
+              {/* §4: health-gauge total — lifetime drift INCLUDING the
+                  in-progress live month. Deliberately distinct from the
+                  settle-able "net still to reconcile" above (which excludes the
+                  open month) so the two can't be confused: one is the action
+                  queue, this is the overall over/under reading. */}
+              <div className="mt-3 pt-3 border-t border-[var(--border)]">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                  Net variance · incl. live month
+                </div>
+                <div className="flex items-baseline gap-2 mt-0.5 flex-wrap">
+                  <span
+                    className="text-base font-semibold tabular-nums"
+                    style={{ color: inclLiveGauge.color }}
+                  >
+                    {inclLiveGauge.text}
+                  </span>
+                  <span className="text-[10px] text-[var(--muted-foreground)]">
+                    health gauge — total drift including{' '}
+                    {data.targetPeriod
+                      ? `${fmtPeriodLong(data.targetPeriod)} in progress`
+                      : 'the live month'}
+                  </span>
+                </div>
+              </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
@@ -9748,36 +9789,19 @@ function daysElapsedInPeriod(period: string): number {
 }
 
 function ComparePanel({ accountKey }: { accountKey: string | null }) {
-  const [view, setView] = useState<'month' | 'year'>('month');
+  // §6: the Over/Under page is a within-month, per-ad diagnostic only. Everything
+  // cross-month/annual (running balance, adjusted targets, apply/undo, audit
+  // trail) lives on the Reconciliation page, which owns it — so the old "Year"
+  // tab here (an unadjusted, no-reconcile duplicate of that table) is removed.
   return (
     <div>
-      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+      <div className="flex items-center gap-4 mb-6 flex-wrap">
         <h2 className="m-0 flex items-center gap-2 text-base font-bold tracking-tight text-[var(--foreground)]">
           <ScaleIcon className="w-4 h-4" />
           {accountKey ? 'Over/Under Spend' : 'Over/Under Spend — all accounts'}
         </h2>
-        <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-1">
-          {(['month', 'year'] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              className={`px-3 py-1 text-[11px] font-medium rounded transition-colors ${
-                view === v
-                  ? 'bg-[var(--primary)] text-white'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              {v === 'month' ? 'Month' : 'Year'}
-            </button>
-          ))}
-        </div>
       </div>
-      {view === 'month' ? (
-        <OverUnderMonthView accountKey={accountKey} />
-      ) : (
-        <OverUnderYearView accountKey={accountKey} />
-      )}
+      <OverUnderMonthView accountKey={accountKey} />
     </div>
   );
 }
@@ -10140,208 +10164,6 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OverUnderYearView({ accountKey }: { accountKey: string | null }) {
-  const initialYear = useMemo(() => new Date().getFullYear(), []);
-  const [year, setYear] = useState<number>(initialYear);
-  const [months, setMonths] = useState<YearMonthRow[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setMonths(null);
-    setLoadError(null);
-    const url = accountKey
-      ? `/api/meta-ads-pacer/${accountKey}/year-summary?year=${year}`
-      : `/api/meta-ads-pacer/year-summary?year=${year}`;
-    fetch(url)
-      .then(async (r) => {
-        if (!r.ok) {
-          const text = await r.text().catch(() => '');
-          throw new Error(`HTTP ${r.status} ${text.slice(0, 200)}`);
-        }
-        return r.json() as Promise<{ months: YearMonthRow[] }>;
-      })
-      .then((data) => {
-        if (cancelled) return;
-        setMonths(Array.isArray(data?.months) ? data.months : []);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        // eslint-disable-next-line no-console
-        console.error('[meta-ads-pacer] year-summary load failed', err);
-        setLoadError(err instanceof Error ? err.message : 'Failed to load');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [accountKey, year]);
-
-  const totals = useMemo(() => {
-    if (!months)
-      return { clientBudget: 0, spendTarget: 0, actual: 0, variance: 0 };
-    const clientBudget = months.reduce((s, m) => s + m.clientBudget, 0);
-    const spendTarget = months.reduce((s, m) => s + m.spendTarget, 0);
-    const actual = months.reduce((s, m) => s + m.actual, 0);
-    // Variance is vs the margin-adjusted spend target, never the gross client
-    // budget — otherwise the agency margin would read as underspend (Change 6).
-    return { clientBudget, spendTarget, actual, variance: actual - spendTarget };
-  }, [months]);
-
-  const variancePct =
-    totals.spendTarget > 0 ? (totals.variance / totals.spendTarget) * 100 : null;
-
-  return (
-    <div>
-      <div className="flex items-center justify-end gap-4 mb-4 flex-wrap">
-        <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] p-1">
-          <button
-            type="button"
-            onClick={() => setYear((y) => y - 1)}
-            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
-            aria-label="Previous year"
-          >
-            <ChevronLeftIcon className="w-4 h-4" />
-          </button>
-          <span className="text-xs font-bold px-2 min-w-[3.5rem] text-center">
-            {year}
-          </span>
-          <button
-            type="button"
-            onClick={() => setYear((y) => y + 1)}
-            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
-            aria-label="Next year"
-          >
-            <ChevronRightIcon className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3.5 py-2.5 mb-4 text-xs text-[var(--muted-foreground)]">
-        Variance compares <span className="font-semibold">actual spend</span> to the{' '}
-        <span className="font-semibold">spend target</span> (client budget ×
-        margin — the amount that should hit Meta), not the gross client budget,
-        so the agency margin doesn&apos;t read as underspend. Client budget is
-        shown for context. Variance flips negative when you underspent.
-      </div>
-
-      {loadError ? (
-        <div className="glass-section-card rounded-xl text-center py-12 px-6">
-          <ExclamationTriangleIcon className="w-8 h-8 mx-auto mb-3 text-red-400" />
-          <p className="text-sm text-[var(--foreground)] font-medium mb-1">
-            Could not load yearly comparison.
-          </p>
-          <p className="text-xs text-[var(--muted-foreground)]">{loadError}</p>
-        </div>
-      ) : months == null ? (
-        <div className="text-center py-12 text-[var(--muted-foreground)] text-sm">
-          Loading…
-        </div>
-      ) : (
-        <div className="glass-table">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px]">
-              <thead>
-                <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
-                  <th className="text-left px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Month
-                  </th>
-                  <th className="text-right px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Client Budget
-                  </th>
-                  <th className="text-right px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Spend Target
-                  </th>
-                  <th className="text-right px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Actual Spend
-                  </th>
-                  <th className="text-right px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Variance
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {months.map((m) => {
-                  const variance = m.actual - m.spendTarget;
-                  const hasData =
-                    m.clientBudget > 0 || m.spendTarget > 0 || m.actual > 0;
-                  const varianceColor = !hasData
-                    ? 'var(--muted-foreground)'
-                    : Math.abs(variance) < 0.005
-                      ? COLORS.success
-                      : variance > 0
-                        ? COLORS.error
-                        : COLORS.warn;
-                  return (
-                    <tr
-                      key={m.period}
-                      className="border-b border-[var(--border)]/40 last:border-b-0"
-                    >
-                      <td className="px-4 py-2 text-sm font-medium text-[var(--foreground)]">
-                        {fmtPeriodShort(m.period)}
-                      </td>
-                      <td className="px-4 py-2 text-sm text-right text-[var(--muted-foreground)]">
-                        {hasData ? fmt(m.clientBudget) : '—'}
-                      </td>
-                      <td className="px-4 py-2 text-sm text-right text-[var(--foreground)]">
-                        {hasData ? fmt(m.spendTarget) : '—'}
-                      </td>
-                      <td className="px-4 py-2 text-sm text-right text-[var(--foreground)]">
-                        {hasData ? fmt(m.actual) : '—'}
-                      </td>
-                      <td
-                        className="px-4 py-2 text-sm text-right font-semibold"
-                        style={{ color: varianceColor }}
-                      >
-                        {hasData
-                          ? `${variance >= 0 ? '+' : '-'}${fmt(Math.abs(variance))}`
-                          : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-[var(--border)] bg-[var(--muted)]/40">
-                  <td className="px-4 py-3 text-sm font-bold text-[var(--foreground)]">
-                    {year} total
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right font-bold text-[var(--muted-foreground)]">
-                    {fmt(totals.clientBudget)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right font-bold text-[var(--foreground)]">
-                    {fmt(totals.spendTarget)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right font-bold text-[var(--foreground)]">
-                    {fmt(totals.actual)}
-                  </td>
-                  <td
-                    className="px-4 py-3 text-sm text-right font-bold"
-                    style={{
-                      color:
-                        Math.abs(totals.variance) < 0.005
-                          ? COLORS.success
-                          : totals.variance > 0
-                            ? COLORS.error
-                            : COLORS.warn,
-                    }}
-                  >
-                    {`${totals.variance >= 0 ? '+' : '-'}${fmt(Math.abs(totals.variance))}`}
-                    {variancePct != null && (
-                      <span className="block text-[10px] font-normal text-[var(--muted-foreground)] mt-0.5">
-                        {`${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}% vs target`}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
           </div>
         </div>
       )}
