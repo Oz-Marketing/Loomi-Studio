@@ -78,7 +78,7 @@ export const AD_COLORS = [
  * flagged for carryover into the next month (Change 7). Configurable later;
  * a single agency-wide default for now.
  */
-export const CARRYOVER_THRESHOLD = 25;
+export const CARRYOVER_THRESHOLD = 15;
 
 /**
  * §1 cross-month straddler: flag an ad whose flight crosses a month boundary
