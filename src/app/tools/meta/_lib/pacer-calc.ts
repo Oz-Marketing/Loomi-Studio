@@ -253,10 +253,14 @@ export function isCrossMonthStraddler(
 ): boolean {
   if (ad.fullRunAppliedToMonth != null) return false; // §2: resolved — no longer a straddler
   if (ad.budgetType === 'Lifetime') return false;
-  // Use the RAW flight, NOT clampToMonth — clamping collapses both ends into the
-  // period month, which could never expose a boundary.
-  const start = ad.metaStartDate ?? ad.liveDate ?? ad.flightStart;
-  const end = ad.metaEndDate ?? ad.flightEnd;
+  // Detection is on the PLANNED flight window (flightStart/flightEnd first) —
+  // the user's basis — so a cross-month ad is recognized from the plan, even
+  // before Meta syncs and even if Meta later delivers off-plan. The per-month
+  // SPEND still comes from Meta's reported numbers (pacerActual); only the
+  // boundary test uses the plan. Raw dates (NOT clampToMonth, which collapses
+  // both ends into the period and could never expose a boundary).
+  const start = ad.flightStart ?? ad.metaStartDate ?? ad.liveDate;
+  const end = ad.flightEnd ?? ad.metaEndDate;
   if (!start || !end) return false;
   if (start.slice(0, 7) === end.slice(0, 7)) return false; // single calendar month
   const inMonth = num(ad.pacerActual) ?? 0;
