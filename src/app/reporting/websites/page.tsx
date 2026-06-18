@@ -1,3 +1,4 @@
+import { GlobeAltIcon } from '@heroicons/react/24/outline';
 import { ReportingPageHeader } from '../_components/page-header';
 
 /**
@@ -13,7 +14,7 @@ export default function ReportingWebsitesPage() {
   return (
     <>
       <ReportingPageHeader
-        eyebrow="Websites"
+        icon={GlobeAltIcon}
         title="Website reporting"
         subtitle="Landing page traffic, conversions, and form submissions land here."
       />

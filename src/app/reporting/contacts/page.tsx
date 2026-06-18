@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { UsersIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { ContactAnalytics } from '@/components/contacts/contact-analytics';
 import { ReportingPageHeader } from '../_components/page-header';
@@ -62,7 +63,7 @@ export default function ReportingContactsPage() {
 
   return (
     <>
-      <ReportingPageHeader eyebrow="Contacts" title="Contact reporting" subtitle={subtitle} />
+      <ReportingPageHeader icon={UsersIcon} title="Contact reporting" subtitle={subtitle} />
       {accountKey && (
         <ContactAnalytics
           contacts={contacts as never}

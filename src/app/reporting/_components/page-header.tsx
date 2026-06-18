@@ -1,31 +1,29 @@
 /**
- * Standard reporting page header — eyebrow chip + title + optional subtitle.
- * Used by stub pages so the visual hierarchy is consistent across the
- * reporting surface. Replace per-page when you build real content.
+ * Standard reporting page header — icon + title + optional subtitle. Mirrors
+ * the studio page-header pattern (e.g. FormsPageHeader) so the reporting
+ * surface matches studio: sticky header bar, primary-tinted icon beside a bold
+ * h2 title, muted subtitle underneath.
  */
+import type { ComponentType, SVGProps } from 'react';
+
 export function ReportingPageHeader({
-  eyebrow,
+  icon: Icon,
   title,
   subtitle,
 }: {
-  eyebrow: string;
+  icon?: ComponentType<SVGProps<SVGSVGElement>>;
   title: string;
   subtitle?: string;
 }) {
   return (
-    <section className="animate-fade-in-up mb-8">
-      <div className="inline-flex items-center gap-2 rounded-full border border-[var(--primary)]/40 bg-[var(--primary)]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--primary)]" />
-        <span>{eyebrow}</span>
+    <div className="page-sticky-header mb-6">
+      <div className="flex flex-wrap items-center gap-3">
+        {Icon && <Icon className="h-7 w-7 text-[var(--primary)]" />}
+        <div>
+          <h2 className="text-2xl font-bold">{title}</h2>
+          {subtitle && <p className="mt-1 text-[var(--muted-foreground)]">{subtitle}</p>}
+        </div>
       </div>
-      <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
-        {title}
-      </h1>
-      {subtitle && (
-        <p className="mt-2 max-w-2xl text-sm text-[var(--muted-foreground)] sm:text-base">
-          {subtitle}
-        </p>
-      )}
-    </section>
+    </div>
   );
 }
