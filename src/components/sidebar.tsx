@@ -28,6 +28,7 @@ import {
   GlobeAltIcon,
   DocumentTextIcon,
   RectangleStackIcon,
+  PaperAirplaneIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
@@ -100,6 +101,14 @@ const toolsNavItem: NavItem = {
   ],
 };
 
+// Campaigns — the AI Campaign Builder: multi-channel campaigns generated
+// (or built manually) and reviewed as one. Distinct from the per-channel
+// Email & SMS send surface below.
+const campaignBuilderNav: NavItem = {
+  href: '/campaign-builder',
+  label: 'Campaigns',
+  icon: PaperAirplaneIcon,
+};
 // Email & SMS — the campaigns surface (the page already covers both
 // channels). A flat top-level leaf; the old "Messaging" dropdown that
 // grouped Campaigns + Templates has been split apart.
@@ -152,6 +161,7 @@ const contactsNav: NavItem = {
 // Admin-level nav (when in admin mode)
 const adminNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
+  campaignBuilderNav,
   contactsNav,
   emailSmsNav,
   templatesNav,
@@ -164,6 +174,7 @@ const adminNavItems: NavItem[] = [
 // Sub-account nav for admin/developer users viewing a sub-account
 const subaccountAdminNavItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
+  campaignBuilderNav,
   contactsNav,
   emailSmsNav,
   templatesNav,
