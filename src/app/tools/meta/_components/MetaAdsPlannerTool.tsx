@@ -7384,6 +7384,10 @@ function PacerRow({
   // projection or daily-adjustment makes sense. Past-flight ads without an
   // explicit status fall through to the "Mark as completed" prompt.
   const showCompletedSummary = isMarkedCompleted || isMarkedOff;
+  // Live-pacing case = the projection grid + pacing insight + mute control show.
+  // When the run is completed/past, those are hidden, but the cross-month toggle
+  // stays available (the classification is still editable).
+  const showsProjection = !showCompletedSummary && !isPastRun;
 
   // Color the recommended-vs-current daily comparison
   const dailyDelta = calc.recDaily - calc.dailyBudget;
@@ -7677,21 +7681,25 @@ function PacerRow({
       {/* Editable inputs row — just the two values reps actually edit.
           Today's date always uses the current date and end date uses
           the immutable flight end, so neither needs an input. */}
-      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,150px)_minmax(0,150px)_minmax(0,max-content)_minmax(0,1fr)] gap-3 mb-3.5">
+      <div className="mb-3.5 flex items-start gap-3 flex-wrap md:flex-nowrap">
+        {/* Actual + Daily + Link. When the ad is connected to a Meta ad set,
+            these are contained in a card with a "from Meta" badge (Meta owns the
+            spend); otherwise they sit plainly. */}
+        <div
+          className={`min-w-0 flex-1 ${
+            syncedFromMeta
+              ? 'relative rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-4 pt-3 pb-7'
+              : ''
+          }`}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,150px)_minmax(0,150px)_minmax(0,max-content)] gap-4">
         <Field label="Actual Spend">
           {syncedFromMeta ? (
-            // Meta owns the spend once synced — plain read-only value, not a
-            // box that looks editable.
-            <div
-              className="flex items-center gap-2 py-2 cursor-default"
-              title="Actual spend is pulled from Meta and isn't editable here. Re-run Sync from Meta to refresh."
-            >
+            // Meta owns the spend once synced — plain read-only value. The card's
+            // "from Meta" badge labels the source, so no per-field tag here.
+            <div className="flex items-center py-2">
               <span className="text-xl font-bold tabular-nums text-[var(--foreground)]">
                 {fmt(num(ad.pacerActual) ?? 0)}
-              </span>
-              <span className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-                <MetaBrandIcon className="w-3 h-3" />
-                from Meta
               </span>
             </div>
           ) : (
@@ -7803,27 +7811,32 @@ function PacerRow({
               onChange={onLinkChange}
               disabled={readOnly}
             />
-            {/* sync time + Meta run dates collapse into an info-icon tooltip. */}
+            {/* sync time + Meta run dates collapse into a custom hover tooltip
+                (not the browser default), no help cursor. */}
             {ad.metaObjectId &&
               (() => {
-                const syncBit = ad.pacerSyncedAt
-                  ? `Synced from Meta · ${fmtSyncedAgo(ad.pacerSyncedAt)}`
-                  : 'Linked — run "Sync from Meta" to pull spend';
-                const runBit =
-                  ad.metaStartDate || ad.metaEndDate
-                    ? `\nMeta run: ${ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'} → ${ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}${
-                        effectiveEnd && (!ad.metaEndDate || ad.metaEndDate > effectiveEnd)
-                          ? `\nPaced to ${fmtDate(effectiveEnd)} (month end)`
-                          : ''
-                      }`
-                    : '';
+                const parts: string[] = [
+                  ad.pacerSyncedAt
+                    ? `Synced from Meta · ${fmtSyncedAgo(ad.pacerSyncedAt)}`
+                    : 'Linked — run "Sync from Meta" to pull spend',
+                ];
+                if (ad.metaStartDate || ad.metaEndDate) {
+                  parts.push(
+                    `Meta run: ${ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'} → ${ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}`,
+                  );
+                  if (
+                    effectiveEnd &&
+                    (!ad.metaEndDate || ad.metaEndDate > effectiveEnd)
+                  ) {
+                    parts.push(`Paced to ${fmtDate(effectiveEnd)} (month end)`);
+                  }
+                }
                 return (
-                  <span
-                    className="inline-flex flex-shrink-0 items-center text-[var(--muted-foreground)] cursor-help hover:text-[var(--foreground)]"
-                    title={`${syncBit}${runBit}`}
-                  >
-                    <InformationCircleIcon className="w-4 h-4" />
-                  </span>
+                  <Tooltip label={parts.join(' · ')} placement="top">
+                    <span className="inline-flex flex-shrink-0 items-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                      <InformationCircleIcon className="w-4 h-4" />
+                    </span>
+                  </Tooltip>
                 );
               })()}
           </div>
@@ -7831,11 +7844,18 @@ function PacerRow({
             <div className="mt-1 text-[10px] text-[#ef4444]">{adSetsError}</div>
           )}
         </div>
+          </div>
+          {syncedFromMeta && (
+            <span className="pointer-events-none absolute bottom-2 right-3 inline-flex items-center gap-1 text-[10px] font-medium text-[var(--muted-foreground)]">
+              <MetaBrandIcon className="w-3 h-3" />
+              from Meta
+            </span>
+          )}
+        </div>
         {/* Cross-month accounting selector — shown only when the footer toggle
-            is on; pushed to the right, separate from the spend controls. The
-            invisible label spacer top-aligns it with the input boxes. */}
+            is on; sits to the right, separate from the Meta-owned spend fields. */}
         {showCrossMonth && (
-          <div className="justify-self-end">
+          <div className="flex-shrink-0">
             <span className={labelClass} aria-hidden="true">
               &nbsp;
             </span>
@@ -8161,12 +8181,16 @@ function PacerRow({
           color={recColor}
         />
       </div>
+        </>
+      )}
 
-      {/* Footer — plain-English insight on the left, Mute alerts toggle on the
-          right in its own area. */}
+      {/* Footer — the cross-month toggle stays available even on completed /
+          past runs (its classification is still editable); the pacing insight
+          and mute control show only while the ad is actively pacing. */}
       <div className="mt-3 pt-3 border-t border-[var(--border)] flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 flex-1">
-          {(() => {
+          {showsProjection &&
+            (() => {
         if (calc.budget <= 0) return null;
         if (!calc.hasDates) return null;
         if (calc.spent >= calc.budget) {
@@ -8265,32 +8289,33 @@ function PacerRow({
             </span>
             Cross-month
           </button>
-          {/* Mute alerts — icon only (bell = on, bell-with-slash + amber = muted). */}
-          <button
-            type="button"
-            onClick={onMuteToggle}
-            disabled={readOnly}
-            title={
-              ad.alertsMuted
-                ? 'Alerts muted for this ad — click to unmute'
-                : 'Mute pacing / dark / flight alerts for this ad'
-            }
-            className={`inline-flex flex-shrink-0 items-center justify-center rounded-md border p-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-              ad.alertsMuted
-                ? 'border-[rgba(245,158,11,0.45)] bg-[rgba(245,158,11,0.12)] text-[#f59e0b]'
-                : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
-            }`}
-          >
-            {ad.alertsMuted ? (
-              <BellOffIcon className="w-3.5 h-3.5" />
-            ) : (
-              <BellIcon className="w-3.5 h-3.5" />
-            )}
-          </button>
+          {/* Mute alerts — icon only; hidden on completed / past runs (pacing
+              alerts no longer apply there). */}
+          {showsProjection && (
+            <button
+              type="button"
+              onClick={onMuteToggle}
+              disabled={readOnly}
+              title={
+                ad.alertsMuted
+                  ? 'Alerts muted for this ad — click to unmute'
+                  : 'Mute pacing / dark / flight alerts for this ad'
+              }
+              className={`inline-flex flex-shrink-0 items-center justify-center rounded-md border p-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                ad.alertsMuted
+                  ? 'border-[rgba(245,158,11,0.45)] bg-[rgba(245,158,11,0.12)] text-[#f59e0b]'
+                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              {ad.alertsMuted ? (
+                <BellOffIcon className="w-3.5 h-3.5" />
+              ) : (
+                <BellIcon className="w-3.5 h-3.5" />
+              )}
+            </button>
+          )}
         </div>
       </div>
-        </>
-      )}
         </div>
       )}
     </div>

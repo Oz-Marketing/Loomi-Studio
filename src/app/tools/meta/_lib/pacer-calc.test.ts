@@ -7,6 +7,7 @@ import {
   effectiveTarget,
   classifyAdVariance,
   decomposeMonthVariance,
+  clampToMonth,
 } from './pacer-calc';
 import type { PacerAd } from './types';
 
@@ -395,5 +396,37 @@ describe('classifyAdVariance / decomposeMonthVariance (cross-month split)', () =
     expect(d.crossMonthCount).toBe(1);
     expect(d.heldOutCount).toBe(1);
     expect(d.perAd).toHaveLength(3);
+  });
+});
+
+describe('clampToMonth — Meta end vs planner flight', () => {
+  it('a same-month Meta end still wins over a later planner flight end', () => {
+    const { effectiveEnd } = clampToMonth(
+      mk({ metaEndDate: '2026-06-10', flightEnd: '2026-06-30' }),
+    );
+    expect(effectiveEnd).toBe('2026-06-10');
+  });
+
+  it('a STALE Meta end (before the pacing month) defers to the planner flight', () => {
+    // Recurring ad: the linked ad set still carries last month's end date, but
+    // the planner flight was extended into June. June must not read as complete.
+    const { effectiveEnd } = clampToMonth(
+      mk({ metaEndDate: '2026-05-20', flightEnd: '2026-06-30', period: '2026-06' }),
+    );
+    expect(effectiveEnd).toBe('2026-06-30');
+  });
+
+  it('falls back to the planner flight when there is no Meta end', () => {
+    const { effectiveEnd } = clampToMonth(
+      mk({ metaEndDate: null, flightEnd: '2026-06-20' }),
+    );
+    expect(effectiveEnd).toBe('2026-06-20');
+  });
+
+  it('clamps a flight that runs past the month to the month end', () => {
+    const { effectiveEnd } = clampToMonth(
+      mk({ metaEndDate: null, flightEnd: '2026-07-15', period: '2026-06' }),
+    );
+    expect(effectiveEnd).toBe('2026-06-30');
   });
 });
