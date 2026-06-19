@@ -307,6 +307,49 @@ export async function isPeriodWritable(
  * - current / grace / future → serve live.
  * The returned shape extends fetchPeriodPlan's payload with frozen/monthState.
  */
+/**
+ * #58 cross-month split reference: for each ad NAME present in more than one
+ * period of this plan, the planned target (`allocation`) and in-month actual
+ * (`pacerActual`) of each period's row. Lets a lifetime ad's card render its
+ * REAL per-month split from the same-title sibling rows the user planned in
+ * each month — instead of an even split. Names in a single period have no
+ * siblings and are omitted.
+ */
+async function getSiblingAllocations(
+  planId: string,
+): Promise<Record<string, Record<string, { allocation: number; actual: number }>>> {
+  const rows = await prisma.metaAdsPacerAd.findMany({
+    where: { planId },
+    select: { name: true, period: true, allocation: true, pacerActual: true },
+  });
+  const periodsByName = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const nm = r.name.trim();
+    if (!nm) continue;
+    let set = periodsByName.get(nm);
+    if (!set) {
+      set = new Set();
+      periodsByName.set(nm, set);
+    }
+    set.add(r.period);
+  }
+  const out: Record<string, Record<string, { allocation: number; actual: number }>> = {};
+  for (const r of rows) {
+    const nm = r.name.trim();
+    if (!nm || (periodsByName.get(nm)?.size ?? 0) < 2) continue;
+    let m = out[nm];
+    if (!m) {
+      m = {};
+      out[nm] = m;
+    }
+    m[r.period] = {
+      allocation: Number(r.allocation ?? 0),
+      actual: Number(r.pacerActual ?? 0),
+    };
+  }
+  return out;
+}
+
 export async function getPeriodPlanView(
   accountKey: string,
   period: string,
@@ -315,7 +358,12 @@ export async function getPeriodPlanView(
   const plan = await getOrCreatePlan(accountKey);
   const tz = await accountTimeZone(accountKey);
   const state = monthState(period, tz);
+  // #58: same-title rows' planned + actual across every period, so a lifetime
+  // ad's card can show its real per-month split. Computed once here so both the
+  // live and frozen views carry it.
+  const siblingsByName = await getSiblingAllocations(plan.id);
 
+  const view = await (async () => {
   if (state === 'closed') {
     const snap = await prisma.metaAdsPacerMonthSnapshot.findUnique({
       where: { planId_period: { planId: plan.id, period } },
@@ -378,6 +426,9 @@ export async function getPeriodPlanView(
     frozen: false,
     monthState: state,
   };
+  })();
+
+  return { ...view, siblingsByName };
 }
 
 // ─── Carryover (Change 7) ──────────────────────────────────────────────────
