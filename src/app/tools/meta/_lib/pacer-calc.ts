@@ -169,8 +169,15 @@ export function clampToMonth(ad: AdScheduleLike): {
   effectiveEnd: string | null;
 } {
   const rawStart = ad.metaStartDate ?? ad.liveDate ?? ad.flightStart;
-  const rawEnd = ad.metaEndDate ?? ad.flightEnd;
   const bounds = ad.period ? monthBoundsIso(ad.period) : null;
+  // Meta's end normally wins over the planner's, BUT a Meta end that falls
+  // before this pacing month is stale — e.g. a recurring ad whose linked ad set
+  // still carries a PRIOR run's end date. Honoring it would mark the month
+  // "completed" even after the planner flight was extended into the month, so in
+  // that case defer to the planner's flightEnd (the user's forward intent).
+  const metaEndStale =
+    bounds != null && ad.metaEndDate != null && ad.metaEndDate < bounds.start;
+  const rawEnd = metaEndStale ? ad.flightEnd : (ad.metaEndDate ?? ad.flightEnd);
   if (!bounds) return { effectiveStart: rawStart, effectiveEnd: rawEnd };
   return {
     // max(rawStart, month_start) — never start before the month opens.
