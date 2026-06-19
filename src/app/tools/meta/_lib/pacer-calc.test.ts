@@ -5,6 +5,9 @@ import {
   isCrossMonthStraddler,
   effectiveActual,
   effectiveTarget,
+  classifyAdVariance,
+  decomposeMonthVariance,
+  clampToMonth,
 } from './pacer-calc';
 import type { PacerAd } from './types';
 
@@ -175,7 +178,22 @@ describe('isCrossMonthStraddler (§1)', () => {
     ).toBe(false);
   });
 
-  it("uses Meta's actual dates over the planner's for the boundary test", () => {
+  it('detects on the planner FLIGHT window, not Meta\'s actual run dates', () => {
+    // Planned cross-month (May 29 → Jun 5) flags, even though Meta reported a
+    // single-month run — detection follows the plan.
+    expect(
+      isCrossMonthStraddler(
+        mk({
+          flightStart: '2026-05-29',
+          flightEnd: '2026-06-05',
+          metaStartDate: '2026-06-01',
+          metaEndDate: '2026-06-10',
+          allocation: '80',
+          pacerActual: '49.79',
+        }),
+      ),
+    ).toBe(true);
+    // Inverse: planned single-month, but Meta straddled → NOT flagged.
     expect(
       isCrossMonthStraddler(
         mk({
@@ -187,7 +205,7 @@ describe('isCrossMonthStraddler (§1)', () => {
           pacerActual: '49.79',
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does NOT flag a LIFETIME straddler (owned by §3 / §2b, not §1)', () => {
@@ -212,7 +230,7 @@ describe('isCrossMonthStraddler (§1)', () => {
     ).toBe(false);
   });
 
-  it('excludes a flagged straddler from live pacing (§0.2 un-stub)', () => {
+  it('no longer auto-excludes a cross-month daily ad from live pacing', () => {
     const straddler = mk({
       adStatus: 'Live',
       budgetType: 'Daily',
@@ -221,8 +239,11 @@ describe('isCrossMonthStraddler (§1)', () => {
       allocation: '80',
       pacerActual: '49.79',
     });
+    // The predicate still recognizes the cross-month flight, but eligibility no
+    // longer consults it (no auto-detect) — a mid-flight daily ad is paced on
+    // its own window (§7), not silently dropped.
     expect(isCrossMonthStraddler(straddler)).toBe(true);
-    expect(isEligibleForLivePacing(straddler, NOW, TZ)).toBe(false);
+    expect(isEligibleForLivePacing(straddler, NOW, TZ)).toBe(true);
   });
 });
 
@@ -269,5 +290,143 @@ describe('effectiveActual / effectiveTarget (§2)', () => {
     });
     expect(effectiveActual(ad, '2026-07')).toBe(0);
     expect(effectiveTarget(ad, '2026-07')).toBe(0);
+  });
+});
+
+// Cross-month split — inMonthSpend (what spent this calendar month) vs
+// billedActual (what the over/under counts). No auto-detection; cross-month is
+// the user's manual "Bill in one month" choice (fullRunAppliedToMonth).
+describe('classifyAdVariance / decomposeMonthVariance (cross-month split)', () => {
+  it('a normal ad is real — billed equals the in-month slice', () => {
+    const v = classifyAdVariance(mk({ allocation: '100', pacerActual: '120' }), PERIOD, NOW, TZ);
+    expect(v.klass).toBe('real');
+    expect(v.inMonthSpend).toBeCloseTo(120);
+    expect(v.billedActual).toBeCloseTo(120);
+    expect(v.contribution).toBeCloseTo(20);
+  });
+
+  it('a daily cross-month ad is NOT auto-flagged — real, billed = slice', () => {
+    const v = classifyAdVariance(
+      mk({ flightStart: '2026-05-29', flightEnd: '2026-06-05', allocation: '80', pacerActual: '49.79' }),
+      PERIOD,
+      NOW,
+      TZ,
+    );
+    expect(v.klass).toBe('real');
+    expect(v.billedActual).toBeCloseTo(49.79);
+    expect(v.contribution).toBeCloseTo(49.79 - 80);
+  });
+
+  it('billed in one month → billed-cross-month: full run billed, slice spent here', () => {
+    const v = classifyAdVariance(
+      mk({
+        period: '2026-06',
+        fullRunAppliedToMonth: '2026-06',
+        allocation: '80',
+        pacerActual: '49.79', // in-month slice
+        pacerRunSpend: '79.91', // full run
+      }),
+      '2026-06',
+      NOW,
+      TZ,
+    );
+    expect(v.klass).toBe('billed-cross-month');
+    expect(v.inMonthSpend).toBeCloseTo(49.79);
+    expect(v.billedActual).toBeCloseTo(79.91);
+    expect(v.contribution).toBeCloseTo(79.91 - 80);
+  });
+
+  it('billed in one month but full run == slice → stays real (no cross-month gap)', () => {
+    const v = classifyAdVariance(
+      mk({
+        period: '2026-06',
+        fullRunAppliedToMonth: '2026-06',
+        allocation: '80',
+        pacerActual: '79.91',
+        pacerRunSpend: '79.91',
+      }),
+      '2026-06',
+      NOW,
+      TZ,
+    );
+    expect(v.klass).toBe('real');
+  });
+
+  it('an in-progress lifetime ad → lifetime-in-progress: $0 billed, slice held out', () => {
+    const v = classifyAdVariance(
+      mk({ budgetType: 'Lifetime', adStatus: 'Live', allocation: '500', pacerActual: '180' }),
+      PERIOD,
+      NOW,
+      TZ,
+    );
+    expect(v.klass).toBe('lifetime-in-progress');
+    expect(v.billedActual).toBe(0);
+    expect(v.contribution).toBe(0);
+    expect(v.inMonthSpend).toBeCloseTo(180);
+  });
+
+  it('a COMPLETED lifetime ad is real — its single variance books', () => {
+    const v = classifyAdVariance(
+      mk({ budgetType: 'Lifetime', adStatus: 'Completed Run', allocation: '500', pacerActual: '520' }),
+      PERIOD,
+      NOW,
+      TZ,
+    );
+    expect(v.klass).toBe('real');
+    expect(v.contribution).toBeCloseTo(20);
+  });
+
+  it('decomposeMonthVariance reconciles total-spent vs over/under basis + the gap', () => {
+    const ads = [
+      mk({ allocation: '100', pacerActual: '120' }), // real: in 120 / billed 120
+      mk({
+        period: '2026-06',
+        fullRunAppliedToMonth: '2026-06',
+        allocation: '80',
+        pacerActual: '49.79',
+        pacerRunSpend: '79.91',
+      }), // billed-cross-month: in 49.79 / billed 79.91
+      mk({ budgetType: 'Lifetime', adStatus: 'Live', allocation: '500', pacerActual: '180' }), // lifetime in-progress: in 180 / billed 0
+    ];
+    const d = decomposeMonthVariance(ads, PERIOD, NOW, TZ);
+    expect(d.totalInMonth).toBeCloseTo(120 + 49.79 + 180); // what spent this month
+    expect(d.overUnderActual).toBeCloseTo(120 + 79.91 + 0); // over/under basis
+    expect(d.billedElsewhere).toBeCloseTo(79.91 - 49.79); // billed cross-month
+    expect(d.heldOutLifetime).toBeCloseTo(180);
+    expect(d.crossMonthCount).toBe(1);
+    expect(d.heldOutCount).toBe(1);
+    expect(d.perAd).toHaveLength(3);
+  });
+});
+
+describe('clampToMonth — Meta end vs planner flight', () => {
+  it('a same-month Meta end still wins over a later planner flight end', () => {
+    const { effectiveEnd } = clampToMonth(
+      mk({ metaEndDate: '2026-06-10', flightEnd: '2026-06-30' }),
+    );
+    expect(effectiveEnd).toBe('2026-06-10');
+  });
+
+  it('a STALE Meta end (before the pacing month) defers to the planner flight', () => {
+    // Recurring ad: the linked ad set still carries last month's end date, but
+    // the planner flight was extended into June. June must not read as complete.
+    const { effectiveEnd } = clampToMonth(
+      mk({ metaEndDate: '2026-05-20', flightEnd: '2026-06-30', period: '2026-06' }),
+    );
+    expect(effectiveEnd).toBe('2026-06-30');
+  });
+
+  it('falls back to the planner flight when there is no Meta end', () => {
+    const { effectiveEnd } = clampToMonth(
+      mk({ metaEndDate: null, flightEnd: '2026-06-20' }),
+    );
+    expect(effectiveEnd).toBe('2026-06-20');
+  });
+
+  it('clamps a flight that runs past the month to the month end', () => {
+    const { effectiveEnd } = clampToMonth(
+      mk({ metaEndDate: null, flightEnd: '2026-07-15', period: '2026-06' }),
+    );
+    expect(effectiveEnd).toBe('2026-06-30');
   });
 });

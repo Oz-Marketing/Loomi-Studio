@@ -169,8 +169,15 @@ export function clampToMonth(ad: AdScheduleLike): {
   effectiveEnd: string | null;
 } {
   const rawStart = ad.metaStartDate ?? ad.liveDate ?? ad.flightStart;
-  const rawEnd = ad.metaEndDate ?? ad.flightEnd;
   const bounds = ad.period ? monthBoundsIso(ad.period) : null;
+  // Meta's end normally wins over the planner's, BUT a Meta end that falls
+  // before this pacing month is stale — e.g. a recurring ad whose linked ad set
+  // still carries a PRIOR run's end date. Honoring it would mark the month
+  // "completed" even after the planner flight was extended into the month, so in
+  // that case defer to the planner's flightEnd (the user's forward intent).
+  const metaEndStale =
+    bounds != null && ad.metaEndDate != null && ad.metaEndDate < bounds.start;
+  const rawEnd = metaEndStale ? ad.flightEnd : (ad.metaEndDate ?? ad.flightEnd);
   if (!bounds) return { effectiveStart: rawStart, effectiveEnd: rawEnd };
   return {
     // max(rawStart, month_start) — never start before the month opens.
@@ -189,10 +196,10 @@ export function clampToMonth(ad: AdScheduleLike): {
  *     Completed Run …) — only the delivering statuses pace;
  *   - lifetime ads — their single variance is booked once on completion into
  *     the over/under (§3), never paced day-to-day;
- *   - not-yet-started flights (effectiveStart > asOf);
- *   - §1: unresolved cross-month straddlers (in-month slice materially below
- *     the full-run target) — excluded via isCrossMonthStraddler.
- * This is the shared predicate §7 / §1 / §8 all build on.
+ *   - not-yet-started flights (effectiveStart > asOf).
+ * Cross-month ads are NOT auto-excluded: §7 per-flight proration already paces a
+ * mid-flight ad on its own window, and cross-month accounting is a manual choice
+ * now. This is the shared predicate §7 / §8 build on.
  */
 export function isEligibleForLivePacing(
   ad: AdScheduleLike & {
@@ -205,7 +212,6 @@ export function isEligibleForLivePacing(
 ): boolean {
   if (!ACTIVE_STATUSES.includes(ad.adStatus)) return false; // status == Live
   if (ad.budgetType === 'Lifetime') return false; // NOT (lifetime in-progress)
-  if (isCrossMonthStraddler(ad)) return false; // §1: unresolved cross-month straddler
   const { effectiveStart } = clampToMonth(ad);
   if (!effectiveStart) return false;
   return effectiveStart <= zonedTodayIso(nowMs, timeZone); // flightStart <= asOf
@@ -253,10 +259,14 @@ export function isCrossMonthStraddler(
 ): boolean {
   if (ad.fullRunAppliedToMonth != null) return false; // §2: resolved — no longer a straddler
   if (ad.budgetType === 'Lifetime') return false;
-  // Use the RAW flight, NOT clampToMonth — clamping collapses both ends into the
-  // period month, which could never expose a boundary.
-  const start = ad.metaStartDate ?? ad.liveDate ?? ad.flightStart;
-  const end = ad.metaEndDate ?? ad.flightEnd;
+  // Detection is on the PLANNED flight window (flightStart/flightEnd first) —
+  // the user's basis — so a cross-month ad is recognized from the plan, even
+  // before Meta syncs and even if Meta later delivers off-plan. The per-month
+  // SPEND still comes from Meta's reported numbers (pacerActual); only the
+  // boundary test uses the plan. Raw dates (NOT clampToMonth, which collapses
+  // both ends into the period and could never expose a boundary).
+  const start = ad.flightStart ?? ad.metaStartDate ?? ad.liveDate;
+  const end = ad.flightEnd ?? ad.metaEndDate;
   if (!start || !end) return false;
   if (start.slice(0, 7) === end.slice(0, 7)) return false; // single calendar month
   const inMonth = num(ad.pacerActual) ?? 0;
@@ -307,6 +317,123 @@ export function effectiveTarget(ad: EffectiveMoneyLike, asMonth?: string): numbe
     return ad.fullRunAppliedToMonth === month ? (num(ad.allocation) ?? 0) : 0;
   }
   return num(ad.allocation) ?? 0;
+}
+
+/** Why an ad's over/under may differ from what actually spent THIS month. No
+ *  auto-detection — the cross-month treatment is the user's manual choice
+ *  (fullRunAppliedToMonth), or the §3 lifetime mechanic. */
+export type VarianceClass = 'real' | 'billed-cross-month' | 'lifetime-in-progress';
+
+export type VarianceAdLike = AdScheduleLike & {
+  allocation?: string | null;
+  pacerActual?: string | null;
+  pacerRunSpend?: string | null;
+  fullRunAppliedToMonth?: string | null;
+};
+
+export interface AdVariance {
+  /** What actually spent THIS calendar month (the slice, pacerActual) — feeds
+   *  the honest month total-spend. */
+  inMonthSpend: number;
+  /** What the over/under is billed on: the full run when the user billed this ad
+   *  in this month (fullRunAppliedToMonth), else the in-month slice; 0 for an
+   *  in-progress lifetime ad (§3, books on completion). */
+  billedActual: number;
+  /** billedActual − effectiveTarget — this ad's over/under contribution. */
+  contribution: number;
+  klass: VarianceClass;
+}
+
+/**
+ * Classify ONE ad for a month, producing the split the UI needs: inMonthSpend
+ * (what spent this calendar month → the month total) vs billedActual (what the
+ * over/under counts). They differ only when the ad is deliberately billed
+ * cross-month or is a running lifetime ad:
+ *   - lifetime-in-progress: still running — $0 in the over/under now (§3); its
+ *     in-month spend is held out until the run completes.
+ *   - billed-cross-month: the user chose "Bill in one month" and the full run
+ *     differs from this month's slice — the over/under counts the full run; the
+ *     difference spent in another month.
+ *   - real: everything else — billed equals the slice, all spent this month.
+ * No date-based auto-detection; cross-month is the user's explicit choice.
+ */
+export function classifyAdVariance(
+  ad: VarianceAdLike,
+  asMonth: string,
+  nowMs: number,
+  timeZone: string,
+): AdVariance {
+  const inMonthSpend = num(ad.pacerActual) ?? 0;
+  if (isLifetimeInProgress(ad, nowMs, timeZone)) {
+    return { inMonthSpend, billedActual: 0, contribution: 0, klass: 'lifetime-in-progress' };
+  }
+  const billedActual = effectiveActual(ad, asMonth);
+  const contribution = billedActual - effectiveTarget(ad, asMonth);
+  const klass: VarianceClass =
+    ad.fullRunAppliedToMonth != null && Math.abs(billedActual - inMonthSpend) >= 0.005
+      ? 'billed-cross-month'
+      : 'real';
+  return { inMonthSpend, billedActual, contribution, klass };
+}
+
+export interface MonthVarianceBreakdown {
+  /** Σ inMonthSpend (all ads) — what actually spent this calendar month. */
+  totalInMonth: number;
+  /** Σ billedActual — the actual basis the over/under is measured on. */
+  overUnderActual: number;
+  /** Σ (billedActual − inMonthSpend) over billed-cross-month ads — billed in
+   *  this month though it spent in another (explains total ≠ over/under basis). */
+  billedElsewhere: number;
+  /** Σ inMonthSpend over in-progress lifetime ads — spent this month but not yet
+   *  in the over/under (books on completion). */
+  heldOutLifetime: number;
+  crossMonthCount: number;
+  heldOutCount: number;
+  /** Per-ad results in input order — the caller maps back to its ad list. */
+  perAd: AdVariance[];
+}
+
+/**
+ * Aggregate a month's ads into the two reconciling totals — totalInMonth (what
+ * spent this calendar month) and overUnderActual (what the over/under is billed
+ * on) — plus the pieces that explain any gap between them: billedElsewhere
+ * (cross-month-billed runs) and heldOutLifetime (running lifetime ads).
+ */
+export function decomposeMonthVariance(
+  ads: VarianceAdLike[],
+  asMonth: string,
+  nowMs: number,
+  timeZone: string,
+): MonthVarianceBreakdown {
+  let totalInMonth = 0;
+  let overUnderActual = 0;
+  let billedElsewhere = 0;
+  let heldOutLifetime = 0;
+  let crossMonthCount = 0;
+  let heldOutCount = 0;
+  const perAd: AdVariance[] = [];
+  for (const ad of ads) {
+    const v = classifyAdVariance(ad, asMonth, nowMs, timeZone);
+    perAd.push(v);
+    totalInMonth += v.inMonthSpend;
+    overUnderActual += v.billedActual;
+    if (v.klass === 'lifetime-in-progress') {
+      heldOutLifetime += v.inMonthSpend;
+      heldOutCount += 1;
+    } else if (v.klass === 'billed-cross-month') {
+      billedElsewhere += v.billedActual - v.inMonthSpend;
+      crossMonthCount += 1;
+    }
+  }
+  return {
+    totalInMonth,
+    overUnderActual,
+    billedElsewhere,
+    heldOutLifetime,
+    crossMonthCount,
+    heldOutCount,
+    perAd,
+  };
 }
 
 export interface AdCalc {

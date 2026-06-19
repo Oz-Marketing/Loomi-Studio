@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -24,6 +25,8 @@ import {
   ExclamationTriangleIcon,
   ClockIcon,
   CalendarIcon,
+  InformationCircleIcon,
+  LinkSlashIcon,
   UserCircleIcon,
   PaintBrushIcon,
   CheckBadgeIcon,
@@ -68,9 +71,7 @@ import { CARRYOVER_THRESHOLD } from '../_lib/constants';
 import {
   buildAdCalc,
   buildPacerCalc,
-  computeAccountPace,
   isLifetimeInProgress,
-  isCrossMonthStraddler,
   effectiveActual,
   effectiveTarget,
 } from '../_lib/pacer-calc';
@@ -240,7 +241,9 @@ function classifyPacerHealth(
   if (pct > 105) {
     return {
       state: 'overpacing',
-      color: '#f59e0b',
+      // Red: projected to overspend (shares red with the already-over-budget
+      // state — both are "spending too much", distinguished by their label).
+      color: '#ef4444',
       label: 'Overpacing',
       short: 'Overpacing',
     };
@@ -248,7 +251,8 @@ function classifyPacerHealth(
   if (pct < 95) {
     return {
       state: 'underpacing',
-      color: '#38bdf8',
+      // Amber: caution that the budget is on pace to be underspent.
+      color: '#f59e0b',
       label: 'Underpacing',
       short: 'Under',
     };
@@ -470,6 +474,11 @@ interface PacerPlan {
   // the prior month isn't closed yet or this month is frozen.
   priorOverUnder: PriorOverUnder | null;
   ads: PacerAd[];
+  // #58: same-title rows' planned (allocation) + in-month actual across every
+  // period, keyed by ad name → period. Lets a lifetime ad's card render its real
+  // cross-month split from the per-month rows the user planned, instead of an
+  // even split. Only names present in 2+ periods are included.
+  siblingsByName?: Record<string, Record<string, { allocation: number; actual: number }>>;
 }
 
 interface PriorOverUnder {
@@ -838,7 +847,7 @@ function Tooltip({
       {children}
       <span
         role="tooltip"
-        className={`pointer-events-none absolute left-1/2 -translate-x-1/2 ${pos} z-[200] max-w-[220px] whitespace-normal text-center rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[10px] font-medium leading-snug text-[var(--foreground)] opacity-0 shadow-lg transition-opacity duration-100 group-hover/tip:opacity-100`}
+        className={`pointer-events-none absolute left-1/2 -translate-x-1/2 ${pos} z-[200] w-max max-w-[340px] whitespace-normal text-center rounded-md border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-[10px] font-medium leading-snug text-[var(--foreground)] opacity-0 shadow-lg transition-opacity duration-100 group-hover/tip:opacity-100`}
       >
         {label}
       </span>
@@ -7121,12 +7130,6 @@ function AdSetLinkPicker({
   const label = (o: MetaAdSetOption) =>
     `${o.campaignName ? `${o.campaignName} › ` : ''}${o.name}`;
   const selected = (options ?? []).find((o) => o.id === value) ?? null;
-  const buttonLabel = selected
-    ? label(selected)
-    : value
-      ? `Linked ad set (${value})`
-      : 'Not linked — match by name';
-
   const q = query.trim().toLowerCase();
   const filtered = (options ?? []).filter((o) =>
     `${o.campaignName ?? ''} ${o.name} ${o.effectiveStatus ?? ''}`
@@ -7141,27 +7144,63 @@ function AdSetLinkPicker({
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        disabled={disabled}
-        onClick={() => {
-          if (disabled) return;
-          if (!open) {
-            onOpen();
-            setQuery('');
-          }
-          setOpen((v) => !v);
-        }}
-        className="flex w-full items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-left text-[11px] text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] disabled:opacity-60 disabled:cursor-not-allowed"
-      >
-        <span
-          className={`truncate ${selected || value ? '' : 'text-[var(--muted-foreground)]'}`}
+      {value ? (
+        // Linked: show the ad-set NAME (never the raw id) + a quick Unlink.
+        // Clicking the name reopens the list to change the link.
+        <div className="flex items-center gap-1.5 min-w-0">
+          <button
+            ref={triggerRef}
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              if (disabled) return;
+              if (!open) {
+                onOpen();
+                setQuery('');
+              }
+              setOpen((v) => !v);
+            }}
+            title="Linked to a Meta ad set — click to change"
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--input)] px-2.5 py-1 text-xs text-[var(--foreground)] hover:border-[var(--primary)] focus:outline-none focus:border-[var(--primary)] disabled:opacity-60"
+          >
+            <MetaBrandIcon className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="truncate font-medium">
+              {loading && !options ? 'Loading…' : selected ? label(selected) : 'Linked'}
+            </span>
+            <ChevronDownIcon className="w-3 h-3 flex-shrink-0 text-[var(--muted-foreground)]" />
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(null)}
+            title="Unlink ad set"
+            aria-label="Unlink ad set"
+            className="flex-shrink-0 inline-flex items-center justify-center rounded-md p-2 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[#ef4444] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <LinkSlashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        <button
+          ref={triggerRef}
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            if (disabled) return;
+            if (!open) {
+              onOpen();
+              setQuery('');
+            }
+            setOpen((v) => !v);
+          }}
+          title="Link this line to a Meta ad set to pull its spend on Sync"
+          className="inline-flex items-center gap-1.5 rounded-md bg-[#1877F2] px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-[#1877F2]/90 focus:outline-none focus:ring-2 focus:ring-[#1877F2]/40 disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {loading && !options ? 'Loading ad sets…' : buttonLabel}
-        </span>
-        <ChevronDownIcon className="w-3.5 h-3.5 flex-shrink-0 text-[var(--muted-foreground)]" />
-      </button>
+          <MetaBrandIcon className="w-3 h-3 flex-shrink-0 brightness-0 invert" />
+          Link ad set
+          <ChevronDownIcon className="w-3 h-3 flex-shrink-0 text-white/80" />
+        </button>
+      )}
 
       {open && pos && typeof document !== 'undefined'
         ? createPortal(
@@ -7264,6 +7303,7 @@ function PacerRow({
   onMarkOff,
   onPushDailyBudget,
   onResolveCrossMonth,
+  siblings,
 }: {
   ad: PacerAd;
   index: number;
@@ -7287,6 +7327,10 @@ function PacerRow({
     action: 'apply_full_run' | 'split' | 'clear',
     splitMap?: Record<string, number>,
   ) => void;
+  /** #58: this ad's same-title sibling rows across months (period →
+   *  {allocation, actual}), so the split reference shows each month's real plan
+   *  + spend. null when the ad has no same-name rows in other periods. */
+  siblings: Record<string, { allocation: number; actual: number }> | null;
 }) {
   const isLifetime = ad.budgetType === 'Lifetime';
   const typeColor = isLifetime ? COLORS.lifetime : COLORS.daily;
@@ -7304,7 +7348,6 @@ function PacerRow({
   // Full-run spend is opt-in per ad: a multi-month lifetime ad often only
   // needs its current-month figure, so we hide the full run behind a toggle and
   // show it only when the user asks for that ad.
-  const [showRunSpend, setShowRunSpend] = useState(false);
   const dailyChanged =
     dailyEditing && (ad.pacerDailyBudget ?? '') !== (dailyStart ?? '');
   const beginDailyEdit = () => {
@@ -7347,6 +7390,10 @@ function PacerRow({
   // projection or daily-adjustment makes sense. Past-flight ads without an
   // explicit status fall through to the "Mark as completed" prompt.
   const showCompletedSummary = isMarkedCompleted || isMarkedOff;
+  // Live-pacing case = the projection grid + pacing insight + mute control show.
+  // When the run is completed/past, those are hidden, but the cross-month toggle
+  // stays available (the classification is still editable).
+  const showsProjection = !showCompletedSummary && !isPastRun;
 
   // Color the recommended-vs-current daily comparison
   const dailyDelta = calc.recDaily - calc.dailyBudget;
@@ -7361,15 +7408,93 @@ function PacerRow({
   // badge in the summary row, so both UI elements agree on the bucket.
   const health = useMemo(() => classifyPacerHealth(ad, calc), [ad, calc]);
 
-  // §1: a daily ad whose flight straddles a month boundary with a materially
-  // short in-month slice — the in-month variance is a scope artifact, so the row
-  // is contextualized with the full-run verdict and it's excluded from the
-  // account pacing badge (via isEligibleForLivePacing).
-  const crossMonth = isCrossMonthStraddler(ad);
-  // §2: once resolved (full run counted in its own month), the straddler
-  // predicate returns false, so the §1 'Cross-month' block/chip vanishes and
-  // this resolved state takes over.
+  // Resolved = the user billed the ad's full run in its own month
+  // (fullRunAppliedToMonth). Cross-month accounting is a MANUAL choice via the
+  // dropdown on the input row — nothing is auto-detected.
   const resolvedFullRun = ad.fullRunAppliedToMonth != null;
+
+  // ── Cross-month accounting (derived once) — the selector lives on the input
+  //    row; its Bill/Split detail renders just below the row. ──
+  const cmMonths: string[] = (() => {
+    const out: string[] = [];
+    const rawStart = ad.flightStart ?? ad.metaStartDate ?? ad.liveDate;
+    const rawEnd = ad.flightEnd ?? ad.metaEndDate;
+    if (rawStart && rawEnd) {
+      let y = Number(rawStart.slice(0, 4));
+      let mo = Number(rawStart.slice(5, 7));
+      const ey = Number(rawEnd.slice(0, 4));
+      const em = Number(rawEnd.slice(5, 7));
+      while ((y < ey || (y === ey && mo <= em)) && out.length < 25) {
+        out.push(`${y}-${String(mo).padStart(2, '0')}`);
+        mo += 1;
+        if (mo > 12) {
+          mo = 1;
+          y += 1;
+        }
+      }
+    }
+    return out;
+  })();
+  let cmSplit: Record<string, number> | null = null;
+  try {
+    cmSplit = ad.lifetimeMonthSplit
+      ? (JSON.parse(ad.lifetimeMonthSplit) as Record<string, number>)
+      : null;
+  } catch {
+    cmSplit = null;
+  }
+  // Full run can't be below the in-month slice; fall back to the entered actual
+  // when Meta run-spend isn't synced so the verdict isn't $0.
+  const cmRun = Math.max(num(ad.pacerRunSpend) ?? 0, num(ad.pacerActual) ?? 0);
+  const cmTarget = num(ad.allocation) ?? 0;
+  const cmSiblingPeriods = siblings ? Object.keys(siblings).sort() : [];
+  // #58: same-title rows in 2+ months drive the real per-month split reference.
+  const cmHasSiblings = isLifetime && cmSiblingPeriods.length > 1;
+  // 3-state classifier: '' (no choice) · 'split' · 'bill'. Selecting a value
+  // persists it; the detail surfaces only once a real option is chosen.
+  const cmSelValue: '' | 'split' | 'bill' = resolvedFullRun
+    ? 'bill'
+    : ad.lifetimeMonthSplit != null
+      ? 'split'
+      : '';
+  // Cross-month accounting is opt-in per ad via a footer toggle — the dropdown
+  // (and its detail) only appear when on. Defaults on for ads already
+  // classified so an existing Bill/Split stays visible.
+  const [showCrossMonth, setShowCrossMonth] = useState(cmSelValue !== '');
+
+  // Meta connection controls, extracted so the synced card's connection header
+  // and the unsynced field row can each place them without duplicating markup.
+  const linkPicker = (
+    <AdSetLinkPicker
+      value={ad.metaObjectId}
+      options={adSets}
+      loading={adSetsLoading}
+      error={adSetsError}
+      onOpen={onLoadAdSets}
+      onChange={onLinkChange}
+      disabled={readOnly}
+    />
+  );
+  // Tooltip shows just the Meta run window for now (the sync recency is shown
+  // inline next to it). No run dates → no info icon.
+  const metaSyncInfo =
+    ad.metaObjectId && (ad.metaStartDate || ad.metaEndDate)
+      ? (() => {
+          const parts: string[] = [
+            `Meta run: ${ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'} → ${ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}`,
+          ];
+          if (effectiveEnd && (!ad.metaEndDate || ad.metaEndDate > effectiveEnd)) {
+            parts.push(`Paced to ${fmtDate(effectiveEnd)} (month end)`);
+          }
+          return (
+            <Tooltip label={parts.join(' · ')} placement="top">
+              <span className="inline-flex flex-shrink-0 items-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                <InformationCircleIcon className="w-4 h-4" />
+              </span>
+            </Tooltip>
+          );
+        })()
+      : null;
 
   // Status indicator color — pulled from the same map AdStatusPill uses
   // so the dot matches the status the user sees on the planner page.
@@ -7431,36 +7556,9 @@ function PacerRow({
           />
           {ad.adStatus || 'No status'}
         </span>
-        {/* Cross-month / resolution chips live HERE (next to the name) rather
-            than out by the metrics, so the Actual / Budget / verdict columns
-            stay aligned down the list whether or not a chip is present. */}
-        {crossMonth && (
-          <span
-            className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md flex-shrink-0"
-            style={{ background: 'rgba(56,189,248,0.12)', color: '#38bdf8' }}
-            title="Cross-month — this flight runs into the next month, so the in-month variance is expected. Expand for the full-run verdict."
-          >
-            Cross-month
-          </span>
-        )}
-        {resolvedFullRun && (
-          <span
-            className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md flex-shrink-0"
-            style={{ background: 'rgba(56,189,248,0.12)', color: '#38bdf8' }}
-            title="Full run counted in this ad's own month — the over/under compares the full run to the full target."
-          >
-            Full run ✓
-          </span>
-        )}
-        {ad.lifetimeMonthSplit && (
-          <span
-            className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md flex-shrink-0"
-            style={{ background: 'rgba(167,139,250,0.12)', color: COLORS.lifetime }}
-            title="Lifetime ad with a planned per-month split (reference only — the variance books once on completion)."
-          >
-            Split
-          </span>
-        )}
+        {/* Cross-month treatment is indicated by a single pill inside the
+            expanded card's pill row (next to Daily/Lifetime + Base/Added),
+            not here in the collapsed header — keeps the row clean. */}
       </div>
       {/* Actual spend — labelled so the bare number isn't ambiguous. Fixed
           width + right-aligned so it forms a consistent column down the list. */}
@@ -7578,6 +7676,19 @@ function PacerRow({
               >
                 {sourceLabel(ad.budgetSource)}
               </span>
+              {(resolvedFullRun || ad.lifetimeMonthSplit != null) && (
+                <span
+                  className="font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+                  style={{ background: 'rgba(249,115,22,0.18)', color: '#f97316' }}
+                  title={
+                    resolvedFullRun
+                      ? "Cross-month: the full run is billed in this ad's month — the over/under compares the full run to the full target."
+                      : 'Cross-month: lifetime ad with a planned per-month split (reference only — the variance books once on completion).'
+                  }
+                >
+                  Cross-month
+                </span>
+              )}
               {ad.budgetSource === 'split' && (() => {
                 const baseAmt = num(ad.splitBaseAmount) ?? 0;
                 const addedAmt = Math.max(0, calc.budget - baseAmt);
@@ -7610,21 +7721,31 @@ function PacerRow({
       {/* Editable inputs row — just the two values reps actually edit.
           Today's date always uses the current date and end date uses
           the immutable flight end, so neither needs an input. */}
-      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,300px)_minmax(0,160px)] gap-3 mb-3.5">
+      <div className="mb-3.5 flex items-start justify-between gap-4 flex-wrap">
+        {/* Actual + Daily + Link. When the ad is connected to a Meta ad set,
+            these are contained in a card with a "from Meta" badge (Meta owns the
+            spend); otherwise they sit plainly. */}
+        <div
+          className={`${
+            syncedFromMeta
+              ? 'w-full md:w-[calc(50%_-_4px)] rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 py-3'
+              : 'w-fit'
+          }`}
+        >
+          <div
+            className={
+              syncedFromMeta
+                ? 'grid grid-cols-2 gap-2 [&>*]:px-3 [&_label]:mb-1'
+                : 'grid grid-cols-1 md:grid-cols-[minmax(0,150px)_minmax(0,150px)_minmax(0,max-content)] gap-4'
+            }
+          >
         <Field label="Actual Spend">
           {syncedFromMeta ? (
-            // Meta owns the spend once synced — plain read-only value, not a
-            // box that looks editable.
-            <div
-              className="flex items-center gap-2 py-2 cursor-default"
-              title="Actual spend is pulled from Meta and isn't editable here. Re-run Sync from Meta to refresh."
-            >
+            // Meta owns the spend once synced — plain read-only value. The card's
+            // "from Meta" badge labels the source, so no per-field tag here.
+            <div className="flex items-center">
               <span className="text-xl font-bold tabular-nums text-[var(--foreground)]">
                 {fmt(num(ad.pacerActual) ?? 0)}
-              </span>
-              <span className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-                <MetaBrandIcon className="w-3 h-3" />
-                from Meta
               </span>
             </div>
           ) : (
@@ -7634,132 +7755,6 @@ function PacerRow({
               placeholder="0.00"
             />
           )}
-          {/* Meta ad-set link. Picking an ad set overrides the name-match;
-              spend (and ABO budget) then come from "Sync from Meta". */}
-          <div className="mt-1.5">
-            <AdSetLinkPicker
-              value={ad.metaObjectId}
-              options={adSets}
-              loading={adSetsLoading}
-              error={adSetsError}
-              onOpen={onLoadAdSets}
-              onChange={onLinkChange}
-              disabled={readOnly}
-            />
-            {adSetsError && (
-              <div className="mt-1 text-[10px] text-[#ef4444]">
-                {adSetsError}
-              </div>
-            )}
-            {ad.metaObjectId && ad.pacerSyncedAt ? (
-              <div
-                className="mt-1 flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]"
-                title="Spend pulled from the linked Meta ad set. Re-run Sync from Meta to refresh."
-              >
-                <MetaBrandIcon className="w-3 h-3 flex-shrink-0" />
-                <span>Synced from Meta · {fmtSyncedAgo(ad.pacerSyncedAt)}</span>
-              </div>
-            ) : ad.metaObjectId ? (
-              <div className="mt-1 flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-                <MetaBrandIcon className="w-3 h-3 flex-shrink-0" />
-                <span>Linked — click &ldquo;Sync from Meta&rdquo; to pull spend</span>
-              </div>
-            ) : null}
-            {/* Meta's actual run schedule (from the sync), shown alongside the
-                planner's flight dates. When the run extends past the pacing
-                month, surface that the pacer is scoped to month-end so the
-                shorter "Days Remaining" reads as intended, not as a bug. */}
-            {(ad.metaStartDate || ad.metaEndDate) && (
-              <div className="mt-1 flex items-start gap-1 text-[10px] text-[var(--muted-foreground)]">
-                <CalendarIcon className="w-3 h-3 flex-shrink-0 mt-px" />
-                <span>
-                  Meta run: {ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'}{' '}
-                  → {ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}
-                  {effectiveEnd &&
-                    (!ad.metaEndDate || ad.metaEndDate > effectiveEnd) && (
-                      <span className="text-[var(--foreground)]/70">
-                        {' '}· paced to {fmtDate(effectiveEnd)} (month end)
-                      </span>
-                    )}
-                </span>
-              </div>
-            )}
-            {/* Full-run (all-month) spend — opt-in per ad. Only offered when the
-                ad's total run exceeds this month's spend (a genuine multi-month
-                ad). Hidden behind a toggle so a lifetime ad you only care about
-                this month for stays uncluttered; click to see the full date
-                range. The monthly Actual above always drives this month's pacing. */}
-            {(() => {
-              const run = num(ad.pacerRunSpend);
-              const month = num(ad.pacerActual) ?? 0;
-              if (run == null || run <= month + 0.005) return null;
-              return (
-                <div className="mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowRunSpend((v) => !v)}
-                    className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-                  >
-                    <MetaBrandIcon className="w-3 h-3 flex-shrink-0" />
-                    {showRunSpend ? 'Hide full-run spend' : 'View full-run spend'}
-                  </button>
-                  {showRunSpend && (
-                    <div
-                      className="mt-1 flex items-start gap-1 text-[10px] text-[var(--muted-foreground)]"
-                      title="Total spend across the ad's entire flight (all months), pulled from Meta. The monthly Actual above is what drives this month's pacing."
-                    >
-                      <span>
-                        Full run:{' '}
-                        <span className="font-semibold tabular-nums text-[var(--foreground)]">
-                          {fmt(run)}
-                        </span>
-                        {(ad.metaStartDate || ad.metaEndDate) && (
-                          <>
-                            {' '}·{' '}
-                            {ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'} →{' '}
-                            {ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-            {/* Meta status mismatch (Change 11): Meta reports the ad not
-                delivering while the planner still says Live and it's mid-flight.
-                Don't auto-flip (Meta "paused" can be a daily cap / billing hold)
-                — surface a one-click confirm. Past-end ads auto-complete server
-                side, so they won't reach here. */}
-            {(() => {
-              const meta = ad.metaEffectiveStatus;
-              const plannerLive =
-                ad.adStatus === 'Live' || ad.adStatus === 'Live - Changes Required';
-              if (!meta || !plannerLive || meta.toUpperCase() === 'ACTIVE') {
-                return null;
-              }
-              const through = ad.metaEndDate ?? ad.flightEnd;
-              return (
-                <div
-                  className="mt-1.5 rounded-md border px-2 py-1.5 text-[10px]"
-                  style={{ borderColor: `${COLORS.warn}66`, background: 'rgba(245,158,11,0.08)' }}
-                >
-                  <div className="text-[var(--foreground)] leading-snug">
-                    Meta shows <span className="font-semibold">{meta}</span>
-                    {through ? <> — but scheduled through {fmtDate(through)}</> : null}.
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onMarkOff}
-                    disabled={readOnly}
-                    className="mt-1 inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Mark Off in planner
-                  </button>
-                </div>
-              );
-            })()}
-          </div>
         </Field>
         <Field label="Daily Budget">
           {isLifetime ? (
@@ -7779,7 +7774,7 @@ function PacerRow({
           ) : !dailyEditing ? (
             // Synced — plain read-only value with a pencil to reveal the input.
             // Not a box that looks editable until you click the pencil.
-            <div className="flex items-center gap-2 py-2">
+            <div className="flex items-center gap-2">
               <span className="text-xl font-bold tabular-nums text-[var(--foreground)]">
                 {ad.pacerDailyBudget != null && ad.pacerDailyBudget !== ''
                   ? fmt(num(ad.pacerDailyBudget) ?? 0)
@@ -7848,199 +7843,201 @@ function PacerRow({
             </div>
           )}
         </Field>
+        {!syncedFromMeta && (
+          // Unsynced/manual: the link control is the third field. Once linked +
+          // synced, the connection header above replaces this.
+          <div>
+            <span className={labelClass} aria-hidden="true">&nbsp;</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {linkPicker}
+              {metaSyncInfo}
+            </div>
+          </div>
+        )}
+          </div>
+          {syncedFromMeta && (
+            // Connection footer — ad-set link + sync status below the spend
+            // metrics, instead of crammed in as a third field.
+            <div className="mt-3 flex items-center justify-between gap-4 border-t border-[var(--border)] px-3 pt-2.5">
+              {linkPicker}
+              <div className="flex flex-shrink-0 items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
+                {ad.pacerSyncedAt && (
+                  <span className="whitespace-nowrap">
+                    Synced {fmtSyncedAgo(ad.pacerSyncedAt)}
+                  </span>
+                )}
+                {metaSyncInfo}
+              </div>
+            </div>
+          )}
+          {adSetsError && (
+            <div className="mt-2 text-[10px] text-[#ef4444]">{adSetsError}</div>
+          )}
+        </div>
+        {/* Cross-month accounting — dropdown + its detail banner stacked into one
+            tidy column to the right of the spend fields, so the banner reads as
+            part of the chosen option. Shown only when the footer toggle is on. */}
+        {showCrossMonth && (
+          <div className="flex w-full flex-col gap-2 sm:w-[260px] flex-shrink-0">
+            <select
+              id={`cm-${ad.id}`}
+              value={cmSelValue}
+              disabled={readOnly}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === 'bill') {
+                  onResolveCrossMonth('apply_full_run');
+                } else if (v === 'split') {
+                  // Seed an even-split map so the single-row reference has values;
+                  // sibling rows override it when the ad spans months (#58).
+                  const per =
+                    cmMonths.length > 0
+                      ? Math.round((cmTarget / cmMonths.length) * 100) / 100
+                      : 0;
+                  const map: Record<string, number> = {};
+                  cmMonths.forEach((mm) => {
+                    map[mm] = per;
+                  });
+                  onResolveCrossMonth('split', map);
+                }
+              }}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--input)] focus:outline-none focus:border-[var(--primary)] text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="" disabled>
+                Cross-Month Accounting
+              </option>
+              <option value="split">Split across months</option>
+              <option value="bill">Bill in one month</option>
+            </select>
+            {cmSelValue === 'bill' && (
+              <div
+                className="rounded-md border px-2.5 py-2 text-[11px] leading-relaxed text-[var(--foreground)]"
+                style={{ borderColor: 'rgba(249,115,22,0.3)', background: 'rgba(249,115,22,0.08)' }}
+              >
+                Full run <span className="font-semibold">{fmt(cmRun)}</span> vs target{' '}
+                <span className="font-semibold">{fmt(cmTarget)}</span>
+                {cmTarget > 0 &&
+                  (() => {
+                    // The full-run pacing verdict — the whole run can pace
+                    // correctly even though the month's actual is just the slice.
+                    const d = cmRun / cmTarget - 1;
+                    const verdict =
+                      Math.abs(d) <= 0.1
+                        ? { t: '✓ on target', c: COLORS.success }
+                        : d > 0
+                          ? { t: `+${(d * 100).toFixed(0)}% over`, c: COLORS.error }
+                          : { t: `${(d * 100).toFixed(0)}% under`, c: COLORS.warn };
+                    return (
+                      <>
+                        {' — '}
+                        <span className="font-semibold" style={{ color: verdict.c }}>
+                          {verdict.t}
+                        </span>
+                      </>
+                    );
+                  })()}
+                {' · counts in '}
+                <span className="font-semibold" style={{ color: '#f97316' }}>
+                  {fmtPeriodLong(ad.fullRunAppliedToMonth ?? ad.period)}
+                </span>
+                .
+              </div>
+            )}
+            {cmSelValue === 'split' && (
+              <div className="rounded-md border border-[var(--border)] bg-[var(--muted)]/30 px-2.5 py-2 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                {isLifetime
+                  ? 'Each month keeps its own spend; the full variance settles when the run completes.'
+                  : "Each month keeps its own spend (the over/under uses this month's slice)."}
+                {cmHasSiblings && (
+                  <div className="mt-2 space-y-1.5 border-t border-[var(--border)] pt-2">
+                    <div className="font-semibold" style={{ color: COLORS.lifetime }}>
+                      Planned split (per month)
+                    </div>
+                    {cmSiblingPeriods.map((mm) => {
+                      const s = siblings![mm];
+                      const here = mm === ad.period;
+                      // The current month's line reads the live (possibly unsaved)
+                      // row values; other months come from the sibling rows.
+                      const planned = here ? (num(ad.allocation) ?? 0) : s.allocation;
+                      const actual = here ? (num(ad.pacerActual) ?? 0) : s.actual;
+                      return (
+                        <div key={mm} className="flex flex-col leading-tight">
+                          <span className="text-[var(--foreground)]">
+                            {fmtPeriodLong(mm)}
+                            {here && (
+                              <span className="text-[var(--muted-foreground)]">
+                                {' · this month'}
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[var(--muted-foreground)]">
+                            planned {fmt(planned)} · actual {fmt(actual)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {!cmHasSiblings && isLifetime && cmMonths.length > 1 && cmSplit != null && (
+                  <div className="mt-2 space-y-1.5 border-t border-[var(--border)] pt-2">
+                    <div className="font-semibold" style={{ color: COLORS.lifetime }}>
+                      Planned split (reference only)
+                    </div>
+                    {cmMonths.map((mm) => (
+                      <div key={mm} className="flex flex-col leading-tight">
+                        <span className="text-[var(--foreground)]">
+                          {fmtPeriodLong(mm)}
+                        </span>
+                        <span className="text-[var(--muted-foreground)]">
+                          {mm === ad.period
+                            ? `actual ${fmt(num(ad.pacerActual) ?? 0)} · `
+                            : ''}
+                          planned {fmt(cmSplit?.[mm] ?? 0)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {crossMonth && (
-        <div
-          className="mt-3 mb-3 rounded-lg border px-3 py-2.5"
-          style={{
-            borderColor: 'rgba(56,189,248,0.35)',
-            background: 'rgba(56,189,248,0.06)',
-          }}
-        >
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="min-w-0">
-              <div
-                className="text-[10px] font-bold uppercase tracking-wider mb-1"
-                style={{ color: '#38bdf8' }}
-              >
-                Cross-month — variance expected
-              </div>
-              <div className="text-[11px] text-[var(--foreground)] leading-snug">
-                {(() => {
-                  // Full run can never be below the in-month slice; when Meta
-                  // run-spend isn't synced (manual / name-match ad) fall back to
-                  // the entered actual so the verdict isn't a misleading $0.
-                  const run = Math.max(
-                    num(ad.pacerRunSpend) ?? 0,
-                    num(ad.pacerActual) ?? 0,
-                  );
-                  const target = num(ad.allocation) ?? 0;
-                  const onTrack =
-                    target > 0 && Math.abs(run / target - 1) <= 0.1;
-                  const rawStart =
-                    ad.metaStartDate ?? ad.liveDate ?? ad.flightStart;
-                  const rawEnd = ad.metaEndDate ?? ad.flightEnd;
-                  return (
-                    <>
-                      In-month slice{' '}
-                      <span className="font-semibold">{fmt(calc.spent)}</span> is
-                      only part of the run · spans{' '}
-                      {rawStart ? fmtDate(rawStart) : '—'} –{' '}
-                      {rawEnd ? fmtDate(rawEnd) : '—'}.{' '}
-                      <span className="font-semibold">
-                        Full run {fmt(run)} / {fmt(target)}
-                        {target > 0 ? (onTrack ? ' ✓ on track' : ' ⚠ off') : ''}
-                      </span>
-                      {ad.recurring === 'Yes'
-                        ? ' · recurring event — likely a full-run month'
-                        : ''}
-                    </>
-                  );
-                })()}
-              </div>
+
+      {/* Meta status mismatch (Change 11): full-width below the inputs so the
+          warning + one-click confirm aren't cramped in the link column. Meta
+          reports the ad not delivering while the planner still says Live mid-
+          flight; don't auto-flip (Meta "paused" can be a daily cap / billing
+          hold) — surface a one-click confirm. */}
+      {(() => {
+        const meta = ad.metaEffectiveStatus;
+        const plannerLive =
+          ad.adStatus === 'Live' || ad.adStatus === 'Live - Changes Required';
+        if (!meta || !plannerLive || meta.toUpperCase() === 'ACTIVE') return null;
+        const through = ad.metaEndDate ?? ad.flightEnd;
+        return (
+          <div
+            className="mb-3.5 rounded-md border px-2.5 py-2 text-[10px]"
+            style={{ borderColor: `${COLORS.warn}66`, background: 'rgba(245,158,11,0.08)' }}
+          >
+            <div className="text-[var(--foreground)] leading-snug">
+              Meta shows <span className="font-semibold">{meta}</span>
+              {through ? <> — but scheduled through {fmtDate(through)}</> : null}.
             </div>
             <button
               type="button"
-              onClick={() => onResolveCrossMonth('apply_full_run')}
+              onClick={onMarkOff}
               disabled={readOnly}
-              title="Count this ad's full run in its own month — the over/under then compares the full run to the full target."
-              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-[var(--primary)]/40 bg-[var(--primary)]/10 px-2.5 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="mt-1 inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Count full run in {fmtPeriodLong(ad.period)}
+              Mark Off in planner
             </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {resolvedFullRun && (
-        <div
-          className="mt-3 mb-3 rounded-lg border px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap"
-          style={{
-            borderColor: 'rgba(56,189,248,0.35)',
-            background: 'rgba(56,189,248,0.06)',
-          }}
-        >
-          <div className="text-[11px] text-[var(--foreground)] min-w-0">
-            <span className="font-semibold" style={{ color: '#38bdf8' }}>
-              Full run counted in {fmtPeriodLong(ad.fullRunAppliedToMonth ?? ad.period)}
-            </span>{' '}
-            — the over/under compares the full run{' '}
-            <span className="font-semibold">{fmt(num(ad.pacerRunSpend) ?? 0)}</span> to
-            the full target{' '}
-            <span className="font-semibold">{fmt(num(ad.allocation) ?? 0)}</span>.
-          </div>
-          <button
-            type="button"
-            onClick={() => onResolveCrossMonth('clear')}
-            disabled={readOnly}
-            className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
-          >
-            Clear
-          </button>
-        </div>
-      )}
 
-      {/* §2b — lifetime "split across months": an editable planned split,
-          display-only (the single variance still books once on completion via
-          §3). Only meaningful when the lifetime flight spans >1 calendar month. */}
-      {isLifetime &&
-        (() => {
-          const rawStart = ad.metaStartDate ?? ad.liveDate ?? ad.flightStart;
-          const rawEnd = ad.metaEndDate ?? ad.flightEnd;
-          if (!rawStart || !rawEnd) return null;
-          const months: string[] = [];
-          let y = Number(rawStart.slice(0, 4));
-          let mo = Number(rawStart.slice(5, 7));
-          const ey = Number(rawEnd.slice(0, 4));
-          const em = Number(rawEnd.slice(5, 7));
-          while ((y < ey || (y === ey && mo <= em)) && months.length < 25) {
-            months.push(`${y}-${String(mo).padStart(2, '0')}`);
-            mo += 1;
-            if (mo > 12) {
-              mo = 1;
-              y += 1;
-            }
-          }
-          if (months.length < 2) return null; // single-month lifetime — no split
-          let split: Record<string, number> | null = null;
-          try {
-            split = ad.lifetimeMonthSplit
-              ? (JSON.parse(ad.lifetimeMonthSplit) as Record<string, number>)
-              : null;
-          } catch {
-            split = null;
-          }
-          const total = num(ad.allocation) ?? 0;
-          if (!split) {
-            return (
-              <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-                <div className="text-[11px] text-[var(--muted-foreground)] min-w-0">
-                  Lifetime flight spans {months.length} months. Plan an intended
-                  per-month split — reference only; the variance still books once
-                  on completion.
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const per = Math.round((total / months.length) * 100) / 100;
-                    const map: Record<string, number> = {};
-                    months.forEach((mm) => {
-                      map[mm] = per;
-                    });
-                    onResolveCrossMonth('split', map);
-                  }}
-                  disabled={readOnly}
-                  className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-[var(--primary)]/40 bg-[var(--primary)]/10 px-2.5 py-1 text-[11px] font-medium text-[var(--primary)] hover:bg-[var(--primary)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Split evenly across {months.length} months
-                </button>
-              </div>
-            );
-          }
-          return (
-            <div
-              className="mt-3 rounded-lg border px-3 py-2.5"
-              style={{
-                borderColor: 'rgba(167,139,250,0.35)',
-                background: 'rgba(167,139,250,0.06)',
-              }}
-            >
-              <div className="flex items-center justify-between gap-3 flex-wrap mb-1.5">
-                <div
-                  className="text-[10px] font-bold uppercase tracking-wider"
-                  style={{ color: COLORS.lifetime }}
-                >
-                  Lifetime · planned split (reference only)
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onResolveCrossMonth('clear')}
-                  disabled={readOnly}
-                  className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:underline disabled:opacity-50"
-                >
-                  Clear split
-                </button>
-              </div>
-              <div className="space-y-0.5">
-                {months.map((mm) => (
-                  <div
-                    key={mm}
-                    className="text-[11px] text-[var(--foreground)] flex justify-between gap-3"
-                  >
-                    <span>{fmtPeriodLong(mm)}</span>
-                    <span className="text-[var(--muted-foreground)]">
-                      {mm === ad.period
-                        ? `actual ${fmt(num(ad.pacerActual) ?? 0)} · `
-                        : ''}
-                      planned {fmt(split?.[mm] ?? 0)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
 
       {/* Stopped / past-due states replace the projection grid. Off or
           Completed Run freezes the math at the entered actuals; past-flight
@@ -8197,12 +8194,16 @@ function PacerRow({
           color={recColor}
         />
       </div>
+        </>
+      )}
 
-      {/* Footer — plain-English insight on the left, Mute alerts toggle on the
-          right in its own area. */}
+      {/* Footer — the cross-month toggle stays available even on completed /
+          past runs (its classification is still editable); the pacing insight
+          and mute control show only while the ad is actively pacing. */}
       <div className="mt-3 pt-3 border-t border-[var(--border)] flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 flex-1">
-          {(() => {
+          {showsProjection &&
+            (() => {
         if (calc.budget <= 0) return null;
         if (!calc.hasDates) return null;
         if (calc.spent >= calc.budget) {
@@ -8268,33 +8269,66 @@ function PacerRow({
         );
       })()}
         </div>
-        {/* Mute alerts — text button in the card footer (bell = on,
-            bell-with-slash + amber = muted). */}
-        <button
-          type="button"
-          onClick={onMuteToggle}
-          disabled={readOnly}
-          title={
-            ad.alertsMuted
-              ? 'Alerts muted for this ad — click to unmute'
-              : 'Mute pacing / dark / flight alerts for this ad'
-          }
-          className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-            ad.alertsMuted
-              ? 'border-[rgba(245,158,11,0.45)] bg-[rgba(245,158,11,0.12)] text-[#f59e0b]'
-              : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
-          }`}
-        >
-          {ad.alertsMuted ? (
-            <BellOffIcon className="w-3.5 h-3.5" />
-          ) : (
-            <BellIcon className="w-3.5 h-3.5" />
+        {/* Footer controls — cross-month toggle + icon-only mute. */}
+        <div className="flex flex-shrink-0 items-center gap-3">
+          {/* Cross-month accounting toggle — reveals the dropdown on the input
+              row; turning it off clears any Bill/Split classification. Orange =
+              on (matches the cross-month theme). */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showCrossMonth}
+            onClick={() => {
+              if (showCrossMonth) {
+                setShowCrossMonth(false);
+                if (cmSelValue !== '') onResolveCrossMonth('clear');
+              } else {
+                setShowCrossMonth(true);
+              }
+            }}
+            disabled={readOnly}
+            title="Cross-month accounting for this ad"
+            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span
+              className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors"
+              style={{ background: showCrossMonth ? '#f97316' : 'var(--border)' }}
+            >
+              <span
+                className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                  showCrossMonth ? 'translate-x-3.5' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+            Cross-month
+          </button>
+          {/* Mute alerts — icon only; hidden on completed / past runs (pacing
+              alerts no longer apply there). */}
+          {showsProjection && (
+            <button
+              type="button"
+              onClick={onMuteToggle}
+              disabled={readOnly}
+              title={
+                ad.alertsMuted
+                  ? 'Alerts muted for this ad — click to unmute'
+                  : 'Mute pacing / dark / flight alerts for this ad'
+              }
+              className={`inline-flex flex-shrink-0 items-center justify-center rounded-md border p-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                ad.alertsMuted
+                  ? 'border-[rgba(245,158,11,0.45)] bg-[rgba(245,158,11,0.12)] text-[#f59e0b]'
+                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              {ad.alertsMuted ? (
+                <BellOffIcon className="w-3.5 h-3.5" />
+              ) : (
+                <BellIcon className="w-3.5 h-3.5" />
+              )}
+            </button>
           )}
-          {ad.alertsMuted ? 'Alerts muted' : 'Mute alerts'}
-        </button>
+        </div>
       </div>
-        </>
-      )}
         </div>
       )}
     </div>
@@ -8417,12 +8451,17 @@ function PacerCompletedSummary({
 
 // ─── Budget Pacer panel ────────────────────────────────────────────────────
 interface AccountPacing {
-  pct: number;
-  status: 'on-track' | 'over' | 'under';
-  // §7: 'pacing' = live forward-looking rollup; 'final' = a settled
-  // (frozen/closed) month's final variance. Drives the badge label + how pct
-  // is read (live shows the ratio; final shows the exact delta from target).
-  mode: 'pacing' | 'final';
+  // 'final' = a settled (frozen/closed) month's final variance (colored
+  // over/under verdict). 'progress' = a LIVE month's plain spend-of-target
+  // readout — deliberately NOT a pace verdict, so a mid-month "60% spent" can't
+  // false-alarm as "under"; the per-ad pacing badges carry the on-pace judgment.
+  mode: 'progress' | 'final';
+  pct: number; // spent ÷ target × 100
+  status: 'on-track' | 'over' | 'under' | 'neutral'; // 'progress' is always neutral
+  spent: number; // account actual spend
+  target: number; // effective spend target (client budget × markup + carryover)
+  dayElapsed: number; // live only: day-of-month so the % reads in context
+  dayTotal: number;
 }
 
 function PacerSpendTotals({
@@ -8438,21 +8477,23 @@ function PacerSpendTotals({
   // per-ad (finished ads contribute full target, mid-flight ads prorated).
   pacing?: AccountPacing | null;
 }) {
+  const isFinal = pacing?.mode === 'final';
+  const isProgress = pacing?.mode === 'progress';
+  // 'final' = a colored over/under verdict; 'progress' = a neutral readout.
   const pacingColor =
     pacing == null
       ? undefined
-      : pacing.status === 'on-track'
-        ? COLORS.success
-        : pacing.status === 'over'
-          ? COLORS.error
-          : COLORS.warn;
-  // §7: a live month rolls up per-ad pace (shown as a ratio %); a frozen/closed
-  // month shows the settled final variance (exact delta from target).
-  const isFinal = pacing?.mode === 'final';
-  const pacingHeader = isFinal ? 'Final variance' : 'Pacing';
+      : isProgress
+        ? 'var(--muted-foreground)'
+        : pacing.status === 'on-track'
+          ? COLORS.success
+          : pacing.status === 'over'
+            ? COLORS.error
+            : COLORS.warn;
+  const pacingHeader = isFinal ? 'Final variance' : 'Spend progress';
   const pacingTitle = isFinal
     ? "Settled month: total actual spend vs the account's effective target (client budget × markup + carryover) — the final over/under, matching the Over/Under page."
-    : 'Actual spend vs time-adjusted expected spend, rolled up over eligible LIVE ads only — not-started, completed, and lifetime ads are excluded, each prorated on its own flight window. TOTAL SPEND is never the denominator.';
+    : "Account spend so far vs the month's effective target (client budget × markup + carryover), with day-of-month context. A plain progress readout — NOT a pace verdict; read the per-ad pacing badges for on-track health.";
   const pacingLabel =
     pacing == null
       ? ''
@@ -8462,11 +8503,7 @@ function PacerSpendTotals({
           : `${pacing.pct - 100 > 0 ? '+' : ''}${(pacing.pct - 100).toFixed(1)}% ${
               pacing.status === 'over' ? 'over' : 'under'
             }`
-        : pacing.status === 'on-track'
-          ? 'On track'
-          : pacing.status === 'over'
-            ? `Over ${pacing.pct.toFixed(0)}%`
-            : `Under ${pacing.pct.toFixed(0)}%`;
+        : `${pacing.pct.toFixed(0)}% of target · day ${pacing.dayElapsed}/${pacing.dayTotal}`;
   return (
     <div className="flex flex-wrap gap-6 items-center justify-end">
       <div className="text-right">
@@ -8492,7 +8529,11 @@ function PacerSpendTotals({
           </div>
           <span
             className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mt-0.5"
-            style={{ background: `${pacingColor}22`, color: pacingColor }}
+            style={
+              isProgress
+                ? { background: 'var(--muted)', color: 'var(--foreground)' }
+                : { background: `${pacingColor}22`, color: pacingColor }
+            }
             title={pacingTitle}
           >
             {pacingLabel}
@@ -8526,6 +8567,9 @@ function BudgetPacerPanel({
   // still toggle each manually.
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const seededExpandedRef = useRef(false);
+  // Cross-month reassurance note is dismissible (X) — once closed it stays
+  // hidden for this view.
+  const [crossMonthNoteDismissed, setCrossMonthNoteDismissed] = useState(false);
 
   const updateAd = (u: PacerAd) =>
     onChange({ ...plan, ads: plan.ads.map((a) => (a.id === u.id ? u : a)) });
@@ -8681,14 +8725,56 @@ function BudgetPacerPanel({
       // Settled: report the exact final variance, no pacing tolerance band.
       const status =
         Math.abs(delta) < 0.5 ? 'on-track' : delta > 0 ? 'over' : 'under';
-      return { pct, status, mode: 'final' };
+      return {
+        mode: 'final',
+        pct,
+        status,
+        spent: totals.actual - ipLifeActual,
+        target: baseTarget,
+        dayElapsed: 0,
+        dayTotal: 0,
+      };
     }
 
-    // §7 live rollup — shared with the §9 pace alert so the badge and the alert
-    // can never disagree (computeAccountPace is the one implementation).
-    const pace = computeAccountPace(plan.ads, nowMs, plan.timeZone);
-    if (!pace) return null;
-    return { pct: pace.pct, status: pace.status, mode: 'pacing' };
+    // Live month: a plain spend-of-target progress readout — NOT a pace verdict.
+    // The per-ad pacing badges carry the "are we on pace?" judgment; this just
+    // answers "how much of the month's target have we spent, and how far into
+    // the month are we" — neutral, so it can't false-alarm. (The §9 account-pace
+    // alert still uses computeAccountPace server-side — a separate surface.)
+    const gross =
+      (num(plan.baseBudgetGoal) ?? 0) + (num(plan.addedBudgetGoal) ?? 0);
+    const carry =
+      (num(plan.baseCarryover) ?? 0) + (num(plan.addedCarryover) ?? 0);
+    const target = effectiveSpendTarget(gross, effMarkupOf(plan.markup), carry);
+    // §3 / §0.4: exclude in-progress lifetime ads from BOTH sides, exactly like
+    // the frozen path + the Over/Under page — their variance books on completion,
+    // so they aren't part of the settle-able spend progress yet (keeps the badge
+    // agreeing with those surfaces).
+    let ipLifeActual = 0;
+    let ipLifeAlloc = 0;
+    for (const ad of plan.ads) {
+      if (!isLifetimeInProgress(ad, nowMs, plan.timeZone)) continue;
+      ipLifeActual += effectiveActual(ad);
+      ipLifeAlloc += num(ad.allocation) ?? 0;
+    }
+    const baseTarget = target - ipLifeAlloc;
+    const baseSpent = totals.actual - ipLifeActual;
+    if (baseTarget <= 0) return null;
+    const now = new Date(nowMs);
+    const [py, pm] = plan.period.split('-').map(Number);
+    const dayTotal = new Date(py, pm, 0).getDate();
+    const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const dayElapsed =
+      todayMonth === plan.period ? now.getDate() : todayMonth > plan.period ? dayTotal : 0;
+    return {
+      mode: 'progress',
+      pct: (baseSpent / baseTarget) * 100,
+      status: 'neutral',
+      spent: baseSpent,
+      target: baseTarget,
+      dayElapsed,
+      dayTotal,
+    };
   }, [plan, totals.actual]);
 
   // Auto-expand needs-attention rows ONCE per mount so the rep lands on
@@ -8838,29 +8924,38 @@ function BudgetPacerPanel({
         </div>
       </div>
       {(() => {
-        // §1: standing reassurance that an odd-looking total is explained.
-        const crossMonthCount = visibleAds.filter((a) =>
-          isCrossMonthStraddler(a),
-        ).length;
-        if (crossMonthCount === 0) return null;
-        return (
-          <div className="mb-3 text-[11px]" style={{ color: '#38bdf8' }}>
-            {crossMonthCount} cross-month ad{crossMonthCount === 1 ? '' : 's'} —
-            variance expected (the in-month slice is part of a run that crosses
-            the month; expand a flagged row for the full-run verdict).
-          </div>
-        );
-      })()}
-      {(() => {
-        // §2a: how many straddlers have been resolved (full run counted whole).
-        const fullRunCount = visibleAds.filter(
+        // Reassurance that an odd-looking total is explained — driven by the
+        // user's MANUAL cross-month marks (no auto-detection): a billed
+        // cross-month ad counts its full run in the over/under though only its
+        // in-month slice lands in the month total.
+        const crossMonthCount = visibleAds.filter(
           (a) => a.fullRunAppliedToMonth != null,
         ).length;
-        if (fullRunCount === 0) return null;
+        if (crossMonthCount === 0 || crossMonthNoteDismissed) return null;
         return (
-          <div className="mb-3 text-[11px]" style={{ color: '#38bdf8' }}>
-            {fullRunCount} ad{fullRunCount === 1 ? '' : 's'} with full-run applied
-            — counted whole in this month, not split across the boundary.
+          <div
+            className="mb-3 flex items-start justify-between gap-3 rounded-md border px-2.5 py-1.5 text-[11px]"
+            style={{
+              borderColor: 'rgba(249,115,22,0.3)',
+              background: 'rgba(249,115,22,0.08)',
+              color: '#f97316',
+            }}
+          >
+            <span>
+              {crossMonthCount} ad{crossMonthCount === 1 ? '' : 's'} billed
+              cross-month — the full run is counted in the over/under though part
+              spent in another month, so the monthly total can differ (expand a
+              flagged row for details).
+            </span>
+            <button
+              type="button"
+              onClick={() => setCrossMonthNoteDismissed(true)}
+              aria-label="Dismiss"
+              title="Dismiss"
+              className="flex-shrink-0 -mr-0.5 rounded p-0.5 hover:bg-[var(--muted)] transition-colors"
+            >
+              <XMarkIcon className="w-3.5 h-3.5" />
+            </button>
           </div>
         );
       })()}
@@ -8929,6 +9024,7 @@ function BudgetPacerPanel({
             onResolveCrossMonth={(action, splitMap) =>
               resolveCrossMonth(ad.id, action, splitMap)
             }
+            siblings={plan.siblingsByName?.[ad.name] ?? null}
           />
         ))
       )}
@@ -9200,6 +9296,14 @@ interface ReconMonth {
   // §3: month has a lifetime ad still running — excluded from the over/under
   // base (books once on completion); drives the 'lifetime · in progress' badge.
   hasLifetimeInProgress: boolean;
+  // CM4: per-ad over/under contributions for this month — the row drill-down.
+  ads?: {
+    name: string;
+    inMonthSpend: number;
+    billedActual: number;
+    contribution: number;
+    klass: 'real' | 'billed-cross-month' | 'lifetime-in-progress';
+  }[];
 }
 interface CarryoverApplication {
   id: string;
@@ -9243,6 +9347,8 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
   const [bucket, setBucket] = useState<'base' | 'added'>('base');
   const [backfilling, setBackfilling] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // CM4: which month rows are expanded to their per-ad variance breakdown.
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 
   const load = useCallback(() => {
     setData(null);
@@ -9519,15 +9625,35 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                   const needsTarget = m.isBackfilled && !m.hasTarget;
                   const applied = Math.abs(m.appliedOut) >= 0.005;
                   const ou = overUnder(m.variance);
+                  const hasAdDetail = (m.ads?.length ?? 0) > 0;
+                  const expanded = expandedMonths.has(m.period);
                   return (
+                    <Fragment key={m.period}>
                     <tr
-                      key={m.period}
                       className={`border-b border-[var(--border)] last:border-0 ${
                         isLive ? 'bg-[var(--primary)]/5' : ''
                       }`}
                     >
                       <td className="px-3 py-2.5">
                         <div className="font-semibold text-[var(--foreground)] flex items-center gap-2">
+                          {hasAdDetail && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedMonths((s) => {
+                                  const next = new Set(s);
+                                  if (next.has(m.period)) next.delete(m.period);
+                                  else next.add(m.period);
+                                  return next;
+                                })
+                              }
+                              aria-label={expanded ? 'Hide ad breakdown' : 'Show ad breakdown'}
+                              className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                              style={{ transform: expanded ? 'rotate(90deg)' : 'none' }}
+                            >
+                              <ChevronRightIcon className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {fmtPeriodLong(m.period)}
                           {isLive && (
                             <span className="text-[9px] font-medium uppercase tracking-wider rounded px-1.5 py-0.5 bg-[var(--primary)]/15 text-[var(--primary)]">
@@ -9700,6 +9826,66 @@ function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                         )}
                       </td>
                     </tr>
+                    {expanded && hasAdDetail && (
+                      <tr className={isLive ? 'bg-[var(--primary)]/5' : ''}>
+                        <td colSpan={5} className="px-3 pb-3 pt-0">
+                          <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/20 overflow-hidden">
+                            <div className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-[var(--muted-foreground)] border-b border-[var(--border)]">
+                              Variance by ad
+                            </div>
+                            <div className="divide-y divide-[var(--border)]/60">
+                              {(m.ads ?? []).map((av, i) => {
+                                const amtColor =
+                                  av.klass === 'lifetime-in-progress'
+                                    ? COLORS.lifetime
+                                    : av.klass === 'billed-cross-month'
+                                      ? '#f97316'
+                                      : overUnder(av.contribution).color;
+                                return (
+                                  <div
+                                    key={`${m.period}-${i}`}
+                                    className="flex items-center justify-between gap-3 px-3 py-1.5"
+                                  >
+                                    <div className="min-w-0 flex items-center gap-2">
+                                      <span className="text-[11px] text-[var(--foreground)] truncate">
+                                        {av.name || 'Untitled ad'}
+                                      </span>
+                                      {av.klass === 'billed-cross-month' && (
+                                        <span
+                                          className="text-[9px] font-semibold flex-shrink-0"
+                                          style={{ color: '#f97316' }}
+                                          title="Billed in this month though it ran across months — the over/under counts its full run; only part spent this month."
+                                        >
+                                          billed cross-month
+                                        </span>
+                                      )}
+                                      {av.klass === 'lifetime-in-progress' && (
+                                        <span
+                                          className="text-[9px] font-semibold flex-shrink-0"
+                                          style={{ color: COLORS.lifetime }}
+                                          title="Lifetime ad still running — its spend is held out of the over/under until the run completes."
+                                        >
+                                          lifetime · books on completion
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span
+                                      className="text-[11px] font-semibold tabular-nums flex-shrink-0"
+                                      style={{ color: amtColor }}
+                                    >
+                                      {av.klass === 'lifetime-in-progress'
+                                        ? `${fmt(av.inMonthSpend)} held`
+                                        : `${av.contribution >= 0 ? '+' : '−'}${fmt(Math.abs(av.contribution))}`}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -9745,6 +9931,14 @@ interface MonthAd {
   // §2a: the YYYY-MM the ad's full run was counted in (resolved straddler), or
   // null. Drives the 'full run → applied to [month]' badge on the row.
   fullRunAppliedToMonth: string | null;
+  // Cross-month clarity: this ad's over/under contribution + WHY it differs from
+  // plan. Computed server-side (classifyAdVariance) so every surface agrees.
+  variance?: {
+    inMonthSpend: number;
+    billedActual: number;
+    contribution: number;
+    klass: 'real' | 'billed-cross-month' | 'lifetime-in-progress';
+  };
 }
 
 interface MonthPlanData {
@@ -9779,7 +9973,13 @@ function daysElapsedInPeriod(period: string): number {
   return today.getDate();
 }
 
-function ComparePanel({ accountKey }: { accountKey: string | null }) {
+function ComparePanel({
+  accountKey,
+  period,
+}: {
+  accountKey: string | null;
+  period: string;
+}) {
   // §6: the Over/Under page is a within-month, per-ad diagnostic only. Everything
   // cross-month/annual (running balance, adjusted targets, apply/undo, audit
   // trail) lives on the Reconciliation page, which owns it — so the old "Year"
@@ -9792,13 +9992,20 @@ function ComparePanel({ accountKey }: { accountKey: string | null }) {
           {accountKey ? 'Over/Under Spend' : 'Over/Under Spend — all accounts'}
         </h2>
       </div>
-      <OverUnderMonthView accountKey={accountKey} />
+      <OverUnderMonthView accountKey={accountKey} period={period} />
     </div>
   );
 }
 
-function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
-  const [period, setPeriod] = useState<string>(() => currentPeriod());
+function OverUnderMonthView({
+  accountKey,
+  period,
+}: {
+  accountKey: string | null;
+  // Driven by the page's sticky-header month selector — no separate in-page
+  // selector (single source of truth for the active month).
+  period: string;
+}) {
   const [data, setData] = useState<MonthPlanData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -9845,10 +10052,13 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
                 pacerRunSpend?: string | null;
                 fullRunAppliedToMonth?: string | null;
                 lifetimeInProgress?: boolean;
+                variance?: {
+                  inMonthSpend: number;
+                  billedActual: number;
+                  contribution: number;
+                  klass: 'real' | 'billed-cross-month' | 'lifetime-in-progress';
+                };
               }) => {
-                // §2: a resolved straddler shows its FULL run + full target in
-                // its own month; effectiveActual/Target collapse to the month
-                // slice otherwise.
                 const eff = { ...a, period: a.period ?? period };
                 return {
                   id: a.id,
@@ -9865,9 +10075,12 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
                       : ('Daily' as const),
                   splitBaseAmount: a.splitBaseAmount ?? null,
                   allocation: effectiveTarget(eff),
-                  actual: effectiveActual(eff),
+                  // Display/total = what actually spent THIS month (the slice);
+                  // the over/under uses billedActual from `variance` below.
+                  actual: a.variance?.inMonthSpend ?? effectiveActual(eff),
                   lifetimeInProgress: a.lifetimeInProgress === true,
                   fullRunAppliedToMonth: a.fullRunAppliedToMonth ?? null,
+                  variance: a.variance,
                 };
               },
             ),
@@ -9925,25 +10138,41 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
     data?.spendTargetOverride != null
       ? data.spendTargetOverride
       : budgetGross * effectiveMarkup;
-  // §3: TWO independent sums. (1) Total month spend — every ad's actual,
-  // lifetime slice included — shown as the per-ad "Tracked total". (2) Over/
-  // under base — EXCLUDES lifetime ads still in progress (both their actual
-  // slice AND their allocation), so a running lifetime ad contributes $0 to the
-  // variance; its single variance books when the run completes (it re-enters
-  // the base naturally as a completed ad).
+  // The split (X2): two reconciling totals.
+  //  • totalInMonth — what actually spent THIS calendar month (every ad's
+  //    in-month slice). The honest "total spend".
+  //  • overUnderActual — what the over/under is BILLED on: the full run for an
+  //    ad the user billed cross-month (variance.billedActual), and $0 for an
+  //    in-progress lifetime ad (§3, books on completion) — so both are handled
+  //    without a separate subtraction.
   const allAds = data?.ads ?? [];
   const inProgressLifetime = allAds.filter((a) => a.lifetimeInProgress);
-  const ipLifeActual = inProgressLifetime.reduce((s, a) => s + a.actual, 0);
   const ipLifeAlloc = inProgressLifetime.reduce((s, a) => s + a.allocation, 0);
-  const trackedTotal = allAds.reduce((s, a) => s + a.actual, 0);
-  const baseActual = trackedTotal - ipLifeActual; // settle-able base actual
+  const totalInMonth = allAds.reduce((s, a) => s + a.actual, 0);
+  const overUnderActual = allAds.reduce(
+    (s, a) => s + (a.variance?.billedActual ?? a.actual),
+    0,
+  );
   const daysIn = daysInPeriod(period);
   const daysElapsed = daysElapsedInPeriod(period);
-  // "Should have spent" drops day proration (end-of-month retrospective) and,
-  // per §3, nets out the allocation of any lifetime ad still in progress.
+  // Target nets out an in-progress lifetime ad's allocation (§3).
   const shouldHaveSpent = budgetActual - ipLifeAlloc;
-  // Variance is measured on the settle-able base (lifetime-in-progress excluded).
-  const variance = baseActual - shouldHaveSpent;
+  const variance = overUnderActual - shouldHaveSpent;
+
+  // What explains total ≠ over/under basis: cross-month-billed runs (billed here
+  // but spent in another month) + in-progress lifetime spend (spent this month,
+  // not yet booked).
+  const billedElsewhere = allAds.reduce(
+    (s, a) =>
+      a.variance?.klass === 'billed-cross-month'
+        ? s + (a.variance.billedActual - a.variance.inMonthSpend)
+        : s,
+    0,
+  );
+  const heldOutLifetime = inProgressLifetime.reduce((s, a) => s + a.actual, 0);
+  const crossMonthCount = allAds.filter(
+    (a) => a.variance?.klass === 'billed-cross-month',
+  ).length;
 
   const varianceColor = (v: number) =>
     Math.abs(v) < 0.005
@@ -9954,35 +10183,12 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-        <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] p-1">
-          <button
-            type="button"
-            onClick={() => setPeriod((p) => shiftPeriod(p, -1))}
-            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
-            aria-label="Previous month"
-          >
-            <ChevronLeftIcon className="w-4 h-4" />
-          </button>
-          <span className="text-xs font-bold px-3 min-w-[8rem] text-center">
-            {fmtPeriodLong(period)}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPeriod((p) => shiftPeriod(p, 1))}
-            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
-            aria-label="Next month"
-          >
-            <ChevronRightIcon className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setPeriod(currentPeriod())}
-            className="ml-1 px-2 py-1 text-[10px] font-medium rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
-          >
-            Today
-          </button>
-        </div>
+      {/* Month is controlled by the page's sticky-header selector — this is a
+          read-only label for context, not a second selector. */}
+      <div className="flex items-baseline justify-between gap-3 mb-4 flex-wrap">
+        <span className="text-sm font-bold text-[var(--foreground)]">
+          {fmtPeriodLong(period)}
+        </span>
         <div className="text-[10px] text-[var(--muted-foreground)]">
           {daysElapsed} of {daysIn} day{daysIn === 1 ? '' : 's'} elapsed
         </div>
@@ -10048,7 +10254,7 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
                             {ad.fullRunAppliedToMonth && (
                               <span
                                 className="ml-1 font-semibold"
-                                style={{ color: '#38bdf8' }}
+                                style={{ color: '#f97316' }}
                                 title="Full run counted in this month — the over/under compares the full run to the full target."
                               >
                                 · full run → {fmtPeriodLong(ad.fullRunAppliedToMonth)}
@@ -10057,18 +10263,37 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
                           </div>
                         )}
                       </div>
-                      <div className="text-sm font-semibold text-[var(--foreground)] tabular-nums whitespace-nowrap">
-                        {fmt(ad.actual)}
+                      <div className="text-right whitespace-nowrap">
+                        <div className="text-sm font-semibold text-[var(--foreground)] tabular-nums">
+                          {fmt(ad.actual)}
+                        </div>
+                        {ad.id !== 'aggregate' &&
+                          ad.variance &&
+                          ad.variance.klass !== 'lifetime-in-progress' &&
+                          Math.abs(ad.variance.contribution) >= 0.005 && (
+                            <div
+                              className="text-[9px] font-semibold tabular-nums leading-tight"
+                              style={{ color: varianceColor(ad.variance.contribution) }}
+                              title={
+                                ad.variance.klass === 'billed-cross-month'
+                                  ? "This ad's over/under on its FULL run vs target (billed in this month)."
+                                  : "This ad's over/under vs its allocation."
+                              }
+                            >
+                              {ad.variance.contribution >= 0 ? '+' : '−'}
+                              {fmt(Math.abs(ad.variance.contribution))}
+                            </div>
+                          )}
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="flex items-center justify-between gap-3 px-3 py-2 bg-[var(--muted)]/40 border-t-2 border-[var(--border)]">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--foreground)]">
-                    Tracked total · {data.ads.length} ad{data.ads.length === 1 ? '' : 's'}
+                    Total spent this month · {data.ads.length} ad{data.ads.length === 1 ? '' : 's'}
                   </div>
                   <div className="text-sm font-bold tabular-nums text-[var(--foreground)]">
-                    {fmt(trackedTotal)}
+                    {fmt(totalInMonth)}
                   </div>
                 </div>
               </>
@@ -10133,9 +10358,9 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
                 </span>
               </div>
               <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                {inProgressLifetime.length > 0 ? 'settle-able spend ' : 'tracked total '}
+                billed{' '}
                 <span className="font-semibold text-[var(--foreground)]">
-                  {fmt(baseActual)}
+                  {fmt(overUnderActual)}
                 </span>
                 {' − '}
                 <span className="font-semibold text-[var(--foreground)]">
@@ -10143,6 +10368,20 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
                 </span>
                 {' should have spent'}
               </div>
+              {crossMonthCount > 0 && (
+                <div
+                  className="text-[10px] mt-1"
+                  style={{ color: '#f97316' }}
+                  title="These ads are billed in this month though they ran across months — the over/under counts their full run, so the month's total spend is lower by the part that spent in another month."
+                >
+                  {crossMonthCount} ad{crossMonthCount === 1 ? '' : 's'} billed cross-month ·{' '}
+                  <span className="font-semibold text-[var(--foreground)]">
+                    {fmt(billedElsewhere)}
+                  </span>{' '}
+                  of the billed spend landed in another month (total spent this month{' '}
+                  {fmt(totalInMonth)})
+                </div>
+              )}
               {inProgressLifetime.length > 0 && (
                 <div
                   className="text-[10px] mt-1"
@@ -10151,7 +10390,7 @@ function OverUnderMonthView({ accountKey }: { accountKey: string | null }) {
                 >
                   Excludes {inProgressLifetime.length} lifetime ad
                   {inProgressLifetime.length === 1 ? '' : 's'} in progress ·{' '}
-                  {fmt(ipLifeActual)} spent · settles on completion
+                  {fmt(heldOutLifetime)} spent · settles on completion
                 </div>
               )}
             </div>
@@ -10738,6 +10977,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
           addedCarryover: planData.addedCarryover ?? null,
           priorOverUnder: planData.priorOverUnder ?? null,
           ads: Array.isArray(planData.ads) ? planData.ads : [],
+          siblingsByName: planData.siblingsByName,
         });
         setPeriodSummaries(
           Array.isArray(periodsData?.periods) ? periodsData.periods : [],
@@ -10862,6 +11102,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
         addedCarryover: data.addedCarryover ?? null,
         priorOverUnder: data.priorOverUnder ?? null,
         ads: Array.isArray(data.ads) ? data.ads : [],
+        siblingsByName: data.siblingsByName,
       });
       const sync = data.sync as
         | { matched: number; total: number; results: { matched: boolean; name: string }[] }
@@ -10925,6 +11166,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
         addedCarryover: data.addedCarryover ?? null,
         priorOverUnder: data.priorOverUnder ?? null,
         ads: Array.isArray(data.ads) ? data.ads : [],
+        siblingsByName: data.siblingsByName,
       });
       // Re-enable autosave from the reopened baseline.
       lastSavedRef.current = '';
@@ -10972,6 +11214,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
         addedCarryover: data.addedCarryover ?? null,
         priorOverUnder: data.priorOverUnder ?? null,
         ads: Array.isArray(data.ads) ? data.ads : [],
+        siblingsByName: data.siblingsByName,
       });
       toast.success(`${fmtPeriodLong(period)} re-frozen.`);
     } catch {
@@ -11022,6 +11265,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
         addedCarryover: data.addedCarryover ?? null,
         priorOverUnder: data.priorOverUnder ?? null,
         ads: Array.isArray(data.ads) ? data.ads : [],
+        siblingsByName: data.siblingsByName,
       });
       toast.success(
         clear
@@ -11076,6 +11320,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
         addedCarryover: updated.addedCarryover ?? null,
         priorOverUnder: updated.priorOverUnder ?? null,
         ads: Array.isArray(updated.ads) ? updated.ads : [],
+        siblingsByName: updated.siblingsByName,
       });
       lastSavedRef.current = JSON.stringify({
         baseBudgetGoal: updated.baseBudgetGoal,
@@ -11684,7 +11929,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
           {!activeKey ? (
             mode === 'pacer' && pacerTab === 'compare' ? (
               <div className="glass-section-card rounded-xl px-7 py-7">
-                <ComparePanel accountKey={null} />
+                <ComparePanel accountKey={null} period={period} />
               </div>
             ) : (
               <OverviewView
@@ -11760,7 +12005,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
                   accountKey={activeKey}
                 />
               ) : pacerTab === 'compare' ? (
-                <ComparePanel accountKey={activeKey} />
+                <ComparePanel accountKey={activeKey} period={period} />
               ) : (
                 <SummaryPanel plan={plan} />
               );

@@ -17,7 +17,11 @@ import {
 import { getGlobalDefaultMarkup } from '@/lib/services/markup';
 // §3: the ONE "lifetime ad still running" predicate, shared with the client so
 // the over/under base excludes the same ads everywhere.
-import { isLifetimeInProgress, effectiveActual } from '@/app/tools/meta/_lib/pacer-calc';
+import {
+  isLifetimeInProgress,
+  effectiveActual,
+  classifyAdVariance,
+} from '@/app/tools/meta/_lib/pacer-calc';
 import { writeAudit } from '@/lib/meta-ads-audit';
 
 function attachUrl<T extends { attachmentKey: string | null }>(entry: T): T & { attachmentUrl: string | null } {
@@ -149,6 +153,10 @@ export async function fetchPeriodPlan(planId: string, period: string) {
       // §3: lifetime ad still running — the Over/Under view excludes it from the
       // settle-able base while it runs (it still shows in total spend).
       lifetimeInProgress: isLifetimeInProgress(ad, nowMs, tz),
+      // Cross-month clarity: this ad's over/under contribution + WHY it differs
+      // from plan (real vs cross-month timing). Computed here so the Pacer card,
+      // the Over/Under page, and reconciliation all agree (§0.4).
+      variance: classifyAdVariance(ad, period, nowMs, tz),
       activityLog: ad.activityLog.map(attachUrl),
     })),
   };
@@ -299,6 +307,49 @@ export async function isPeriodWritable(
  * - current / grace / future → serve live.
  * The returned shape extends fetchPeriodPlan's payload with frozen/monthState.
  */
+/**
+ * #58 cross-month split reference: for each ad NAME present in more than one
+ * period of this plan, the planned target (`allocation`) and in-month actual
+ * (`pacerActual`) of each period's row. Lets a lifetime ad's card render its
+ * REAL per-month split from the same-title sibling rows the user planned in
+ * each month — instead of an even split. Names in a single period have no
+ * siblings and are omitted.
+ */
+async function getSiblingAllocations(
+  planId: string,
+): Promise<Record<string, Record<string, { allocation: number; actual: number }>>> {
+  const rows = await prisma.metaAdsPacerAd.findMany({
+    where: { planId },
+    select: { name: true, period: true, allocation: true, pacerActual: true },
+  });
+  const periodsByName = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const nm = r.name.trim();
+    if (!nm) continue;
+    let set = periodsByName.get(nm);
+    if (!set) {
+      set = new Set();
+      periodsByName.set(nm, set);
+    }
+    set.add(r.period);
+  }
+  const out: Record<string, Record<string, { allocation: number; actual: number }>> = {};
+  for (const r of rows) {
+    const nm = r.name.trim();
+    if (!nm || (periodsByName.get(nm)?.size ?? 0) < 2) continue;
+    let m = out[nm];
+    if (!m) {
+      m = {};
+      out[nm] = m;
+    }
+    m[r.period] = {
+      allocation: Number(r.allocation ?? 0),
+      actual: Number(r.pacerActual ?? 0),
+    };
+  }
+  return out;
+}
+
 export async function getPeriodPlanView(
   accountKey: string,
   period: string,
@@ -307,7 +358,12 @@ export async function getPeriodPlanView(
   const plan = await getOrCreatePlan(accountKey);
   const tz = await accountTimeZone(accountKey);
   const state = monthState(period, tz);
+  // #58: same-title rows' planned + actual across every period, so a lifetime
+  // ad's card can show its real per-month split. Computed once here so both the
+  // live and frozen views carry it.
+  const siblingsByName = await getSiblingAllocations(plan.id);
 
+  const view = await (async () => {
   if (state === 'closed') {
     const snap = await prisma.metaAdsPacerMonthSnapshot.findUnique({
       where: { planId_period: { planId: plan.id, period } },
@@ -370,6 +426,9 @@ export async function getPeriodPlanView(
     frozen: false,
     monthState: state,
   };
+  })();
+
+  return { ...view, siblingsByName };
 }
 
 // ─── Carryover (Change 7) ──────────────────────────────────────────────────
@@ -768,6 +827,18 @@ export async function fetchYearSummary(
 
 // ─── Year reconciliation (Phase 2b) ─────────────────────────────────────────
 
+export interface ReconAdVariance {
+  name: string;
+  /** What actually spent this calendar month (the slice). */
+  inMonthSpend: number;
+  /** What the over/under is billed on (full run for a billed-cross-month ad;
+   *  0 for an in-progress lifetime ad). */
+  billedActual: number;
+  /** billedActual − target — the ad's over/under contribution. */
+  contribution: number;
+  klass: 'real' | 'billed-cross-month' | 'lifetime-in-progress';
+}
+
 export interface ReconciliationMonth {
   period: string; // YYYY-MM
   state: MonthState;
@@ -799,6 +870,9 @@ export interface ReconciliationMonth {
    * total spend can differ from the settle-able over/under.
    */
   hasLifetimeInProgress: boolean;
+  /** CM4: per-ad over/under contributions for this month — powers the
+   *  Reconciliation row drill-down (which ads drove the variance). */
+  ads: ReconAdVariance[];
 }
 
 /**
@@ -912,6 +986,7 @@ export async function getYearReconciliation(
       where: { planId: plan.id, period: { in: periods } },
       select: {
         period: true,
+        name: true,
         pacerActual: true,
         pacerRunSpend: true,
         fullRunAppliedToMonth: true,
@@ -951,6 +1026,9 @@ export async function getYearReconciliation(
   const ipLifeActualByPeriod = new Map<string, number>();
   const ipLifeAllocByPeriod = new Map<string, number>();
   const ipLifePeriods = new Set<string>();
+  // CM4: per-ad over/under contribution + timing class, grouped by month, for
+  // the Reconciliation row drill-down (same classifier the Over/Under page uses).
+  const adVarByPeriod = new Map<string, ReconAdVariance[]>();
   const reconNowMs = Date.now();
   for (const a of adRows) {
     adCountByPeriod.set(a.period, (adCountByPeriod.get(a.period) ?? 0) + 1);
@@ -958,6 +1036,16 @@ export async function getYearReconciliation(
     // month (effectiveActual); otherwise its month slice. Never NaN.
     const n = effectiveActual(a);
     actualByPeriod.set(a.period, (actualByPeriod.get(a.period) ?? 0) + n);
+    const v = classifyAdVariance(a, a.period, reconNowMs, tz);
+    const list = adVarByPeriod.get(a.period) ?? [];
+    list.push({
+      name: a.name ?? '',
+      inMonthSpend: v.inMonthSpend,
+      billedActual: v.billedActual,
+      contribution: v.contribution,
+      klass: v.klass,
+    });
+    adVarByPeriod.set(a.period, list);
     if (isLifetimeInProgress(a, reconNowMs, tz)) {
       ipLifePeriods.add(a.period);
       ipLifeActualByPeriod.set(a.period, (ipLifeActualByPeriod.get(a.period) ?? 0) + n);
@@ -1025,6 +1113,7 @@ export async function getYearReconciliation(
       unapplied: carryover - appliedOut,
       appliedIn,
       hasLifetimeInProgress,
+      ads: adVarByPeriod.get(period) ?? [],
     };
   });
 
