@@ -338,12 +338,12 @@ export function Sidebar() {
             return entry.label ? (
               <p
                 key={`sep-${i}`}
-                className="px-3 pt-5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]/70"
+                className="px-3 pt-9 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]/70"
               >
                 {entry.label}
               </p>
             ) : (
-              <div key={`sep-${i}`} className="h-3" />
+              <div key={`sep-${i}`} className="h-8" />
             );
           }
           if ('crosslink' in entry) {

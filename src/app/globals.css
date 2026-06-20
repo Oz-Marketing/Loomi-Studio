@@ -399,26 +399,37 @@ body {
   padding: 0;
 }
 
-/* Only apply the frosted card chrome when the header is *actually* stuck
-   to the viewport (page has scrolled). At rest it stays transparent and
-   flush with the page. Background is intentionally near-opaque so text
-   stays legible over busy page content. */
+/* When the header is *actually* stuck to the viewport (page has scrolled)
+   it becomes a full-bleed pinned bar: it spans the content card edge-to-edge
+   (negative margins cancel the card's padding), squares its corners, and is
+   FULLY OPAQUE with no frosted glass — so scrolled page content can never
+   show through or overlap. At rest it stays transparent and flush inline. */
 main[data-scrolled='true'] .page-sticky-header {
-  padding: 0.75rem 1rem;
-  background: rgba(28, 28, 36, 0.96);
-  border-color: rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(28px) saturate(200%);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.4),
-    0 2px 4px rgba(0, 0, 0, 0.3);
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
+  padding: 0.75rem 1.5rem;
+  background: rgb(24, 24, 27);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  backdrop-filter: none;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+}
+
+@media (min-width: 768px) {
+  /* Match the content card's md padding (p-8 = 2rem) so the bar bleeds to
+     the card's inner edges exactly. */
+  main[data-scrolled='true'] .page-sticky-header {
+    margin-left: -2rem;
+    margin-right: -2rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
 }
 
 [data-theme='light'] main[data-scrolled='true'] .page-sticky-header {
-  background: rgba(255, 255, 255, 0.96);
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.12),
-    0 2px 4px rgba(0, 0, 0, 0.06);
+  background: rgb(255, 255, 255);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 /* Heavier frost variant — drop-in replacement for `.glass-panel` when

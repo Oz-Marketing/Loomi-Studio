@@ -11920,7 +11920,7 @@ export function MetaAdsPlannerTool({ mode }: { mode: MetaToolMode }) {
       {/* Page header */}
       <div
         className={`page-sticky-header pad-on-scroll flex items-center justify-between gap-4 flex-wrap ${
-          mode === 'pacer' ? 'mb-6' : 'mb-10'
+          mode === 'pacer' ? 'mb-4' : 'mb-6'
         }`}
       >
         <div className="flex items-center gap-3">
