@@ -1311,11 +1311,6 @@ export async function importAdSets(
     const runSpend = runSpendMap.get(adSet.id);
     const startDate = metaScheduleDate(adSet.start_time, accountTz);
     const endDate = metaScheduleDate(adSet.end_time, accountTz);
-    // Seed the planned target (allocation) from Meta's current budget as a
-    // sensible starting point the team can adjust — daily ads get the daily
-    // rate, lifetime ads the lifetime pool. Sync never touches allocation
-    // again, so this is a one-time seed only.
-    const allocation = budgetType === 'Lifetime' ? lifetimeBudget : dailyBudget;
 
     const adId = randomUUID();
     creates.push({
@@ -1329,7 +1324,12 @@ export async function importAdSets(
       accountRepUserId: assignments.accountRepUserId ?? null,
       budgetType,
       adStatus: status,
-      allocation: allocation != null ? allocation.toFixed(2) : null,
+      // Deliberately NOT seeded from Meta's budget: a daily *rate* isn't a
+      // monthly target, and a lifetime ad's whole-flight pool would overstate
+      // a single month's planned spend (the same distortion syncPeriodFromMeta
+      // avoids — see its note on never writing allocation). The team sets the
+      // planned target; import only brings in the real Meta numbers.
+      allocation: null,
       flightStart: startDate,
       flightEnd: endDate,
       // Meta-managed mirror — born linked + synced.
