@@ -124,6 +124,14 @@ const templatesNav: NavItem = {
   label: 'Templates',
   icon: RectangleStackIcon,
 };
+// Ad Generator — templated, on-brand ad creative for the active account.
+// Global tool (reads the active account via context), so absolute like /tools/*.
+const adGeneratorNav: NavItem = {
+  href: '/tools/ad-generator',
+  label: 'Ad Generator',
+  icon: PhotoIcon,
+  absolute: true,
+};
 // Flows is now a leaf nav item — analytics moved to /reporting/engagement.
 const flowsNavItem: NavItem = {
   href: '/flows',
@@ -165,6 +173,7 @@ const adminNavItems: NavItem[] = [
   contactsNav,
   emailSmsNav,
   templatesNav,
+  adGeneratorNav,
   flowsNavItem,
   websitesNav,
   { href: '/media', label: 'Media', icon: PhotoIcon },
@@ -178,6 +187,7 @@ const subaccountAdminNavItems: NavItem[] = [
   contactsNav,
   emailSmsNav,
   templatesNav,
+  adGeneratorNav,
   flowsNavItem,
   websitesNav,
   { href: '/media', label: 'Media', icon: PhotoIcon },

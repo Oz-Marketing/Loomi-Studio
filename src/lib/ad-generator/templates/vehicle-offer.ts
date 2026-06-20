@@ -110,10 +110,9 @@ export const vehicleOffer: AdTemplate = {
     { id: 'landscape', label: 'Landscape (1200×628)', width: 1200, height: 628 },
     { id: 'story', label: 'Story 9:16 (1080×1920)', width: 1080, height: 1920 },
   ],
+  // Brand fields (dealerName, brandColor, logoUrl) are NOT here — they come from
+  // the active account's branding settings, injected by the page.
   fields: [
-    { key: 'dealerName', label: 'Dealer name', type: 'text', group: 'Brand', placeholder: 'Oz Toyota' },
-    { key: 'brandColor', label: 'Brand color', type: 'color', group: 'Brand' },
-    { key: 'logoUrl', label: 'Logo URL', type: 'image', group: 'Brand', placeholder: 'https://…/logo.png', help: 'Optional. Transparent PNG works best.' },
     { key: 'vehicleName', label: 'Vehicle', type: 'text', group: 'Vehicle', placeholder: '2024 Toyota Camry SE' },
     { key: 'vehicleImageUrl', label: 'Vehicle image URL', type: 'image', group: 'Vehicle', placeholder: 'https://…/camry.png', help: 'Transparent PNG (e.g. from EVOX) looks best.' },
     { key: 'offerLabel', label: 'Offer label', type: 'text', group: 'Offer', placeholder: 'LEASE FOR' },
