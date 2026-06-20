@@ -1,0 +1,50 @@
+/**
+ * Ad Generator template model.
+ *
+ * A template is a PURE function of (data, size) → HTML. The same function backs
+ * both the live browser preview and the server-side Puppeteer render, so what
+ * you see is pixel-identical to what you download. Keep templates free of any
+ * Node/browser-only imports so they bundle on both sides.
+ *
+ * This is the reimagined replacement for the legacy Oz Dealer Tools offer
+ * builder: instead of a freeform canvas editor, designers author constrained,
+ * data-driven templates and users fill a guided form. Quality is guaranteed by
+ * the template.
+ */
+
+export interface AdSize {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+}
+
+export type FieldType = 'text' | 'textarea' | 'number' | 'color' | 'image' | 'date' | 'select';
+
+export interface FieldSpec {
+  key: string;
+  label: string;
+  type: FieldType;
+  /** Optional grouping for the form UI, e.g. "Offer", "Vehicle", "Brand". */
+  group?: string;
+  placeholder?: string;
+  help?: string;
+  /** For `select` fields. */
+  options?: { value: string; label: string }[];
+}
+
+export type AdData = Record<string, string>;
+
+export interface AdTemplate {
+  id: string;
+  name: string;
+  description: string;
+  /** Output sizes this template supports (square, landscape, story, …). */
+  sizes: AdSize[];
+  /** Field definitions that drive the generated form. */
+  fields: FieldSpec[];
+  /** Sensible starting values so the preview renders something real immediately. */
+  defaults: AdData;
+  /** Pure render: merged data + a size → a full HTML document sized to the ad. */
+  render: (data: AdData, size: AdSize) => string;
+}
