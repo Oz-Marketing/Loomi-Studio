@@ -41,6 +41,7 @@ import { AccountSwitcher } from '@/components/account-switcher';
 import { AppLogo } from '@/components/app-logo';
 import { SidebarFrame } from '@/components/sidebar-frame';
 import { accountKeyToSlug, isSubaccountRoute, stripSubaccountPrefix } from '@/lib/account-slugs';
+import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -57,6 +58,9 @@ interface NavItem {
   /** Show this leaf's icon as a brand badge (e.g. Meta) even though nested
       sub-page rows are otherwise icon-free. */
   badge?: boolean;
+  /** Not built yet — render a disabled "Soon" row that doesn't navigate or
+      expand. Flip off to enable. */
+  comingSoon?: boolean;
 }
 
 // Top-level nav can also hold section dividers (optionally labeled, Klaviyo
@@ -85,6 +89,7 @@ const toolsNavItem: NavItem = {
       label: 'Google',
       icon: GoogleAdsBrandIcon,
       absolute: true,
+      comingSoon: true,
       children: [
         {
           href: '/tools/google/ad-planner',
@@ -183,7 +188,8 @@ const adminNavItems: NavEntry[] = [
   emailSmsNav,
   websitesNav,
   flowsNavItem,
-  adGeneratorNav,
+  // Ad Generator is gated off until it's production-ready (feature flag).
+  ...(AD_GENERATOR_ENABLED ? [adGeneratorNav] : []),
   mediaNav,
   { divider: true, label: 'Tools' },
   toolsNavItem,
@@ -638,6 +644,24 @@ function NavGroup({
                 }
               }
               return item.children!.map((child) => {
+                // Not built yet — a disabled "Soon" row: shows the brand icon
+                // + label but doesn't navigate or expand to children.
+                if (child.comingSoon) {
+                  return (
+                    <div
+                      key={child.label}
+                      title="Coming soon"
+                      aria-disabled="true"
+                      className="flex items-center gap-2.5 pl-3 pr-2 py-1.5 rounded-lg text-[13px] text-[var(--sidebar-muted-foreground)]/50 cursor-not-allowed select-none"
+                    >
+                      {child.icon && <child.icon className="w-4 h-4 opacity-60" />}
+                      <span className="flex-1">{child.label}</span>
+                      <span className="rounded-full bg-[var(--sidebar-muted)] px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
+                        Soon
+                      </span>
+                    </div>
+                  );
+                }
                 // Children with their own children render as a nested group so
                 // we get e.g. Tools → Meta → [Ad Planner, Ad Pacer].
                 if (child.children && child.children.length > 0) {
