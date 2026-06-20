@@ -44,6 +44,8 @@ export interface AccountData {
       body?: string;
     };
   };
+  /** Uploaded custom font files (e.g. OEM-required), per account. */
+  customFonts?: { family: string; weight?: string; style?: string; url: string }[];
   customValues?: Record<string, { name: string; value: string }>;
   previewValues?: Record<string, string>;
   accountRepId?: string | null;

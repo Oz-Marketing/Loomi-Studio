@@ -100,6 +100,7 @@ model Account {
   timezone                  String?
   logos                     String? // JSON: { light, dark, white?, black? }
   branding                  String? // JSON: { colors: { primary, secondary, ... }, fonts: { heading, body } }
+  customFonts               String? // JSON: [{ family, weight, style, url }] — uploaded OEM/brand font files
   customValues              String? // JSON: Record<string, { name, value }>
   // Markup rate used by Meta Ads Pacer budget math: actual spend =
   // client gross × markup. Falls back to the global default (0.77) when
