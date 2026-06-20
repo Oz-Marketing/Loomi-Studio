@@ -178,7 +178,7 @@ export function DevImpersonate() {
   };
 
   return (
-    <div className="px-3 pb-3">
+    <div className="mt-1 border-t border-[var(--border)] pt-1">
       {/* Impersonation banner */}
       {isImpersonating && (
         <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
@@ -210,19 +210,17 @@ export function DevImpersonate() {
           <button
             onClick={() => setOpen((prev) => !prev)}
             disabled={switching}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--sidebar-border)] bg-[var(--sidebar-input)] hover:bg-[var(--sidebar-muted)] transition-colors text-left disabled:opacity-50"
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors text-left disabled:opacity-50"
           >
-            <EyeIcon className="w-4 h-4 text-[var(--sidebar-muted-foreground)] flex-shrink-0" />
-            <span className="flex-1 text-xs font-medium text-[var(--sidebar-muted-foreground)] truncate">
-              {switching ? 'Switching...' : 'View as...'}
-            </span>
-            <ChevronUpDownIcon className="w-3.5 h-3.5 text-[var(--sidebar-muted-foreground)] flex-shrink-0" />
+            <EyeIcon className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
+            <span className="flex-1 truncate">{switching ? 'Switching…' : 'View as…'}</span>
+            <ChevronUpDownIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" />
           </button>
 
           {/* Dropdown panel */}
           {open && (
             <div
-              className="absolute left-0 bottom-full mb-2 z-[60] w-[24rem] glass-dropdown rounded-xl overflow-hidden animate-fade-in-up shadow-lg"
+              className="absolute right-0 top-full mt-2 z-[60] w-[22rem] glass-dropdown rounded-xl overflow-hidden animate-fade-in-up shadow-lg"
               style={{ maxWidth: 'calc(100vw - 1.5rem)' }}
             >
               {/* Search */}

@@ -9,12 +9,12 @@
  */
 
 import { useState } from 'react';
-import { ChartBarIcon } from '@heroicons/react/24/outline';
+import { ChartBarIcon, GlobeAltIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
 import { DashboardToolbar } from '@/components/filters/dashboard-toolbar';
 import { DEFAULT_DATE_RANGE } from '@/lib/date-ranges';
-import { ReportingPageHeader } from '../_components/page-header';
+import { PageHeader } from '@/components/page-header';
 import {
   EmptyState,
   resolveBounds,
@@ -37,8 +37,8 @@ export default function ReportingWebsitesPage() {
 
   return (
     <>
-      <ReportingPageHeader
-        eyebrow="Websites"
+      <PageHeader
+        icon={GlobeAltIcon}
         title="Website analytics"
         subtitle={`Sessions, users, channels, and top pages from Google Analytics — ${accountKey ? dealer : 'select an account'}.`}
       />
