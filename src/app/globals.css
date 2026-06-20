@@ -393,7 +393,7 @@ body {
    (negative margins cancel the card's padding), squares its corners, and is
    FULLY OPAQUE with no frosted glass — so scrolled page content can never
    show through or overlap. At rest it stays transparent and flush inline. */
-main[data-scrolled='true'] .page-sticky-header {
+[data-scrolled='true'] .page-sticky-header {
   margin-left: -1.5rem;
   margin-right: -1.5rem;
   padding: 0.75rem 1.5rem;
@@ -408,7 +408,7 @@ main[data-scrolled='true'] .page-sticky-header {
 @media (min-width: 768px) {
   /* Match the content card's md padding (p-8 = 2rem) so the bar bleeds to
      the card's inner edges exactly. */
-  main[data-scrolled='true'] .page-sticky-header {
+  [data-scrolled='true'] .page-sticky-header {
     margin-left: -2rem;
     margin-right: -2rem;
     padding-left: 2rem;
@@ -416,7 +416,7 @@ main[data-scrolled='true'] .page-sticky-header {
   }
 }
 
-[data-theme='light'] main[data-scrolled='true'] .page-sticky-header {
+[data-theme='light'] [data-scrolled='true'] .page-sticky-header {
   background: rgb(255, 255, 255);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
