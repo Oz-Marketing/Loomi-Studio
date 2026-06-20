@@ -204,11 +204,11 @@ export function AccountSwitcher({ onSwitch, compact = false, openUp = false, set
     if (open && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       if (compact) {
-        // Collapsed rail: fly out to the RIGHT, but anchor to the trigger's
-        // bottom so the menu grows UPWARD (the trigger sits at the bottom of
-        // the rail, so a downward menu would clip off the viewport).
+        // Collapsed rail: fly out to the RIGHT of the trigger, anchored to its
+        // top so the menu opens downward (the trigger sits near the top of the
+        // rail now).
         setPos({
-          bottom: window.innerHeight - rect.bottom,
+          top: rect.top,
           left: rect.right + 12,
         });
       } else if (openUp) {

@@ -85,7 +85,7 @@ function TemplatesPageInner() {
   return (
     <TemplatesHeaderActionsContext.Provider value={actionsSlot}>
       <div>
-        <div className="page-sticky-header mb-4">
+        <div className={`page-sticky-header ${tabs.length > 1 ? 'has-tabs ' : ''}mb-4`}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <BookOpenIcon className="w-7 h-7 text-[var(--primary)] flex-shrink-0" />
@@ -116,12 +116,10 @@ function TemplatesPageInner() {
               <div ref={setActionsSlot} className="flex items-center gap-2" />
             </div>
           </div>
-        </div>
 
-        {/* Tabs live between the sticky header and the page content (not
-            inside the sticky header) so they scroll with the content. */}
+        {/* Tabs pinned inside the sticky header so they don't scroll away. */}
         {tabs.length > 1 && (
-          <div className="mb-4 flex items-center gap-1 border-b border-[var(--border)]">
+          <div className="mt-4 flex items-center gap-1 border-b border-[var(--border)]">
             {tabs.map((t) => {
               const active = tab === t.id;
               return (
@@ -142,6 +140,7 @@ function TemplatesPageInner() {
             })}
           </div>
         )}
+        </div>
 
         {tab === 'email' && (
           <EmailTemplatesPanel

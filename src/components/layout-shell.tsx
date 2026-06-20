@@ -241,7 +241,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <div
             ref={mainRef}
             data-scrolled={isMainScrolled ? 'true' : 'false'}
-            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain rounded-2xl border border-[var(--border)] bg-[var(--card)] backdrop-blur-xl shadow-sm p-6 md:p-8"
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain rounded-2xl border border-[var(--border)] bg-[var(--card)] backdrop-blur-xl shadow-sm px-6 md:px-8 pb-6 md:pb-8"
           >
             {children}
           </div>

@@ -16,6 +16,7 @@ import {
   SparklesIcon,
   SunIcon,
   MoonIcon,
+  Cog6ToothIcon,
   MegaphoneIcon,
   ArrowTopRightOnSquareIcon,
   ChartBarSquareIcon,
@@ -69,22 +70,12 @@ const toolsNavItem: NavItem = {
   absolute: true,
   children: [
     {
+      // Planner + Pacer consolidated into one page with an in-page
+      // Plan/Pace toggle — a single leaf instead of a Planner/Pacer pair.
       href: '/tools/meta',
       label: 'Meta',
       icon: MetaBrandIcon,
       absolute: true,
-      children: [
-        {
-          href: '/tools/meta/ad-planner',
-          label: 'Ad Planner',
-          absolute: true,
-        },
-        {
-          href: '/tools/meta/ad-pacer',
-          label: 'Ad Pacer',
-          absolute: true,
-        },
-      ],
     },
     {
       href: '/tools/google',
@@ -299,6 +290,10 @@ export function Sidebar() {
   // Integrations — jump to the active sub-account's integration settings.
   const integrationsHref = slug ? `/subaccount/${slug}/settings/integrations` : '/settings/integrations';
   const integrationsActive = normalizedPath.startsWith('/settings/integrations');
+  // Settings lives in the footer (where the account switcher briefly was);
+  // active on any /settings route except integrations (its own item above).
+  const settingsActive =
+    normalizedPath.startsWith('/settings') && !integrationsActive;
 
   return (
     <aside
@@ -307,7 +302,7 @@ export function Sidebar() {
         collapsed ? 'w-14' : 'w-60'
       }`}
     >
-      {/* Logo + Account Switcher + Collapse Toggle */}
+      {/* Logo + Collapse Toggle, with the account switcher underneath. */}
       <div className={`${collapsed ? 'p-2 pb-3' : 'px-2 pt-4 pb-3'}`}>
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
           {!collapsed && <AppLogo className="h-8 w-auto max-w-[150px] object-contain" />}
@@ -326,6 +321,13 @@ export function Sidebar() {
             </button>
           </SidebarTooltip>
         </div>
+        {/* Account switcher sits under the logo (admins/non-clients). Opens
+            downward — no openUp/settings (Settings is in the footer). */}
+        {!isClientRole && (
+          <div className={collapsed ? 'mt-2 flex justify-center' : 'mt-3'}>
+            {collapsed ? <AccountSwitcher compact /> : <AccountSwitcher />}
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
@@ -454,12 +456,25 @@ export function Sidebar() {
               <SidebarTooltip label={themeLabel}>{themeBtn}</SidebarTooltip>
             ) : themeBtn;
           }
-          // Account switcher lives here now (where Settings used to be); Settings
-          // is a link inside its popout.
+          // Settings lives here now (the account switcher moved up under the
+          // logo).
+          const settingsLink = (
+            <Link
+              href={settingsHref}
+              className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2 rounded-xl text-sm font-normal transition-all duration-200 ${
+                settingsActive
+                  ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
+                  : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
+              }`}
+            >
+              <Cog6ToothIcon className="w-5 h-5" />
+              {!collapsed && 'Settings'}
+            </Link>
+          );
           return collapsed ? (
-            <AccountSwitcher compact openUp settingsHref={settingsHref} />
+            <SidebarTooltip label="Settings">{settingsLink}</SidebarTooltip>
           ) : (
-            <AccountSwitcher openUp settingsHref={settingsHref} />
+            settingsLink
           );
         })()}
       </div>

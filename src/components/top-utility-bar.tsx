@@ -139,7 +139,7 @@ export function TopUtilityBar() {
   }, []);
 
   return (
-    <header className="flex items-center justify-end gap-4" aria-label="Page utilities">
+    <header className="flex items-center justify-end gap-4 px-6" aria-label="Page utilities">
       {searchOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 backdrop-blur-sm px-4 pt-[15vh]"
