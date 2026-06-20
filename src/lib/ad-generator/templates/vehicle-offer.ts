@@ -1,0 +1,145 @@
+import type { AdTemplate, AdData, AdSize } from '../types';
+import { cssSafeFamily } from '../fonts';
+
+/** Escape user data before it goes into HTML (preview + render are real HTML). */
+function esc(v: string | undefined): string {
+  return (v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Vehicle Offer — a dealer offer ad (vehicle + price + terms + disclaimer).
+ *
+ * One layout that adapts by aspect ratio: text-left/vehicle-right for landscape,
+ * stacked for square/story. All sizing is derived from the output dimensions so
+ * a 1080² and a 1200×628 stay visually consistent.
+ */
+function render(data: AdData, size: AdSize): string {
+  const { width, height } = size;
+  const ratio = width / height;
+  const layout = ratio > 1.3 ? 'row' : 'stack';
+  // Base unit so typography scales with the canvas (≈ short edge / 26).
+  const u = Math.min(width, height) / 26;
+
+  const brand = esc(data.brandColor) || '#4f46e5';
+  const dealerName = esc(data.dealerName) || 'Your Dealership';
+  const vehicleName = esc(data.vehicleName) || '2024 Model';
+  const vehicleImageUrl = esc(data.vehicleImageUrl);
+  const logoUrl = esc(data.logoUrl);
+  const offerLabel = esc(data.offerLabel) || 'LEASE FOR';
+  const price = esc(data.price) || '$299/mo';
+  const terms = esc(data.terms) || '36 months · $2,999 due at signing';
+  const expiration = esc(data.expiration) || 'Offer ends soon';
+  const disclaimer = esc(data.disclaimer);
+
+  // Branding font (from the account's uploaded custom fonts). fontFaceCss is raw
+  // CSS built upstream (page = url src for preview; render route = base64 src).
+  const fontFamily = cssSafeFamily(data.fontFamily ?? '');
+  const fontFaceCss = data.fontFaceCss ?? '';
+  const fontStack = `${fontFamily ? `"${fontFamily}", ` : ''}-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
+
+  const vehicle = vehicleImageUrl
+    ? `<img src="${vehicleImageUrl}" alt="${vehicleName}" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 ${u * 0.4}px ${u * 0.6}px rgba(0,0,0,.25));" />`
+    : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#cbd5e1;font-size:${u * 0.7}px;border:${Math.max(1, u * 0.06)}px dashed #cbd5e1;border-radius:${u}px;">Vehicle image</div>`;
+
+  const offerBlock = `
+    <div style="display:flex;flex-direction:column;gap:${u * 0.25}px;">
+      <div style="font-size:${u * 0.62}px;font-weight:700;letter-spacing:${u * 0.06}px;color:${brand};text-transform:uppercase;">${offerLabel}</div>
+      <div style="font-size:${u * 2.6}px;font-weight:800;line-height:.95;color:#0f172a;letter-spacing:-${u * 0.04}px;">${price}</div>
+      <div style="font-size:${u * 0.66}px;font-weight:500;color:#475569;">${terms}</div>
+    </div>`;
+
+  const expirationPill = `
+    <span style="display:inline-block;align-self:flex-start;background:${brand};color:#fff;font-size:${u * 0.52}px;font-weight:700;padding:${u * 0.28}px ${u * 0.6}px;border-radius:${u * 2}px;letter-spacing:${u * 0.02}px;">${expiration}</span>`;
+
+  const header = `
+    <div style="display:flex;align-items:center;gap:${u * 0.5}px;">
+      ${logoUrl ? `<img src="${logoUrl}" alt="${dealerName}" style="height:${u * 1.6}px;width:auto;object-fit:contain;" />` : ''}
+      <div style="font-size:${u * 0.72}px;font-weight:700;color:#0f172a;">${dealerName}</div>
+    </div>`;
+
+  const footer = disclaimer
+    ? `<div style="font-size:${u * 0.4}px;line-height:1.3;color:#94a3b8;">${disclaimer}</div>`
+    : '';
+
+  const body =
+    layout === 'row'
+      ? `
+      <div style="display:flex;height:100%;gap:${u}px;">
+        <div style="flex:0 0 46%;display:flex;flex-direction:column;justify-content:space-between;">
+          ${header}
+          ${offerBlock}
+          ${expirationPill}
+        </div>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;min-width:0;">${vehicle}</div>
+      </div>`
+      : `
+      <div style="display:flex;flex-direction:column;height:100%;gap:${u * 0.6}px;">
+        ${header}
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;min-height:0;">${vehicle}</div>
+        ${offerBlock}
+        ${expirationPill}
+      </div>`;
+
+  return `<!doctype html>
+<html>
+<head><meta charset="utf-8" />
+<style>
+  ${fontFaceCss}
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:${width}px; height:${height}px; }
+  .ad {
+    width:${width}px; height:${height}px; overflow:hidden; position:relative;
+    background:linear-gradient(135deg,#ffffff 0%,#f1f5f9 100%);
+    font-family:${fontStack};
+    padding:${u * 1.1}px; display:flex; flex-direction:column;
+  }
+  .ad::before { content:''; position:absolute; top:0; left:0; right:0; height:${u * 0.32}px; background:${brand}; }
+  .body { flex:1; display:flex; flex-direction:column; min-height:0; }
+</style></head>
+<body>
+  <div class="ad">
+    <div class="body">${body}</div>
+    ${footer ? `<div style="margin-top:${u * 0.6}px;">${footer}</div>` : ''}
+  </div>
+</body>
+</html>`;
+}
+
+export const vehicleOffer: AdTemplate = {
+  id: 'vehicle-offer',
+  name: 'Vehicle Offer',
+  description: 'Vehicle offer ad — price, terms, expiration, and disclaimer over a clean branded layout.',
+  sizes: [
+    { id: 'square', label: 'Square 1:1 (1080×1080)', width: 1080, height: 1080 },
+    { id: 'landscape', label: 'Landscape (1200×628)', width: 1200, height: 628 },
+    { id: 'story', label: 'Story 9:16 (1080×1920)', width: 1080, height: 1920 },
+  ],
+  // Brand fields (dealerName, brandColor, logoUrl) are NOT here — they come from
+  // the active account's branding settings, injected by the page.
+  fields: [
+    { key: 'vehicleName', label: 'Vehicle', type: 'text', group: 'Vehicle', placeholder: '2024 Toyota Camry SE' },
+    { key: 'vehicleImageUrl', label: 'Vehicle image URL', type: 'image', group: 'Vehicle', placeholder: 'https://…/camry.png', help: 'Transparent PNG (e.g. from EVOX) looks best.' },
+    { key: 'offerLabel', label: 'Offer label', type: 'text', group: 'Offer', placeholder: 'LEASE FOR' },
+    { key: 'price', label: 'Price', type: 'text', group: 'Offer', placeholder: '$299/mo' },
+    { key: 'terms', label: 'Terms', type: 'text', group: 'Offer', placeholder: '36 months · $2,999 due at signing' },
+    { key: 'expiration', label: 'Expiration', type: 'text', group: 'Offer', placeholder: 'Offer ends March 31' },
+    { key: 'disclaimer', label: 'Disclaimer', type: 'textarea', group: 'Legal', placeholder: 'Plus tax, title, license…', help: 'Required legal text. Will sit in the ad footer.' },
+  ],
+  defaults: {
+    dealerName: 'Oz Toyota',
+    brandColor: '#4f46e5',
+    logoUrl: '',
+    vehicleName: '2024 Toyota Camry SE',
+    vehicleImageUrl: '',
+    offerLabel: 'LEASE FOR',
+    price: '$299/mo',
+    terms: '36 months · $2,999 due at signing',
+    expiration: 'Offer ends March 31',
+    disclaimer: 'Closed-end lease. $2,999 due at signing plus tax, title, and license. With approved credit. See dealer for details.',
+  },
+  render,
+};

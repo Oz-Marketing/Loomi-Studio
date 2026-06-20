@@ -11,17 +11,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Squares2X2Icon,
-  CogIcon,
   UserGroupIcon,
   PhotoIcon,
+  SparklesIcon,
   SunIcon,
   MoonIcon,
+  Cog6ToothIcon,
   MegaphoneIcon,
   ArrowTopRightOnSquareIcon,
   ChartBarSquareIcon,
   ChevronDownIcon,
-  ChevronDoubleLeftIcon,
-  ChevronDoubleRightIcon,
   ChatBubbleLeftRightIcon,
   ListBulletIcon,
   FunnelIcon,
@@ -29,6 +28,7 @@ import {
   DocumentTextIcon,
   RectangleStackIcon,
   PaperAirplaneIcon,
+  PuzzlePieceIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
@@ -38,8 +38,8 @@ import { appendThemeParam, getOtherSurfaceUrl } from '@/lib/cross-site';
 import { FlowIcon } from '@/components/icon-map';
 import { MetaBrandIcon, GoogleAdsBrandIcon } from '@/components/icons/platform-logos';
 import { AccountSwitcher } from '@/components/account-switcher';
-import { DevImpersonate } from '@/components/dev-impersonate';
 import { AppLogo } from '@/components/app-logo';
+import { SidebarFrame } from '@/components/sidebar-frame';
 import { accountKeyToSlug, isSubaccountRoute, stripSubaccountPrefix } from '@/lib/account-slugs';
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
@@ -56,29 +56,25 @@ interface NavItem {
   absolute?: boolean;
 }
 
+// Top-level nav can also hold section dividers (optionally labeled, Klaviyo
+// "Advanced"-style) and the cross-host Reporting link (different host → <a>).
+type NavDivider = { divider: true; label?: string };
+type NavCrosslink = { crosslink: 'reporting'; label: string; icon: IconComponent };
+type NavEntry = NavItem | NavDivider | NavCrosslink;
+
 const toolsNavItem: NavItem = {
   href: '/tools',
-  label: 'Ads',
+  label: 'Ad Planning & Pacing',
   icon: MegaphoneIcon,
   absolute: true,
   children: [
     {
+      // Planner + Pacer consolidated into one page with an in-page
+      // Plan/Pace toggle — a single leaf instead of a Planner/Pacer pair.
       href: '/tools/meta',
       label: 'Meta',
       icon: MetaBrandIcon,
       absolute: true,
-      children: [
-        {
-          href: '/tools/meta/ad-planner',
-          label: 'Ad Planner',
-          absolute: true,
-        },
-        {
-          href: '/tools/meta/ad-pacer',
-          label: 'Ad Pacer',
-          absolute: true,
-        },
-      ],
     },
     {
       href: '/tools/google',
@@ -114,7 +110,7 @@ const campaignBuilderNav: NavItem = {
 // grouped Campaigns + Templates has been split apart.
 const emailSmsNav: NavItem = {
   href: '/messaging/campaigns',
-  label: 'Email & SMS',
+  label: 'Emails & SMS',
   icon: ChatBubbleLeftRightIcon,
 };
 // Templates — now its own top-level destination. The unified page at
@@ -124,6 +120,16 @@ const templatesNav: NavItem = {
   label: 'Templates',
   icon: RectangleStackIcon,
 };
+// Ad Generator — templated, on-brand ad creative for the active account.
+// Global tool (reads the active account via context), so absolute like /tools/*.
+const adGeneratorNav: NavItem = {
+  href: '/tools/ad-generator',
+  label: 'Ad Generator',
+  icon: SparklesIcon,
+  absolute: true,
+};
+// Media library — re-added below Ad Generator.
+const mediaNav: NavItem = { href: '/media', label: 'Media', icon: PhotoIcon };
 // Flows is now a leaf nav item — analytics moved to /reporting/engagement.
 const flowsNavItem: NavItem = {
   href: '/flows',
@@ -136,7 +142,7 @@ const flowsNavItem: NavItem = {
 // Contacts, not via the Forms admin UI).
 const websitesNav: NavItem = {
   href: '/websites/forms',
-  label: 'Websites',
+  label: 'Website',
   icon: GlobeAltIcon,
   children: [
     { href: '/websites/forms', label: 'Forms', icon: DocumentTextIcon },
@@ -149,7 +155,7 @@ const websitesNav: NavItem = {
 // existing /contacts table, Lists + Segments are first-class destinations.
 const contactsNav: NavItem = {
   href: '/contacts',
-  label: 'Contacts',
+  label: 'Audiences',
   icon: UserGroupIcon,
   children: [
     { href: '/contacts', label: 'All Contacts', icon: UserGroupIcon },
@@ -158,52 +164,66 @@ const contactsNav: NavItem = {
   ],
 };
 
-// Admin-level nav (when in admin mode)
-const adminNavItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
+const dashboardNav: NavItem = { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon };
+const reportingLink: NavCrosslink = { crosslink: 'reporting', label: 'Reporting', icon: ChartBarSquareIcon };
+
+// Admin nav — grouped Klaviyo-style with labeled dividers. The cross-host
+// Reporting link sits in the top group; Ad Planning & Pacing under "Tools".
+const adminNavItems: NavEntry[] = [
+  dashboardNav,
   campaignBuilderNav,
+  templatesNav,
+  reportingLink,
+  { divider: true },
   contactsNav,
   emailSmsNav,
-  templatesNav,
-  flowsNavItem,
   websitesNav,
-  { href: '/media', label: 'Media', icon: PhotoIcon },
+  flowsNavItem,
+  adGeneratorNav,
+  mediaNav,
+  { divider: true, label: 'Tools' },
   toolsNavItem,
 ];
 
-// Sub-account nav for admin/developer users viewing a sub-account
-const subaccountAdminNavItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
-  campaignBuilderNav,
+// Admin viewing a sub-account uses the same structure (routes get prefixed at
+// render; absolute items — Reporting / Ad Generator / Tools — stay global).
+const subaccountAdminNavItems: NavEntry[] = adminNavItems;
+
+// Client users: build/ops tools hidden; keep the destinations they own.
+const subaccountClientNavItems: NavEntry[] = [
+  dashboardNav,
+  templatesNav,
+  reportingLink,
+  { divider: true },
   contactsNav,
   emailSmsNav,
-  templatesNav,
-  flowsNavItem,
-  websitesNav,
-  { href: '/media', label: 'Media', icon: PhotoIcon },
-  toolsNavItem,
 ];
 
-// Sub-account nav for client users — no Flows (matches the previous
-// admin-only restriction on Flows).
-const subaccountClientNavItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
-  contactsNav,
-  emailSmsNav,
-  templatesNav,
-];
+/** True if the current path matches any of a group's (or grandchild's) leaves. */
+function groupContainsPath(item: NavItem, prefix: string, normalizedPath: string): boolean {
+  return (item.children ?? []).some((child) => {
+    const childPath = child.absolute ? child.href : child.href.replace(prefix, '');
+    if (normalizedPath === childPath || normalizedPath.startsWith(`${childPath}/`)) return true;
+    return (child.children ?? []).some((grand) => {
+      const grandPath = grand.absolute ? grand.href : grand.href.replace(prefix, '');
+      return normalizedPath === grandPath || normalizedPath.startsWith(`${grandPath}/`);
+    });
+  });
+}
 
 export function Sidebar() {
   const pathname = usePathname();
   const { userRole, isAdmin, isAccount, accountKey, accounts } = useAccount();
   const { theme, toggleTheme } = useTheme();
-  const { collapsed, toggle: toggleCollapsed } = useSidebarCollapse();
+  const { collapsed } = useSidebarCollapse();
 
   // Cross-host link to the reporting surface. Resolves after hydration
   // so we have access to `window.location.host`; account + theme are
   // appended as query params so reporting lands on the same account
   // with the same theme (cookie sharing doesn't work in dev).
   const [reportingHref, setReportingHref] = useState<string | null>(null);
+  // Single-open accordion: at most one top-level group expanded at a time.
+  const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
   const accountForCrossLink = useAccount().account;
   useEffect(() => {
     let url = getOtherSurfaceUrl('/');
@@ -219,7 +239,7 @@ export function Sidebar() {
   const slug = accountKey ? accountKeyToSlug(accountKey, accounts) : null;
   const inSubaccountRoute = isSubaccountRoute(pathname);
 
-  let navItems: NavItem[];
+  let navItems: NavEntry[];
   let prefix = '';
 
   if (isAdmin && !inSubaccountRoute) {
@@ -232,16 +252,32 @@ export function Sidebar() {
   }
 
   // Resolve nav item hrefs with the prefix (skip for absolute items)
-  const resolvedNavItems: NavItem[] = navItems.map((item) => ({
-    ...item,
-    href: prefix && !item.absolute ? `${prefix}${item.href}` : item.href,
-    children: item.children?.map((child) => ({
-      ...child,
-      href: prefix && !child.absolute ? `${prefix}${child.href}` : child.href,
-    })),
-  }));
+  const resolvedNavItems: NavEntry[] = navItems.map((entry) => {
+    if ('divider' in entry || 'crosslink' in entry) return entry;
+    return {
+      ...entry,
+      href: prefix && !entry.absolute ? `${prefix}${entry.href}` : entry.href,
+      children: entry.children?.map((child) => ({
+        ...child,
+        href: prefix && !child.absolute ? `${prefix}${child.href}` : child.href,
+      })),
+    };
+  });
 
   const normalizedPath = inSubaccountRoute ? stripSubaccountPrefix(pathname) : pathname;
+
+  // Auto-open the top-level group that contains the current route.
+  let activeGroupKey: string | null = null;
+  for (const entry of resolvedNavItems) {
+    if ('divider' in entry || 'crosslink' in entry) continue;
+    if (entry.children?.length && groupContainsPath(entry, prefix, normalizedPath)) {
+      activeGroupKey = entry.label;
+      break;
+    }
+  }
+  useEffect(() => {
+    if (activeGroupKey) setOpenGroupKey(activeGroupKey);
+  }, [activeGroupKey]);
 
   const settingsHref = isClientRole
     ? (slug ? `/subaccount/${slug}/settings` : '/settings/subaccount')
@@ -249,53 +285,135 @@ export function Sidebar() {
       ? `/subaccount/${slug}/settings`
       : '/settings/subaccounts';
 
+
+  // Integrations — jump to the active sub-account's integration settings.
+  const integrationsHref = slug ? `/subaccount/${slug}/settings/integrations` : '/settings/integrations';
+  const integrationsActive = normalizedPath.startsWith('/settings/integrations');
+  // Settings lives in the footer (where the account switcher briefly was);
+  // active on any /settings route except integrations (its own item above).
   const settingsActive =
-    normalizedPath === '/settings' ||
-    normalizedPath.startsWith('/settings') ||
-    pathname.startsWith('/users') ||
-    pathname.startsWith('/subaccounts');
+    normalizedPath.startsWith('/settings') && !integrationsActive;
 
   return (
-    <aside
-      data-collapsed={collapsed}
-      className={`glass-panel fixed left-3 top-3 bottom-3 rounded-2xl text-[var(--sidebar-foreground)] flex flex-col z-50 overflow-visible transition-[width] duration-200 ease-out ${
-        collapsed ? 'w-[4.5rem]' : 'w-60'
-      }`}
-    >
-      {/* Logo + Account Switcher + Collapse Toggle */}
-      <div className={`border-b border-[var(--sidebar-border)] ${collapsed ? 'p-2 pb-3' : 'p-5 pb-4'}`}>
-        <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between mb-3'}`}>
-          {!collapsed && <AppLogo className="h-8 w-auto max-w-[150px] object-contain" />}
-          <SidebarTooltip label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--sidebar-muted-foreground)] hover:bg-[var(--sidebar-muted)] hover:text-[var(--sidebar-foreground)] transition"
-            >
-              {collapsed ? (
-                <ChevronDoubleRightIcon className="w-4 h-4" />
-              ) : (
-                <ChevronDoubleLeftIcon className="w-4 h-4" />
-              )}
-            </button>
-          </SidebarTooltip>
-        </div>
-        {/* AccountSwitcher: full pill when expanded, avatar-only trigger
-            when collapsed. In compact mode the dropdown flies out to the
-            right of the rail (see AccountSwitcher position logic). */}
-        {collapsed ? (
-          <div className="mt-2">
-            <AccountSwitcher compact />
+    <SidebarFrame
+      brand={<AppLogo className="h-8 w-auto max-w-[150px] object-contain" />}
+      account={
+        // Account switcher sits under the logo (admins/non-clients). Opens
+        // downward — clients don't get a switcher (Settings is in the footer).
+        !isClientRole ? (
+          collapsed ? <AccountSwitcher compact /> : <AccountSwitcher />
+        ) : null
+      }
+      bottom={
+        <>
+          {/* Integrations — quick jump to the active sub-account's integration
+              settings, pinned at the bottom above the footer. */}
+          <div className={`${collapsed ? 'px-2' : 'px-3'} pb-1`}>
+            {(() => {
+              const intLink = (
+                <Link
+                  href={integrationsHref}
+                  className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2 rounded-xl text-sm font-normal transition-all duration-200 ${
+                    integrationsActive
+                      ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
+                      : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
+                  }`}
+                >
+                  <PuzzlePieceIcon className="w-5 h-5" />
+                  {!collapsed && 'Integrations'}
+                </Link>
+              );
+              return collapsed ? <SidebarTooltip label="Integrations">{intLink}</SidebarTooltip> : intLink;
+            })()}
           </div>
-        ) : (
-          <AccountSwitcher />
-        )}
-      </div>
 
-      {/* Navigation */}
-      <nav className={`flex-1 space-y-0.5 overflow-y-auto ${collapsed ? 'p-2' : 'p-3'}`}>
-        {resolvedNavItems.map((item) => {
+          {/* Settings / Theme Toggle */}
+          <div className={`${collapsed ? 'p-2' : 'px-2 py-2'}`}>
+            {(() => {
+              const themeLabel = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
+              const themeBtn = (
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className={`w-full flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2 rounded-xl text-sm font-normal transition-all duration-200 text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]`}
+                >
+                  {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+                  {!collapsed && themeLabel}
+                </button>
+              );
+              if (isClientRole) {
+                return collapsed ? (
+                  <SidebarTooltip label={themeLabel}>{themeBtn}</SidebarTooltip>
+                ) : themeBtn;
+              }
+              // Settings lives here now (the account switcher moved up under the
+              // logo).
+              const settingsLink = (
+                <Link
+                  href={settingsHref}
+                  className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2 rounded-xl text-sm font-normal transition-all duration-200 ${
+                    settingsActive
+                      ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
+                      : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
+                  }`}
+                >
+                  <Cog6ToothIcon className="w-5 h-5" />
+                  {!collapsed && 'Settings'}
+                </Link>
+              );
+              return collapsed ? (
+                <SidebarTooltip label="Settings">{settingsLink}</SidebarTooltip>
+              ) : (
+                settingsLink
+              );
+            })()}
+          </div>
+        </>
+      }
+    >
+        {resolvedNavItems.map((entry, i) => {
+          if ('divider' in entry) {
+            if (collapsed) {
+              return <div key={`sep-${i}`} className="mx-2 my-2 border-t border-[var(--sidebar-border)]" />;
+            }
+            return entry.label ? (
+              <p
+                key={`sep-${i}`}
+                className="px-3 pt-9 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]/70"
+              >
+                {entry.label}
+              </p>
+            ) : (
+              <div key={`sep-${i}`} className="h-8" />
+            );
+          }
+          if ('crosslink' in entry) {
+            if (!reportingHref) return null;
+            const CrossIcon = entry.icon;
+            const crossLink = (
+              <a
+                key={`cross-${i}`}
+                href={reportingHref}
+                className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2 rounded-xl text-sm font-normal transition-all duration-200 text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]`}
+              >
+                <CrossIcon className="w-5 h-5" />
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 text-left">{entry.label}</span>
+                    <ArrowTopRightOnSquareIcon className="w-3 h-3 text-[var(--sidebar-muted-foreground)]/70" />
+                  </>
+                )}
+              </a>
+            );
+            return collapsed ? (
+              <SidebarTooltip key={`cross-${i}`} label={entry.label}>
+                {crossLink}
+              </SidebarTooltip>
+            ) : (
+              crossLink
+            );
+          }
+          const item = entry;
           if (item.children && item.children.length > 0) {
             return (
               <NavGroup
@@ -304,6 +422,8 @@ export function Sidebar() {
                 prefix={prefix}
                 normalizedPath={normalizedPath}
                 depth={0}
+                controlledOpen={openGroupKey === item.label}
+                onToggle={() => setOpenGroupKey((p) => (p === item.label ? null : item.label))}
               />
             );
           }
@@ -316,7 +436,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+              className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2 rounded-xl text-sm font-normal transition-all duration-200 ${
                 isActive
                   ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
                   : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
@@ -332,75 +452,7 @@ export function Sidebar() {
             </SidebarTooltip>
           ) : leaf;
         })}
-
-        {/* Cross-host link to the reporting surface. Lives at the
-            bottom of the main nav since "view performance" feels
-            adjacent to "build performance" rather than a settings
-            concern. Plain anchor (not next/link) because the
-            destination is a different host. */}
-        {reportingHref &&
-          (() => {
-            const analyticsLink = (
-              <a
-                href={reportingHref}
-                className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]`}
-              >
-                <ChartBarSquareIcon className="w-5 h-5" />
-                {!collapsed && (
-                  <>
-                    <span className="flex-1 text-left">Analytics</span>
-                    <ArrowTopRightOnSquareIcon className="w-3 h-3 text-[var(--sidebar-muted-foreground)]/70" />
-                  </>
-                )}
-              </a>
-            );
-            return collapsed ? (
-              <SidebarTooltip label="Analytics">{analyticsLink}</SidebarTooltip>
-            ) : analyticsLink;
-          })()}
-      </nav>
-
-      {/* Developer impersonation — hidden when collapsed (too dense for narrow rail) */}
-      {!collapsed && <DevImpersonate />}
-
-      {/* Settings / Theme Toggle */}
-      <div className={`border-t border-[var(--sidebar-border)] ${collapsed ? 'p-2' : 'p-3'}`}>
-        {(() => {
-          const themeLabel = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
-          const themeBtn = (
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className={`w-full flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]`}
-            >
-              {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
-              {!collapsed && themeLabel}
-            </button>
-          );
-          const settingsLink = (
-            <Link
-              href={settingsHref}
-              className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                settingsActive
-                  ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
-                  : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
-              }`}
-            >
-              <CogIcon className="w-5 h-5" />
-              {!collapsed && 'Settings'}
-            </Link>
-          );
-          if (isClientRole) {
-            return collapsed ? (
-              <SidebarTooltip label={themeLabel}>{themeBtn}</SidebarTooltip>
-            ) : themeBtn;
-          }
-          return collapsed ? (
-            <SidebarTooltip label="Settings">{settingsLink}</SidebarTooltip>
-          ) : settingsLink;
-        })()}
-      </div>
-    </aside>
+    </SidebarFrame>
   );
 }
 
@@ -409,11 +461,15 @@ function NavGroup({
   prefix,
   normalizedPath,
   depth,
+  controlledOpen,
+  onToggle,
 }: {
   item: NavItem;
   prefix: string;
   normalizedPath: string;
   depth: number;
+  controlledOpen?: boolean;
+  onToggle?: () => void;
 }) {
   const { collapsed } = useSidebarCollapse();
 
@@ -448,8 +504,11 @@ function NavGroup({
     wasActiveRef.current = sectionActive;
   }, [sectionActive]);
 
-  const open = userOpen ?? sectionActive;
-  const handleToggle = () => setUserOpen(!open);
+  // Controlled (single-open accordion) when the parent passes onToggle — that's
+  // the top-level groups; nested groups stay self-managed.
+  const controlled = onToggle !== undefined;
+  const open = controlled ? !!controlledOpen : userOpen ?? sectionActive;
+  const handleToggle = controlled ? onToggle : () => setUserOpen(!open);
 
   const isTop = depth === 0;
 
@@ -482,7 +541,7 @@ function NavGroup({
                       role="menuitem"
                       className={`block px-3 py-1.5 text-[13px] rounded-md transition-colors ${
                         grandActive
-                          ? 'text-[var(--primary)] font-semibold bg-[var(--sidebar-muted)]'
+                          ? 'text-[var(--primary)] font-medium bg-[var(--sidebar-muted)]'
                           : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
                       }`}
                     >
@@ -503,7 +562,7 @@ function NavGroup({
               role="menuitem"
               className={`flex items-center gap-2.5 px-2 py-1.5 text-sm rounded-md transition-colors ${
                 childActive
-                  ? 'text-[var(--primary)] font-semibold bg-[var(--sidebar-muted)]'
+                  ? 'text-[var(--primary)] font-medium bg-[var(--sidebar-muted)]'
                   : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
               }`}
             >
@@ -519,7 +578,7 @@ function NavGroup({
   // Top-level groups keep the bold pill treatment. Nested groups go lighter so
   // we don't stack multiple dark pills inside each other (Tools → Meta → leaf).
   const buttonClass = isTop
-    ? `w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+    ? `w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-normal transition-all duration-200 ${
         sectionActive
           ? 'text-[var(--sidebar-foreground)] bg-[var(--sidebar-muted)]'
           : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
@@ -555,12 +614,8 @@ function NavGroup({
 
       <div className="collapsible-wrapper" data-open={open ? 'true' : 'false'}>
         <div className="collapsible-inner">
-          {/* Vertical rail to visually anchor children to their parent group. */}
-          <div className="relative pt-1 pl-3 pb-0.5 space-y-0.5">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1 bottom-0.5 left-[14px] w-px bg-[var(--sidebar-border-soft)]"
-            />
+          {/* Children indented to line up under the parent label (no rail). */}
+          <div className="pt-px pl-8 pb-0.5 space-y-px">
             {(() => {
               // Pick the longest-matching child path so a parent route like
               // /contacts doesn't read as active when the URL is /contacts/lists.
@@ -600,10 +655,10 @@ function NavGroup({
                   <Link
                     key={child.href}
                     href={child.href}
-                    className={`relative flex items-center gap-2.5 pl-3 pr-3 py-1.5 rounded-lg text-[13px] transition-all duration-200 ${
+                    className={`flex items-center gap-2.5 pl-3 pr-3 py-1.5 rounded-lg text-[13px] transition-colors ${
                       childActive
-                        ? 'text-[var(--primary)] font-semibold'
-                        : 'text-[var(--sidebar-muted-foreground)] font-medium hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
+                        ? 'text-[var(--primary)] font-medium'
+                        : 'text-[var(--sidebar-muted-foreground)] font-normal hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
                     }`}
                   >{/* Sub-page rows are icon-free by design. */}
                     {child.label}
