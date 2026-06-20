@@ -29,6 +29,7 @@ import {
   DocumentTextIcon,
   RectangleStackIcon,
   PaperAirplaneIcon,
+  PuzzlePieceIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
@@ -56,9 +57,15 @@ interface NavItem {
   absolute?: boolean;
 }
 
+// Top-level nav can also hold section dividers (optionally labeled, Klaviyo
+// "Advanced"-style) and the cross-host Reporting link (different host → <a>).
+type NavDivider = { divider: true; label?: string };
+type NavCrosslink = { crosslink: 'reporting'; label: string; icon: IconComponent };
+type NavEntry = NavItem | NavDivider | NavCrosslink;
+
 const toolsNavItem: NavItem = {
   href: '/tools',
-  label: 'Ads',
+  label: 'Ad Planning & Pacing',
   icon: MegaphoneIcon,
   absolute: true,
   children: [
@@ -114,7 +121,7 @@ const campaignBuilderNav: NavItem = {
 // grouped Campaigns + Templates has been split apart.
 const emailSmsNav: NavItem = {
   href: '/messaging/campaigns',
-  label: 'Email & SMS',
+  label: 'Emails & SMS',
   icon: ChatBubbleLeftRightIcon,
 };
 // Templates — now its own top-level destination. The unified page at
@@ -144,7 +151,7 @@ const flowsNavItem: NavItem = {
 // Contacts, not via the Forms admin UI).
 const websitesNav: NavItem = {
   href: '/websites/forms',
-  label: 'Websites',
+  label: 'Website',
   icon: GlobeAltIcon,
   children: [
     { href: '/websites/forms', label: 'Forms', icon: DocumentTextIcon },
@@ -157,7 +164,7 @@ const websitesNav: NavItem = {
 // existing /contacts table, Lists + Segments are first-class destinations.
 const contactsNav: NavItem = {
   href: '/contacts',
-  label: 'Contacts',
+  label: 'Audiences',
   icon: UserGroupIcon,
   children: [
     { href: '/contacts', label: 'All Contacts', icon: UserGroupIcon },
@@ -166,41 +173,38 @@ const contactsNav: NavItem = {
   ],
 };
 
-// Admin-level nav (when in admin mode)
-const adminNavItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
+const dashboardNav: NavItem = { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon };
+const reportingLink: NavCrosslink = { crosslink: 'reporting', label: 'Reporting', icon: ChartBarSquareIcon };
+
+// Admin nav — grouped Klaviyo-style with labeled dividers. The cross-host
+// Reporting link sits in the top group; Ad Planning & Pacing under "Tools".
+const adminNavItems: NavEntry[] = [
+  dashboardNav,
   campaignBuilderNav,
+  templatesNav,
+  reportingLink,
+  { divider: true },
   contactsNav,
   emailSmsNav,
-  templatesNav,
-  adGeneratorNav,
-  flowsNavItem,
   websitesNav,
-  { href: '/media', label: 'Media', icon: PhotoIcon },
+  flowsNavItem,
+  adGeneratorNav,
+  { divider: true, label: 'Tools' },
   toolsNavItem,
 ];
 
-// Sub-account nav for admin/developer users viewing a sub-account
-const subaccountAdminNavItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
-  campaignBuilderNav,
-  contactsNav,
-  emailSmsNav,
-  templatesNav,
-  adGeneratorNav,
-  flowsNavItem,
-  websitesNav,
-  { href: '/media', label: 'Media', icon: PhotoIcon },
-  toolsNavItem,
-];
+// Admin viewing a sub-account uses the same structure (routes get prefixed at
+// render; absolute items — Reporting / Ad Generator / Tools — stay global).
+const subaccountAdminNavItems: NavEntry[] = adminNavItems;
 
-// Sub-account nav for client users — no Flows (matches the previous
-// admin-only restriction on Flows).
-const subaccountClientNavItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
+// Client users: build/ops tools hidden; keep the destinations they own.
+const subaccountClientNavItems: NavEntry[] = [
+  dashboardNav,
+  templatesNav,
+  reportingLink,
+  { divider: true },
   contactsNav,
   emailSmsNav,
-  templatesNav,
 ];
 
 export function Sidebar() {
@@ -229,7 +233,7 @@ export function Sidebar() {
   const slug = accountKey ? accountKeyToSlug(accountKey, accounts) : null;
   const inSubaccountRoute = isSubaccountRoute(pathname);
 
-  let navItems: NavItem[];
+  let navItems: NavEntry[];
   let prefix = '';
 
   if (isAdmin && !inSubaccountRoute) {
@@ -242,14 +246,17 @@ export function Sidebar() {
   }
 
   // Resolve nav item hrefs with the prefix (skip for absolute items)
-  const resolvedNavItems: NavItem[] = navItems.map((item) => ({
-    ...item,
-    href: prefix && !item.absolute ? `${prefix}${item.href}` : item.href,
-    children: item.children?.map((child) => ({
-      ...child,
-      href: prefix && !child.absolute ? `${prefix}${child.href}` : child.href,
-    })),
-  }));
+  const resolvedNavItems: NavEntry[] = navItems.map((entry) => {
+    if ('divider' in entry || 'crosslink' in entry) return entry;
+    return {
+      ...entry,
+      href: prefix && !entry.absolute ? `${prefix}${entry.href}` : entry.href,
+      children: entry.children?.map((child) => ({
+        ...child,
+        href: prefix && !child.absolute ? `${prefix}${child.href}` : child.href,
+      })),
+    };
+  });
 
   const normalizedPath = inSubaccountRoute ? stripSubaccountPrefix(pathname) : pathname;
 
@@ -264,6 +271,10 @@ export function Sidebar() {
     normalizedPath.startsWith('/settings') ||
     pathname.startsWith('/users') ||
     pathname.startsWith('/subaccounts');
+
+  // Integrations — jump to the active sub-account's integration settings.
+  const integrationsHref = slug ? `/subaccount/${slug}/settings/integrations` : '/settings/integrations';
+  const integrationsActive = normalizedPath.startsWith('/settings/integrations');
 
   return (
     <aside
@@ -305,7 +316,49 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className={`flex-1 space-y-0.5 overflow-y-auto ${collapsed ? 'p-2' : 'p-3'}`}>
-        {resolvedNavItems.map((item) => {
+        {resolvedNavItems.map((entry, i) => {
+          if ('divider' in entry) {
+            if (collapsed) {
+              return <div key={`sep-${i}`} className="mx-2 my-2 border-t border-[var(--sidebar-border)]" />;
+            }
+            return entry.label ? (
+              <p
+                key={`sep-${i}`}
+                className="px-3 pt-5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]/70"
+              >
+                {entry.label}
+              </p>
+            ) : (
+              <div key={`sep-${i}`} className="h-3" />
+            );
+          }
+          if ('crosslink' in entry) {
+            if (!reportingHref) return null;
+            const CrossIcon = entry.icon;
+            const crossLink = (
+              <a
+                key={`cross-${i}`}
+                href={reportingHref}
+                className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]`}
+              >
+                <CrossIcon className="w-5 h-5" />
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 text-left">{entry.label}</span>
+                    <ArrowTopRightOnSquareIcon className="w-3 h-3 text-[var(--sidebar-muted-foreground)]/70" />
+                  </>
+                )}
+              </a>
+            );
+            return collapsed ? (
+              <SidebarTooltip key={`cross-${i}`} label={entry.label}>
+                {crossLink}
+              </SidebarTooltip>
+            ) : (
+              crossLink
+            );
+          }
+          const item = entry;
           if (item.children && item.children.length > 0) {
             return (
               <NavGroup
@@ -343,32 +396,28 @@ export function Sidebar() {
           ) : leaf;
         })}
 
-        {/* Cross-host link to the reporting surface. Lives at the
-            bottom of the main nav since "view performance" feels
-            adjacent to "build performance" rather than a settings
-            concern. Plain anchor (not next/link) because the
-            destination is a different host. */}
-        {reportingHref &&
-          (() => {
-            const analyticsLink = (
-              <a
-                href={reportingHref}
-                className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]`}
-              >
-                <ChartBarSquareIcon className="w-5 h-5" />
-                {!collapsed && (
-                  <>
-                    <span className="flex-1 text-left">Analytics</span>
-                    <ArrowTopRightOnSquareIcon className="w-3 h-3 text-[var(--sidebar-muted-foreground)]/70" />
-                  </>
-                )}
-              </a>
-            );
-            return collapsed ? (
-              <SidebarTooltip label="Analytics">{analyticsLink}</SidebarTooltip>
-            ) : analyticsLink;
-          })()}
       </nav>
+
+      {/* Integrations — quick jump to the active sub-account's integration settings,
+          pinned at the bottom above the dev impersonation control. */}
+      <div className={`${collapsed ? 'px-2' : 'px-3'} pb-1`}>
+        {(() => {
+          const intLink = (
+            <Link
+              href={integrationsHref}
+              className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                integrationsActive
+                  ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
+                  : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
+              }`}
+            >
+              <PuzzlePieceIcon className="w-5 h-5" />
+              {!collapsed && 'Integrations'}
+            </Link>
+          );
+          return collapsed ? <SidebarTooltip label="Integrations">{intLink}</SidebarTooltip> : intLink;
+        })()}
+      </div>
 
       {/* Developer impersonation — hidden when collapsed (too dense for narrow rail) */}
       {!collapsed && <DevImpersonate />}
