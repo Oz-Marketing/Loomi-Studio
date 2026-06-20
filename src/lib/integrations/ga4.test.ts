@@ -4,10 +4,14 @@ import {
   getGa4Config,
   isGa4Configured,
   resolveGa4Property,
+  resolveGa4Platform,
   getTrafficOverview,
   getTrafficSources,
   getTopPages,
   getTrafficTrend,
+  getDeviceBreakdown,
+  getSourceMedium,
+  getVdpViews,
   type Ga4Config,
 } from './ga4';
 
@@ -164,5 +168,71 @@ describe('report mapping', () => {
     ]);
     const pages = await getTopPages(cfg, '123', '2026-06-01', '2026-06-19', 10);
     expect(pages[0]).toEqual({ title: 'Home', path: '/', views: 3000, avgTime: 42.5 });
+  });
+
+  it('getDeviceBreakdown maps device/sessions/users with a blank fallback', async () => {
+    mockFetch([
+      { dimensionValues: [{ value: 'mobile' }], metricValues: [{ value: '600' }, { value: '500' }] },
+      { dimensionValues: [{ value: '' }], metricValues: [{ value: '5' }, { value: '4' }] },
+    ]);
+    const devices = await getDeviceBreakdown(cfg, '123', '2026-06-01', '2026-06-19');
+    expect(devices[0]).toEqual({ device: 'mobile', sessions: 600, users: 500 });
+    expect(devices[1].device).toBe('(unknown)');
+  });
+
+  it('getSourceMedium maps all six metrics + (direct)/(none) fallbacks', async () => {
+    mockFetch([
+      {
+        dimensionValues: [{ value: 'google' }, { value: 'organic' }],
+        metricValues: [{ value: '400' }, { value: '350' }, { value: '200' }, { value: '0.3' }, { value: '88' }, { value: '1200' }],
+      },
+      {
+        dimensionValues: [{ value: '' }, { value: '' }],
+        metricValues: [{ value: '10' }, { value: '9' }, { value: '5' }, { value: '0.5' }, { value: '12' }, { value: '20' }],
+      },
+    ]);
+    const sm = await getSourceMedium(cfg, '123', '2026-06-01', '2026-06-19', 25);
+    expect(sm[0]).toEqual({
+      source: 'google',
+      medium: 'organic',
+      sessions: 400,
+      users: 350,
+      newUsers: 200,
+      bounceRate: 0.3,
+      avgDuration: 88,
+      pageViews: 1200,
+    });
+    expect(sm[1].source).toBe('(direct)');
+    expect(sm[1].medium).toBe('(none)');
+  });
+
+  it('getVdpViews sums total views and maps pages', async () => {
+    mockFetch([
+      { dimensionValues: [{ value: '2024 Camry LE' }, { value: '/new/Toyota/2024-Camry-LE-x.htm' }], metricValues: [{ value: '120' }, { value: '90' }, { value: '65' }] },
+      { dimensionValues: [{ value: '2023 Civic' }, { value: '/used/Honda/2023-Civic-y.htm' }], metricValues: [{ value: '80' }, { value: '60' }, { value: '50' }] },
+    ]);
+    const vdp = await getVdpViews(cfg, '123', '2026-06-01', '2026-06-19', 10, 'dealer_com');
+    expect(vdp.totalViews).toBe(200);
+    expect(vdp.pages[0]).toEqual({ title: '2024 Camry LE', path: '/new/Toyota/2024-Camry-LE-x.htm', views: 120, users: 90, avgDuration: 65 });
+  });
+});
+
+describe('resolveGa4Platform', () => {
+  it('maps an account key to a known platform', () => {
+    process.env.GA4_PLATFORM_MAP = JSON.stringify({ dealerA: 'team_velocity', dealerB: 'room58' });
+    expect(resolveGa4Platform('dealerA')).toBe('team_velocity');
+    expect(resolveGa4Platform('dealerB')).toBe('room58');
+  });
+
+  it('defaults to dealer_com for unmapped keys, unknown platforms, no env, or bad JSON', () => {
+    process.env.GA4_PLATFORM_MAP = JSON.stringify({ dealerA: 'not_a_platform' });
+    expect(resolveGa4Platform('dealerA')).toBe('dealer_com');
+    expect(resolveGa4Platform('missing')).toBe('dealer_com');
+
+    delete process.env.GA4_PLATFORM_MAP;
+    expect(resolveGa4Platform('dealerA')).toBe('dealer_com');
+
+    process.env.GA4_PLATFORM_MAP = '{ bad';
+    expect(resolveGa4Platform('dealerA')).toBe('dealer_com');
   });
 });

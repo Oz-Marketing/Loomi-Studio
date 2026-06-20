@@ -74,6 +74,38 @@ export function resolveGa4Property(accountKey: string): string | null {
   }
 }
 
+/**
+ * VDP (vehicle-detail-page) URL regex per dealer website platform — GA4
+ * PARTIAL_REGEXP (RE2). Each matches individual vehicle pages while excluding
+ * search/listing (SRP/VLP) pages. Ported verbatim from ODT. Add a platform here
+ * and map an account to it via GA4_PLATFORM_MAP.
+ */
+export const VDP_PLATFORM_PATTERNS: Record<string, string> = {
+  dealer_com: '/(new|used|certified)/[^/]+/[0-9]{4}-',
+  dealer_spike:
+    '(xInventoryDetail|xPreOwnedInventoryDetail|--[0-9]{4}-[A-Za-z].*[0-9]{3,}|/[A-Za-z]+/[0-9]{4}-[A-Za-z].*[0-9]{4,})',
+  dealer_eprocess: '/auto/(new|used|certified)-[0-9]{4}-',
+  room58: '(/vehicles/[0-9]{4}-[A-Za-z]|/vehicle-detail/[0-9])',
+  team_velocity: '/viewdetails/(new|used|certified)/[a-zA-Z0-9]+/[0-9]{4}-',
+};
+
+/**
+ * Resolve a sub-account → its website-platform key (selects the VDP regex).
+ * Reads `GA4_PLATFORM_MAP` (`{"<accountKey>":"dealer_com"}`); defaults to
+ * `dealer_com` (the most common DDC platform) when unmapped or unknown.
+ */
+export function resolveGa4Platform(accountKey: string): string {
+  const raw = process.env.GA4_PLATFORM_MAP?.trim();
+  if (!raw) return 'dealer_com';
+  try {
+    const map = JSON.parse(raw) as Record<string, string>;
+    const v = map[accountKey];
+    return v && VDP_PLATFORM_PATTERNS[v] ? v : 'dealer_com';
+  } catch {
+    return 'dealer_com';
+  }
+}
+
 export type Ga4ErrorCode = 'not_configured' | 'no_property' | 'api_error';
 
 export class Ga4Error extends Error {
@@ -163,6 +195,7 @@ interface RunReportBody {
   dimensions?: { name: string }[];
   metrics: { name: string }[];
   orderBys?: Record<string, unknown>[];
+  dimensionFilter?: Record<string, unknown>;
   limit?: number;
 }
 interface Ga4Row {
@@ -325,4 +358,124 @@ export async function getTrafficTrend(
     const date = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
     return { date, sessions: metricInt(r, 0), users: metricInt(r, 1) };
   });
+}
+
+export interface Ga4Device {
+  device: string;
+  sessions: number;
+  users: number;
+}
+
+export async function getDeviceBreakdown(
+  cfg: Ga4Config,
+  propertyId: string,
+  startDate: string,
+  endDate: string,
+): Promise<Ga4Device[]> {
+  const rows = await runReport(cfg, propertyId, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: 'deviceCategory' }],
+    metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
+  });
+  return rows.map((r) => ({
+    device: dimVal(r, 0) || '(unknown)',
+    sessions: metricInt(r, 0),
+    users: metricInt(r, 1),
+  }));
+}
+
+export interface Ga4SourceMedium {
+  source: string;
+  medium: string;
+  sessions: number;
+  users: number;
+  newUsers: number;
+  /** Fraction 0..1 (×100 for display). */
+  bounceRate: number;
+  /** Seconds. */
+  avgDuration: number;
+  pageViews: number;
+}
+
+export async function getSourceMedium(
+  cfg: Ga4Config,
+  propertyId: string,
+  startDate: string,
+  endDate: string,
+  limit = 25,
+): Promise<Ga4SourceMedium[]> {
+  const rows = await runReport(cfg, propertyId, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: 'sessionSource' }, { name: 'sessionMedium' }],
+    metrics: [
+      { name: 'sessions' },
+      { name: 'totalUsers' },
+      { name: 'newUsers' },
+      { name: 'bounceRate' },
+      { name: 'averageSessionDuration' },
+      { name: 'screenPageViews' },
+    ],
+    orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+    limit,
+  });
+  return rows.map((r) => ({
+    source: dimVal(r, 0) || '(direct)',
+    medium: dimVal(r, 1) || '(none)',
+    sessions: metricInt(r, 0),
+    users: metricInt(r, 1),
+    newUsers: metricInt(r, 2),
+    bounceRate: metricInt(r, 3),
+    avgDuration: metricInt(r, 4),
+    pageViews: metricInt(r, 5),
+  }));
+}
+
+export interface Ga4VdpPage {
+  title: string;
+  path: string;
+  views: number;
+  users: number;
+  /** Seconds. */
+  avgDuration: number;
+}
+export interface Ga4Vdp {
+  totalViews: number;
+  pages: Ga4VdpPage[];
+}
+
+/**
+ * Top vehicle-detail pages. Filters `pagePath` by the platform's VDP regex
+ * (PARTIAL_REGEXP) to count individual vehicle pages and exclude search/listing
+ * pages. `customRegex` overrides the platform pattern when set.
+ */
+export async function getVdpViews(
+  cfg: Ga4Config,
+  propertyId: string,
+  startDate: string,
+  endDate: string,
+  limit = 10,
+  platform = 'dealer_com',
+  customRegex = '',
+): Promise<Ga4Vdp> {
+  const regex = customRegex || VDP_PLATFORM_PATTERNS[platform] || VDP_PLATFORM_PATTERNS.dealer_com;
+  const rows = await runReport(cfg, propertyId, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: 'pageTitle' }, { name: 'pagePath' }],
+    metrics: [{ name: 'screenPageViews' }, { name: 'totalUsers' }, { name: 'averageSessionDuration' }],
+    dimensionFilter: {
+      filter: {
+        fieldName: 'pagePath',
+        stringFilter: { matchType: 'PARTIAL_REGEXP', value: regex, caseSensitive: false },
+      },
+    },
+    orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+    limit,
+  });
+  let totalViews = 0;
+  const pages = rows.map((r) => {
+    const views = metricInt(r, 0);
+    totalViews += views;
+    return { title: dimVal(r, 0), path: dimVal(r, 1), views, users: metricInt(r, 1), avgDuration: metricInt(r, 2) };
+  });
+  return { totalViews, pages };
 }

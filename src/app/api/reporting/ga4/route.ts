@@ -21,10 +21,14 @@ import {
   Ga4Error,
   getGa4Config,
   resolveGa4Property,
+  resolveGa4Platform,
   getTrafficOverview,
   getTrafficSources,
   getTopPages,
   getTrafficTrend,
+  getDeviceBreakdown,
+  getSourceMedium,
+  getVdpViews,
 } from '@/lib/integrations/ga4';
 
 export const dynamic = 'force-dynamic';
@@ -81,21 +85,29 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Breakdown sections — non-fatal (render the rest if one fails).
-    const [sources, topPages] = await Promise.all([
+    const platform = resolveGa4Platform(accountKey);
+    const [sources, topPages, devices, sourceMedium, vdp] = await Promise.all([
       getTrafficSources(cfg, propertyId, startDate, endDate).catch(() => []),
       getTopPages(cfg, propertyId, startDate, endDate, 10).catch(() => []),
+      getDeviceBreakdown(cfg, propertyId, startDate, endDate).catch(() => []),
+      getSourceMedium(cfg, propertyId, startDate, endDate, 25).catch(() => []),
+      getVdpViews(cfg, propertyId, startDate, endDate, 10, platform).catch(() => ({ totalViews: 0, pages: [] })),
     ]);
 
     return NextResponse.json({
       accountKey,
       dealer: account?.dealer ?? accountKey,
       propertyId,
+      platform,
       startDate,
       endDate,
       overview,
       trend,
       sources,
       topPages,
+      devices,
+      sourceMedium,
+      vdp,
     });
   } catch (err) {
     if (err instanceof Ga4Error) {

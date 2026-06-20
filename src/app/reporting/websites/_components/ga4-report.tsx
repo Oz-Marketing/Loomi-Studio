@@ -2,8 +2,9 @@
 
 /**
  * Websites tab body. Fetches /api/reporting/ga4 and renders KPIs, a daily
- * sessions/users trend, a channel-mix donut, and a top-pages table. GA4 is the
- * source of truth; this component only presents.
+ * sessions/users trend, channel + device mix, vehicle-detail-page (VDP)
+ * engagement, top pages, and a source/medium table. GA4 is the source of
+ * truth; this component only presents.
  */
 
 import useSWR from 'swr';
@@ -15,6 +16,9 @@ import {
   ArrowTrendingDownIcon,
   ClockIcon,
   GlobeAltIcon,
+  DevicePhoneMobileIcon,
+  TruckIcon,
+  FunnelIcon,
   DocumentTextIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
@@ -56,15 +60,41 @@ interface PageRow {
   views: number;
   avgTime: number;
 }
+interface DeviceRow {
+  device: string;
+  sessions: number;
+  users: number;
+}
+interface SourceMediumRow {
+  source: string;
+  medium: string;
+  sessions: number;
+  users: number;
+  newUsers: number;
+  bounceRate: number;
+  avgDuration: number;
+  pageViews: number;
+}
+interface VdpPageRow {
+  title: string;
+  path: string;
+  views: number;
+  users: number;
+  avgDuration: number;
+}
 interface Ga4Data {
   dealer: string;
   propertyId: string;
+  platform: string;
   startDate: string;
   endDate: string;
   overview: Overview;
   trend: TrendPoint[];
   sources: SourceRow[];
   topPages: PageRow[];
+  devices: DeviceRow[];
+  sourceMedium: SourceMediumRow[];
+  vdp: { totalViews: number; pages: VdpPageRow[] };
 }
 
 /** Seconds → "1m 42s" / "0m 8s". */
@@ -130,7 +160,7 @@ export function Ga4Report({
         )}
       </Section>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.4fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Section title="Channels" subtitle="by sessions" icon={GlobeAltIcon}>
           {data.sources.length ? (
             <Ga4ChannelDonut items={data.sources.map((s) => ({ label: s.channel, value: s.sessions }))} isDark={isDark} />
@@ -139,17 +169,65 @@ export function Ga4Report({
           )}
         </Section>
 
-        <Section title="Top pages" subtitle="by views" icon={DocumentTextIcon}>
-          {data.topPages.length ? (
-            <DataTable
-              head={['Page', 'Path', 'Views', 'Avg time']}
-              rows={data.topPages.map((p) => [p.title || '(untitled)', p.path, num(p.views), duration(p.avgTime)])}
-            />
+        <Section title="Devices" subtitle="by sessions" icon={DevicePhoneMobileIcon}>
+          {data.devices.length ? (
+            <Ga4ChannelDonut items={data.devices.map((d) => ({ label: d.device, value: d.sessions }))} isDark={isDark} />
           ) : (
-            <Muted>No page data for this range.</Muted>
+            <Muted>No device data for this range.</Muted>
           )}
         </Section>
       </div>
+
+      <Section
+        title="Vehicle detail pages"
+        subtitle={`${num(data.vdp.totalViews)} VDP views · ${data.platform}`}
+        icon={TruckIcon}
+      >
+        {data.vdp.pages.length ? (
+          <DataTable
+            head={['Vehicle page', 'Path', 'Views', 'Users', 'Avg time']}
+            rows={data.vdp.pages.map((p) => [
+              p.title || '(untitled)',
+              p.path,
+              num(p.views),
+              num(p.users),
+              duration(p.avgDuration),
+            ])}
+          />
+        ) : (
+          <Muted>No vehicle-detail-page views matched the {data.platform} URL pattern for this range.</Muted>
+        )}
+      </Section>
+
+      <Section title="Top pages" subtitle="by views" icon={DocumentTextIcon}>
+        {data.topPages.length ? (
+          <DataTable
+            head={['Page', 'Path', 'Views', 'Avg time']}
+            rows={data.topPages.map((p) => [p.title || '(untitled)', p.path, num(p.views), duration(p.avgTime)])}
+          />
+        ) : (
+          <Muted>No page data for this range.</Muted>
+        )}
+      </Section>
+
+      <Section title="Source / medium" subtitle="top 25 by sessions" icon={FunnelIcon}>
+        {data.sourceMedium.length ? (
+          <DataTable
+            head={['Source', 'Medium', 'Sessions', 'Users', 'New', 'Bounce', 'Views']}
+            rows={data.sourceMedium.map((s) => [
+              s.source,
+              s.medium,
+              num(s.sessions),
+              num(s.users),
+              num(s.newUsers),
+              pctText(s.bounceRate * 100),
+              num(s.pageViews),
+            ])}
+          />
+        ) : (
+          <Muted>No source/medium data for this range.</Muted>
+        )}
+      </Section>
 
       <p className="text-[11px] text-[var(--muted-foreground)]">GA4 property {data.propertyId}</p>
     </div>
