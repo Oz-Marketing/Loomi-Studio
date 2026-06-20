@@ -64,26 +64,29 @@ export function FontSelect({
       </button>
 
       {open && (
-        <div className="glass-dropdown animate-fade-in-up absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto p-1.5 shadow-lg">
-          {options.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              onClick={() => {
-                onChange(o.value);
-                setOpen(false);
-              }}
-              style={previewFont ? { fontFamily: o.value } : undefined}
-              className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-                o.value === value
-                  ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                  : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
-              }`}
-            >
-              <span className="truncate">{o.label}</span>
-              {o.value === value && <CheckIcon className="h-3.5 w-3.5 shrink-0" />}
-            </button>
-          ))}
+        <div className="glass-dropdown animate-fade-in-up absolute left-0 right-0 top-full z-50 mt-2 shadow-lg">
+          {/* glass-dropdown is overflow:hidden (rounded); scroll on an inner box. */}
+          <div className="max-h-72 overflow-y-auto p-1.5">
+            {options.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => {
+                  onChange(o.value);
+                  setOpen(false);
+                }}
+                style={previewFont ? { fontFamily: o.value } : undefined}
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  o.value === value
+                    ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                    : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
+                }`}
+              >
+                <span className="truncate">{o.label}</span>
+                {o.value === value && <CheckIcon className="h-3.5 w-3.5 shrink-0" />}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
