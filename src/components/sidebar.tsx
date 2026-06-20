@@ -11,7 +11,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Squares2X2Icon,
-  CogIcon,
   UserGroupIcon,
   PhotoIcon,
   SunIcon,
@@ -292,11 +291,6 @@ export function Sidebar() {
       ? `/subaccount/${slug}/settings`
       : '/settings/subaccounts';
 
-  const settingsActive =
-    normalizedPath === '/settings' ||
-    normalizedPath.startsWith('/settings') ||
-    pathname.startsWith('/users') ||
-    pathname.startsWith('/subaccounts');
 
   // Integrations — jump to the active sub-account's integration settings.
   const integrationsHref = slug ? `/subaccount/${slug}/settings/integrations` : '/settings/integrations';
@@ -311,7 +305,7 @@ export function Sidebar() {
     >
       {/* Logo + Account Switcher + Collapse Toggle */}
       <div className={`${collapsed ? 'p-2 pb-3' : 'px-2 pt-4 pb-3'}`}>
-        <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between mb-3'}`}>
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
           {!collapsed && <AppLogo className="h-8 w-auto max-w-[150px] object-contain" />}
           <SidebarTooltip label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
             <button
@@ -328,16 +322,6 @@ export function Sidebar() {
             </button>
           </SidebarTooltip>
         </div>
-        {/* AccountSwitcher: full pill when expanded, avatar-only trigger
-            when collapsed. In compact mode the dropdown flies out to the
-            right of the rail (see AccountSwitcher position logic). */}
-        {collapsed ? (
-          <div className="mt-2">
-            <AccountSwitcher compact />
-          </div>
-        ) : (
-          <AccountSwitcher />
-        )}
       </div>
 
       {/* Navigation */}
@@ -461,27 +445,18 @@ export function Sidebar() {
               {!collapsed && themeLabel}
             </button>
           );
-          const settingsLink = (
-            <Link
-              href={settingsHref}
-              className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2 rounded-xl text-sm font-normal transition-all duration-200 ${
-                settingsActive
-                  ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
-                  : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
-              }`}
-            >
-              <CogIcon className="w-5 h-5" />
-              {!collapsed && 'Settings'}
-            </Link>
-          );
           if (isClientRole) {
             return collapsed ? (
               <SidebarTooltip label={themeLabel}>{themeBtn}</SidebarTooltip>
             ) : themeBtn;
           }
+          // Account switcher lives here now (where Settings used to be); Settings
+          // is a link inside its popout.
           return collapsed ? (
-            <SidebarTooltip label="Settings">{settingsLink}</SidebarTooltip>
-          ) : settingsLink;
+            <AccountSwitcher compact openUp settingsHref={settingsHref} />
+          ) : (
+            <AccountSwitcher openUp settingsHref={settingsHref} />
+          );
         })()}
       </div>
     </aside>
@@ -646,12 +621,8 @@ function NavGroup({
 
       <div className="collapsible-wrapper" data-open={open ? 'true' : 'false'}>
         <div className="collapsible-inner">
-          {/* Vertical rail to visually anchor children to their parent group. */}
-          <div className="relative pt-1 pl-3 pb-0.5 space-y-px">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1 bottom-0.5 left-[14px] w-px bg-[var(--sidebar-border-soft)]"
-            />
+          {/* Children indented to line up under the parent label (no rail). */}
+          <div className="pt-px pl-8 pb-0.5 space-y-px">
             {(() => {
               // Pick the longest-matching child path so a parent route like
               // /contacts doesn't read as active when the URL is /contacts/lists.
@@ -691,10 +662,10 @@ function NavGroup({
                   <Link
                     key={child.href}
                     href={child.href}
-                    className={`relative flex items-center gap-2.5 pl-3 pr-3 py-1.5 rounded-lg text-[13px] transition-all duration-200 ${
+                    className={`flex items-center gap-2.5 pl-3 pr-3 py-1.5 rounded-lg text-[13px] transition-colors ${
                       childActive
-                        ? 'text-[var(--primary)] font-semibold'
-                        : 'text-[var(--sidebar-muted-foreground)] font-medium hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
+                        ? 'text-[var(--primary)] font-medium'
+                        : 'text-[var(--sidebar-muted-foreground)] font-normal hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
                     }`}
                   >{/* Sub-page rows are icon-free by design. */}
                     {child.label}

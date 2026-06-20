@@ -11,10 +11,12 @@ import {
   BugAntIcon,
   ChartBarIcon,
   ClockIcon,
+  MagnifyingGlassIcon,
   MoonIcon,
   QuestionMarkCircleIcon,
   SunIcon,
   UserCircleIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { appendThemeParam, getOtherSurfaceUrl } from '@/lib/cross-site';
@@ -121,8 +123,65 @@ export function TopUtilityBar() {
     setUserMenuOpen(false);
   }, [pathname]);
 
+  // Global search — modal is a stub for now. ⌘K opens, Esc closes.
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      } else if (e.key === 'Escape') {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
-    <header className="flex justify-end" aria-label="Page utilities">
+    <header className="flex items-center justify-between gap-4" aria-label="Page utilities">
+      <button
+        type="button"
+        onClick={() => setSearchOpen(true)}
+        className="flex items-center gap-2 w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm text-[var(--muted-foreground)] hover:border-[var(--primary)] transition-colors"
+      >
+        <MagnifyingGlassIcon className="w-4 h-4 flex-shrink-0" />
+        <span className="flex-1 text-left">Search&hellip;</span>
+        <kbd className="hidden sm:inline text-[10px] rounded border border-[var(--border)] px-1.5 py-0.5">&#8984;K</kbd>
+      </button>
+
+      {searchOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 backdrop-blur-sm px-4 pt-[15vh]"
+          onClick={() => setSearchOpen(false)}
+        >
+          <div
+            className="w-full max-w-xl glass-dropdown rounded-xl shadow-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2.5 border-b border-[var(--border)] px-4 py-3">
+              <MagnifyingGlassIcon className="w-5 h-5 text-[var(--muted-foreground)] flex-shrink-0" />
+              <input
+                autoFocus
+                type="text"
+                placeholder="Search accounts, campaigns, contacts, templates&hellip;"
+                className="flex-1 bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+              />
+              <button
+                type="button"
+                onClick={() => setSearchOpen(false)}
+                className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-4 py-10 text-center text-sm text-[var(--muted-foreground)]">
+              Global search is coming soon.
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <UtilityIconButton
           title="Help"

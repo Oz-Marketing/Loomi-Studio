@@ -9,6 +9,7 @@ import {
   MagnifyingGlassIcon,
   ShieldCheckIcon,
   CheckIcon,
+  CogIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
@@ -27,6 +28,10 @@ interface AccountSwitcherProps {
   /** When true, render only the current account's avatar as the trigger
    *  and position the dropdown to the right (used by the collapsed sidebar). */
   compact?: boolean;
+  /** Open the dropdown upward (for triggers pinned to the bottom of the rail). */
+  openUp?: boolean;
+  /** When set, render a Settings link at the bottom of the dropdown. */
+  settingsHref?: string;
 }
 
 const RECENT_SUBACCOUNT_STORAGE_KEY_PREFIX = 'loomi-recent-subaccounts';
@@ -173,7 +178,7 @@ function resolveAccountCityStateLabel(accountData: AccountData): string | null {
   return formatAccountCityState(accountData) || null;
 }
 
-export function AccountSwitcher({ onSwitch, compact = false }: AccountSwitcherProps) {
+export function AccountSwitcher({ onSwitch, compact = false, openUp = false, settingsHref }: AccountSwitcherProps) {
   const { account, setAccount, accounts, accountsLoaded, userRole, userEmail } = useAccount();
   const { confirmNavigation } = useUnsavedChanges();
   const router = useRouter();
@@ -203,6 +208,8 @@ export function AccountSwitcher({ onSwitch, compact = false }: AccountSwitcherPr
           top: rect.top,
           left: rect.right + 12,
         });
+      } else if (openUp) {
+        setPos({ top: rect.top - 6, left: rect.left });
       } else {
         setPos({
           top: rect.bottom + 6,
@@ -210,7 +217,7 @@ export function AccountSwitcher({ onSwitch, compact = false }: AccountSwitcherPr
         });
       }
     }
-  }, [open, compact]);
+  }, [open, compact, openUp]);
 
   // Close on outside click (checks both trigger and portal dropdown)
   useEffect(() => {
@@ -442,8 +449,8 @@ export function AccountSwitcher({ onSwitch, compact = false }: AccountSwitcherPr
       {open && typeof document !== 'undefined' && createPortal(
         <div
           ref={dropdownRef}
-          className="fixed z-[200] w-72 rounded-xl glass-dropdown overflow-hidden animate-fade-in-up"
-          style={{ top: pos.top, left: pos.left }}
+          className={`fixed z-[200] w-72 rounded-xl glass-dropdown overflow-hidden ${openUp ? '' : 'animate-fade-in-up'}`}
+          style={{ top: pos.top, left: pos.left, transform: openUp ? 'translateY(-100%)' : undefined }}
         >
           {/* Search */}
           <div className="p-1.5 border-b border-[var(--border)]">
@@ -494,6 +501,23 @@ export function AccountSwitcher({ onSwitch, compact = false }: AccountSwitcherPr
               filteredAccounts.map(([key, accountData]) => renderAccountOption(key, accountData))
             )}
           </div>
+
+          {settingsHref && (
+            <div className="p-1 border-t border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  setSearch('');
+                  router.push(settingsHref);
+                }}
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <CogIcon className="w-4 h-4" />
+                Settings
+              </button>
+            </div>
+          )}
         </div>,
         document.body
       )}
