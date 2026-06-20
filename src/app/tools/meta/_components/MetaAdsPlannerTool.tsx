@@ -33,6 +33,10 @@ import {
   CheckBadgeIcon,
   ChatBubbleOvalLeftIcon,
   TrashIcon,
+  BanknotesIcon,
+  PlusCircleIcon,
+  LockOpenIcon,
+  ArrowRightCircleIcon,
   FunnelIcon,
   ArrowPathIcon,
   PaperClipIcon,
@@ -6544,7 +6548,8 @@ function BudgetLogDrawer({
 
   if (typeof document === 'undefined') return null;
   return createPortal(
-    <div className="fixed inset-0 z-50" onClick={onClose}>
+    <div className="fixed inset-0 z-[120]">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div
         onClick={(e) => e.stopPropagation()}
         className="frost-heavy fixed right-3 top-3 bottom-3 w-[640px] max-w-[calc(100vw-1.5rem)] rounded-2xl flex flex-col animate-slide-in-right overflow-hidden"
@@ -6734,17 +6739,32 @@ interface AuditEntryView {
   summary: string;
   groupId: string | null;
   authorName: string;
+  authorEmail: string | null;
+  authorAvatarUrl: string | null;
   createdAt: string;
 }
 
+// Distinct hue per action so the log reads at a glance.
 const AUDIT_ACTION_COLORS: Record<string, string> = {
-  edit: 'var(--muted-foreground)',
+  budget_push: COLORS.added,
+  edit: COLORS.daily,
   created: COLORS.success,
   deleted: COLORS.error,
   carryover: COLORS.lifetime,
   freeze: COLORS.warn,
-  reopen: COLORS.warn,
-  sync: COLORS.daily,
+  reopen: COLORS.split,
+  sync: COLORS.lifetime,
+};
+
+const AUDIT_ACTION_ICONS: Record<string, typeof ClockIcon> = {
+  budget_push: BanknotesIcon,
+  edit: PencilSquareIcon,
+  created: PlusCircleIcon,
+  deleted: TrashIcon,
+  carryover: ArrowRightCircleIcon,
+  freeze: LockClosedIcon,
+  reopen: LockOpenIcon,
+  sync: ArrowPathIcon,
 };
 
 function ChangeLogDrawer({
@@ -6790,9 +6810,9 @@ function ChangeLogDrawer({
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] flex justify-end">
+    <div className="fixed inset-0 z-[120]">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="glass-modal relative h-full w-full max-w-md flex flex-col overflow-hidden">
+      <div className="frost-heavy fixed right-3 top-3 bottom-3 w-[420px] max-w-[calc(100vw-1.5rem)] rounded-2xl flex flex-col overflow-hidden animate-slide-in-right">
         <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
@@ -6825,33 +6845,47 @@ function ChangeLogDrawer({
             </div>
           ) : (
             <div className="space-y-1.5">
-              {entries.map((e) => (
-                <div
-                  key={e.id}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2"
-                >
-                  <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <span
-                      className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                      style={{
-                        background: `${AUDIT_ACTION_COLORS[e.action] ?? 'var(--muted-foreground)'}22`,
-                        color: AUDIT_ACTION_COLORS[e.action] ?? 'var(--muted-foreground)',
-                      }}
-                    >
-                      {e.action}
-                    </span>
-                    <span className="text-[10px] text-[var(--muted-foreground)] whitespace-nowrap">
-                      {fmtSyncedAgo(e.createdAt)}
-                    </span>
+              {entries.map((e) => {
+                const color = AUDIT_ACTION_COLORS[e.action] ?? 'var(--muted-foreground)';
+                const ActionIcon = AUDIT_ACTION_ICONS[e.action] ?? ClockIcon;
+                const isSystem = e.authorName === 'System';
+                return (
+                  <div
+                    key={e.id}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span
+                        className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                        style={{ background: `${color}22`, color }}
+                      >
+                        <ActionIcon className="w-3 h-3" />
+                        {e.action.replace(/_/g, ' ')}
+                      </span>
+                      <span className="text-[10px] text-[var(--muted-foreground)] whitespace-nowrap">
+                        {fmtSyncedAgo(e.createdAt)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-[var(--foreground)] leading-snug">
+                      {e.summary}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      {!isSystem && (
+                        <UserAvatar
+                          name={e.authorName}
+                          email={e.authorEmail}
+                          avatarUrl={e.authorAvatarUrl}
+                          size={18}
+                          className="w-[18px] h-[18px] rounded-full object-cover border border-[var(--border)] flex-shrink-0"
+                        />
+                      )}
+                      <span className="text-[10px] text-[var(--muted-foreground)]">
+                        {e.authorName}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-xs text-[var(--foreground)] leading-snug">
-                    {e.summary}
-                  </div>
-                  <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                    {e.authorName}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

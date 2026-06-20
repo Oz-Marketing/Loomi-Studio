@@ -41,6 +41,7 @@ import { AccountSwitcher } from '@/components/account-switcher';
 import { AppLogo } from '@/components/app-logo';
 import { SidebarFrame } from '@/components/sidebar-frame';
 import { accountKeyToSlug, isSubaccountRoute, stripSubaccountPrefix } from '@/lib/account-slugs';
+import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -54,6 +55,12 @@ interface NavItem {
   // Use for global tools that live outside the /subaccount/[slug]/* route tree
   // but should still appear in the sub-account nav (e.g. Tools for admins).
   absolute?: boolean;
+  /** Show this leaf's icon as a brand badge (e.g. Meta) even though nested
+      sub-page rows are otherwise icon-free. */
+  badge?: boolean;
+  /** Not built yet — render a disabled "Soon" row that doesn't navigate or
+      expand. Flip off to enable. */
+  comingSoon?: boolean;
 }
 
 // Top-level nav can also hold section dividers (optionally labeled, Klaviyo
@@ -74,6 +81,7 @@ const toolsNavItem: NavItem = {
       href: '/tools/meta',
       label: 'Meta',
       icon: MetaBrandIcon,
+      badge: true,
       absolute: true,
     },
     {
@@ -81,6 +89,7 @@ const toolsNavItem: NavItem = {
       label: 'Google',
       icon: GoogleAdsBrandIcon,
       absolute: true,
+      comingSoon: true,
       children: [
         {
           href: '/tools/google/ad-planner',
@@ -179,7 +188,8 @@ const adminNavItems: NavEntry[] = [
   emailSmsNav,
   websitesNav,
   flowsNavItem,
-  adGeneratorNav,
+  // Ad Generator is gated off until it's production-ready (feature flag).
+  ...(AD_GENERATOR_ENABLED ? [adGeneratorNav] : []),
   mediaNav,
   { divider: true, label: 'Tools' },
   toolsNavItem,
@@ -308,7 +318,7 @@ export function Sidebar() {
         <>
           {/* Integrations — quick jump to the active sub-account's integration
               settings, pinned at the bottom above the footer. */}
-          <div className={`${collapsed ? 'px-2' : 'px-3'} pb-1`}>
+          <div className={`${collapsed ? 'px-2' : 'px-2'} pb-1`}>
             {(() => {
               const intLink = (
                 <Link
@@ -634,6 +644,24 @@ function NavGroup({
                 }
               }
               return item.children!.map((child) => {
+                // Not built yet — a disabled "Soon" row: shows the brand icon
+                // + label but doesn't navigate or expand to children.
+                if (child.comingSoon) {
+                  return (
+                    <div
+                      key={child.label}
+                      title="Coming soon"
+                      aria-disabled="true"
+                      className="flex items-center gap-2.5 pl-3 pr-2 py-1.5 rounded-lg text-[13px] text-[var(--sidebar-muted-foreground)]/50 cursor-not-allowed select-none"
+                    >
+                      {child.icon && <child.icon className="w-4 h-4 opacity-60" />}
+                      <span className="flex-1">{child.label}</span>
+                      <span className="rounded-full bg-[var(--sidebar-muted)] px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
+                        Soon
+                      </span>
+                    </div>
+                  );
+                }
                 // Children with their own children render as a nested group so
                 // we get e.g. Tools → Meta → [Ad Planner, Ad Pacer].
                 if (child.children && child.children.length > 0) {
@@ -660,7 +688,9 @@ function NavGroup({
                         ? 'text-[var(--primary)] font-medium'
                         : 'text-[var(--sidebar-muted-foreground)] font-normal hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
                     }`}
-                  >{/* Sub-page rows are icon-free by design. */}
+                  >{/* Sub-page rows are icon-free by design — except brand
+                       badges (e.g. Meta), which opt in via `badge`. */}
+                    {child.badge && child.icon && <child.icon className="w-4 h-4" />}
                     {child.label}
                   </Link>
                 );

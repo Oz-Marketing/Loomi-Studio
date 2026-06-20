@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ComponentType } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -17,6 +17,7 @@ import { useSidebarCollapse } from '@/contexts/sidebar-collapse-context';
 import { SidebarTooltip } from '@/components/sidebar-collapsed-ui';
 import { SidebarFrame } from '@/components/sidebar-frame';
 import { AccountSwitcher } from '@/components/account-switcher';
+import { MetaBrandIcon, GoogleAdsBrandIcon } from '@/components/icons/platform-logos';
 import { DIGITAL_ADS_REPORTS } from '../ads/_components/reports-config';
 
 /**
@@ -33,7 +34,12 @@ import { DIGITAL_ADS_REPORTS } from '../ads/_components/reports-config';
  * so active-state comparison uses the un-rewritten path.
  */
 
-type NavChild = { href: string; label: string; soon?: boolean };
+type NavChild = {
+  href: string;
+  label: string;
+  soon?: boolean;
+  icon?: ComponentType<{ className?: string }>;
+};
 type NavItem = {
   key: string;
   label: string;
@@ -41,6 +47,13 @@ type NavItem = {
   href?: string;
   matchExact?: boolean;
   children?: NavChild[];
+};
+
+// Brand badges for platforms with a recognizable logo; other reports fall back
+// to their generic registry icon (TV, envelope, …).
+const REPORT_BRAND_ICON: Record<string, ComponentType<{ className?: string }>> = {
+  meta: MetaBrandIcon,
+  google: GoogleAdsBrandIcon,
 };
 
 const NAV: NavItem[] = [
@@ -57,6 +70,7 @@ const NAV: NavItem[] = [
       href: `/ads/${r.key}`,
       label: r.label,
       soon: r.status !== 'live',
+      icon: REPORT_BRAND_ICON[r.key] ?? r.icon,
     })),
   },
 ];
@@ -271,7 +285,10 @@ function ChildLink({ child, active }: { child: NavChild; active: boolean }) {
   if (child.soon) {
     return (
       <div className="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-[var(--sidebar-muted-foreground)]/60">
-        <span>{child.label}</span>
+        <span className="flex items-center gap-2">
+          {child.icon && <child.icon className="h-4 w-4" />}
+          {child.label}
+        </span>
         <span className="rounded-full bg-[var(--sidebar-muted)] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider">
           soon
         </span>
@@ -281,12 +298,13 @@ function ChildLink({ child, active }: { child: NavChild; active: boolean }) {
   return (
     <Link
       href={child.href}
-      className={`flex items-center rounded-lg px-3 py-2 text-sm transition-colors ${
+      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
         active
           ? 'bg-[var(--primary)]/10 font-medium text-[var(--primary)]'
           : 'text-[var(--sidebar-muted-foreground)] hover:bg-[var(--sidebar-muted)] hover:text-[var(--sidebar-foreground)]'
       }`}
     >
+      {child.icon && <child.icon className="h-4 w-4" />}
       {child.label}
     </Link>
   );
