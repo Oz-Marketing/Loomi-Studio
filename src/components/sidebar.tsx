@@ -39,7 +39,6 @@ import { appendThemeParam, getOtherSurfaceUrl } from '@/lib/cross-site';
 import { FlowIcon } from '@/components/icon-map';
 import { MetaBrandIcon, GoogleAdsBrandIcon } from '@/components/icons/platform-logos';
 import { AccountSwitcher } from '@/components/account-switcher';
-import { DevImpersonate } from '@/components/dev-impersonate';
 import { AppLogo } from '@/components/app-logo';
 import { accountKeyToSlug, isSubaccountRoute, stripSubaccountPrefix } from '@/lib/account-slugs';
 
@@ -447,9 +446,6 @@ export function Sidebar() {
           return collapsed ? <SidebarTooltip label="Integrations">{intLink}</SidebarTooltip> : intLink;
         })()}
       </div>
-
-      {/* Developer impersonation — hidden when collapsed (too dense for narrow rail) */}
-      {!collapsed && <DevImpersonate />}
 
       {/* Settings / Theme Toggle */}
       <div className={`${collapsed ? 'p-2' : 'p-3'}`}>

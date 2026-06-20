@@ -22,6 +22,7 @@ import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useTheme } from '@/contexts/theme-context';
 import { UserAvatar } from '@/components/user-avatar';
+import { DevImpersonate } from '@/components/dev-impersonate';
 import { AI_ASSIST_OPEN_EVENT } from '@/lib/ui-events';
 import { ChangelogPanel } from '@/components/changelog-panel';
 import { NotificationsPanel } from '@/components/notifications-panel';
@@ -121,7 +122,7 @@ export function TopUtilityBar() {
   }, [pathname]);
 
   return (
-    <header className="flex justify-end mb-6" aria-label="Page utilities">
+    <header className="flex justify-end" aria-label="Page utilities">
       <div className="flex items-center gap-2">
         <UtilityIconButton
           title="Help"
@@ -253,6 +254,7 @@ export function TopUtilityBar() {
                   <ArrowRightStartOnRectangleIcon className="w-4 h-4" />
                   Logout
                 </button>
+                <DevImpersonate />
               </div>
             </div>
           )}
