@@ -9,7 +9,7 @@
 
 import { StarIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
-import { ReportingPageHeader } from '../_components/page-header';
+import { PageHeader } from '@/components/page-header';
 import { EmptyState } from '../ads/_components/shared';
 import { ReputationReport } from './_components/reputation-report';
 
@@ -19,8 +19,8 @@ export default function ReportingReputationPage() {
 
   return (
     <>
-      <ReportingPageHeader
-        eyebrow="Reputation"
+      <PageHeader
+        icon={StarIcon}
         title="Reputation"
         subtitle={`Live Google rating, recent reviews, and competitor comparison — ${accountKey ? dealer : 'select an account'}.`}
       />
