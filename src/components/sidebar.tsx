@@ -54,6 +54,9 @@ interface NavItem {
   // Use for global tools that live outside the /subaccount/[slug]/* route tree
   // but should still appear in the sub-account nav (e.g. Tools for admins).
   absolute?: boolean;
+  /** Show this leaf's icon as a brand badge (e.g. Meta) even though nested
+      sub-page rows are otherwise icon-free. */
+  badge?: boolean;
 }
 
 // Top-level nav can also hold section dividers (optionally labeled, Klaviyo
@@ -74,6 +77,7 @@ const toolsNavItem: NavItem = {
       href: '/tools/meta',
       label: 'Meta',
       icon: MetaBrandIcon,
+      badge: true,
       absolute: true,
     },
     {
@@ -308,7 +312,7 @@ export function Sidebar() {
         <>
           {/* Integrations — quick jump to the active sub-account's integration
               settings, pinned at the bottom above the footer. */}
-          <div className={`${collapsed ? 'px-2' : 'px-3'} pb-1`}>
+          <div className={`${collapsed ? 'px-2' : 'px-2'} pb-1`}>
             {(() => {
               const intLink = (
                 <Link
@@ -660,7 +664,9 @@ function NavGroup({
                         ? 'text-[var(--primary)] font-medium'
                         : 'text-[var(--sidebar-muted-foreground)] font-normal hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
                     }`}
-                  >{/* Sub-page rows are icon-free by design. */}
+                  >{/* Sub-page rows are icon-free by design — except brand
+                       badges (e.g. Meta), which opt in via `badge`. */}
+                    {child.badge && child.icon && <child.icon className="w-4 h-4" />}
                     {child.label}
                   </Link>
                 );
