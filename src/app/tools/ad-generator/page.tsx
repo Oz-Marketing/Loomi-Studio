@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { ArrowDownTrayIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { AD_TEMPLATES } from '@/lib/ad-generator/templates';
+import { buildFontFaceCssFromUrls } from '@/lib/ad-generator/fonts';
 import type { AdData, FieldSpec } from '@/lib/ad-generator/types';
 
 const PREVIEW_W = 460;
@@ -63,15 +64,20 @@ export default function AdGeneratorPage() {
     [colors],
   );
 
+  const customFonts = useMemo(() => accountData?.customFonts ?? [], [accountData?.customFonts]);
+  const fontFamilies = useMemo(() => [...new Set(customFonts.map((f) => f.family))], [customFonts]);
+
   const [logoKey, setLogoKey] = useState<string>('light');
   const [colorKey, setColorKey] = useState<string>('primary');
   const [customColor, setCustomColor] = useState('');
+  const [fontKey, setFontKey] = useState<string>('default');
 
   // Reset branding selections when the account changes.
   useEffect(() => {
     setLogoKey(logoVariants[0]?.key ?? 'light');
     setColorKey('primary');
     setCustomColor('');
+    setFontKey('default');
   }, [accountKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const logoUrl = logoVariants.find((v) => v.key === logoKey)?.url ?? logoVariants[0]?.url ?? '';
@@ -80,13 +86,20 @@ export default function AdGeneratorPage() {
       ? customColor || undefined
       : colorSwatches.find((c) => c.key === colorKey)?.value ?? colorSwatches[0]?.value ?? undefined;
 
+  const selectedFontFamily = fontKey !== 'default' && fontFamilies.includes(fontKey) ? fontKey : '';
+  const previewFontFaceCss = useMemo(
+    () => (selectedFontFamily ? buildFontFaceCssFromUrls(customFonts.filter((f) => f.family === selectedFontFamily)) : ''),
+    [customFonts, selectedFontFamily],
+  );
+
   const brandingData: AdData = useMemo(
     () => ({
       ...(accountData?.dealer ? { dealerName: accountData.dealer } : {}),
       ...(logoUrl ? { logoUrl } : {}),
       ...(brandColor ? { brandColor } : {}),
+      ...(selectedFontFamily ? { fontFamily: selectedFontFamily, fontFaceCss: previewFontFaceCss } : {}),
     }),
-    [accountData?.dealer, logoUrl, brandColor],
+    [accountData?.dealer, logoUrl, brandColor, selectedFontFamily, previewFontFaceCss],
   );
 
   const size = useMemo(() => template.sizes.find((s) => s.id === sizeId) ?? template.sizes[0], [template, sizeId]);
@@ -118,7 +131,7 @@ export default function AdGeneratorPage() {
       const res = await fetch('/api/ad-generator/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId: template.id, sizeId: targetSizeId, data: renderData }),
+        body: JSON.stringify({ templateId: template.id, sizeId: targetSizeId, accountKey, data: renderData }),
       });
       if (!res.ok) {
         const msg = (await res.json().catch(() => null))?.error || `HTTP ${res.status}`;
@@ -252,6 +265,42 @@ export default function AdGeneratorPage() {
                       <span className="text-xs text-[var(--muted-foreground)]">No brand colors set — pick Custom.</span>
                     )}
                   </div>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">Font</label>
+                  {fontFamilies.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setFontKey('default')}
+                        className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                          fontKey === 'default'
+                            ? 'border-[var(--primary)] text-[var(--primary)]'
+                            : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]'
+                        }`}
+                      >
+                        Default
+                      </button>
+                      {fontFamilies.map((fam) => (
+                        <button
+                          key={fam}
+                          onClick={() => setFontKey(fam)}
+                          style={{ fontFamily: `"${fam}"` }}
+                          className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                            fam === fontKey
+                              ? 'border-[var(--primary)] text-[var(--primary)]'
+                              : 'border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)]'
+                          }`}
+                        >
+                          {fam}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      No custom fonts yet. Upload OEM/brand fonts in the account&rsquo;s Branding settings.
+                    </p>
+                  )}
                 </div>
               </div>
             )}

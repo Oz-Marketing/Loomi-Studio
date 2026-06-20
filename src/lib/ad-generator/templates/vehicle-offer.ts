@@ -1,4 +1,5 @@
 import type { AdTemplate, AdData, AdSize } from '../types';
+import { cssSafeFamily } from '../fonts';
 
 /** Escape user data before it goes into HTML (preview + render are real HTML). */
 function esc(v: string | undefined): string {
@@ -33,6 +34,12 @@ function render(data: AdData, size: AdSize): string {
   const terms = esc(data.terms) || '36 months · $2,999 due at signing';
   const expiration = esc(data.expiration) || 'Offer ends soon';
   const disclaimer = esc(data.disclaimer);
+
+  // Branding font (from the account's uploaded custom fonts). fontFaceCss is raw
+  // CSS built upstream (page = url src for preview; render route = base64 src).
+  const fontFamily = cssSafeFamily(data.fontFamily ?? '');
+  const fontFaceCss = data.fontFaceCss ?? '';
+  const fontStack = `${fontFamily ? `"${fontFamily}", ` : ''}-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
 
   const vehicle = vehicleImageUrl
     ? `<img src="${vehicleImageUrl}" alt="${vehicleName}" style="max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 ${u * 0.4}px ${u * 0.6}px rgba(0,0,0,.25));" />`
@@ -81,12 +88,13 @@ function render(data: AdData, size: AdSize): string {
 <html>
 <head><meta charset="utf-8" />
 <style>
+  ${fontFaceCss}
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { width:${width}px; height:${height}px; }
   .ad {
     width:${width}px; height:${height}px; overflow:hidden; position:relative;
     background:linear-gradient(135deg,#ffffff 0%,#f1f5f9 100%);
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    font-family:${fontStack};
     padding:${u * 1.1}px; display:flex; flex-direction:column;
   }
   .ad::before { content:''; position:absolute; top:0; left:0; right:0; height:${u * 0.32}px; background:${brand}; }
