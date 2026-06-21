@@ -878,14 +878,10 @@ export default function AdBuilderPage() {
       <div className="flex min-h-0 flex-1 gap-4">
         {/* Left sidebar — tools */}
         <aside className="flex w-[320px] flex-shrink-0 flex-col gap-4 overflow-y-auto pb-1 pr-1">
+          {/* Elements — add to the canvas */}
           <section className="glass-card rounded-2xl border border-[var(--border)] p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Elements</h2>
-              <span className="text-[11px] text-[var(--muted-foreground)]">{placed.length}</span>
-            </div>
-
-            {/* Add element */}
-            <div className="mb-3 grid grid-cols-2 gap-1.5">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Elements</h2>
+            <div className="grid grid-cols-2 gap-1.5">
               {adders.map((a) => {
                 const Icon = TYPE_ICON[a.type];
                 return (
@@ -901,7 +897,14 @@ export default function AdBuilderPage() {
                 );
               })}
             </div>
+          </section>
 
+          {/* Layers — the stack of placed elements (top of the list = front) */}
+          <section className="glass-card rounded-2xl border border-[var(--border)] p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Layers</h2>
+              <span className="text-[11px] text-[var(--muted-foreground)]">{placed.length}</span>
+            </div>
             <div className="space-y-1">
               {[...placed].reverse().map(({ el, box }) => {
                 const Icon = TYPE_ICON[el.type];
@@ -1263,6 +1266,27 @@ export default function AdBuilderPage() {
                             <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-[var(--primary)] px-1.5 py-0.5 text-[10px] font-medium text-white">
                               {elName(el)}
                             </span>
+                            {/* Element actions — a tab anchored to the box's top-right */}
+                            <div
+                              onPointerDown={(e) => e.stopPropagation()}
+                              className="absolute bottom-full right-0 mb-1 flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--card-strong)] p-1 shadow-lg backdrop-blur-2xl"
+                            >
+                              <BarBtn title="Bring forward" onClick={bringForward}>
+                                <ChevronDoubleUpIcon className="h-4 w-4" />
+                              </BarBtn>
+                              <BarBtn title="Send back" onClick={sendBack}>
+                                <ChevronDoubleDownIcon className="h-4 w-4" />
+                              </BarBtn>
+                              <BarBtn title="Duplicate" onClick={() => duplicateElement(el.id)}>
+                                <DocumentDuplicateIcon className="h-4 w-4" />
+                              </BarBtn>
+                              <BarBtn title="Hide on this size" onClick={() => toggleHidden(el.id)}>
+                                <EyeSlashIcon className="h-4 w-4" />
+                              </BarBtn>
+                              <BarBtn title="Delete" onClick={() => deleteElement(el.id)} danger>
+                                <TrashIcon className="h-4 w-4" />
+                              </BarBtn>
+                            </div>
                             {RESIZE_HANDLES.map((rh) => (
                               <span
                                 key={rh.h}
@@ -1292,11 +1316,6 @@ export default function AdBuilderPage() {
                   fontOptions={fontOptions}
                   onEl={updEl}
                   onBox={(patch) => setBox(size.id, selected.id, { ...selectedBox, ...patch })}
-                  onForward={bringForward}
-                  onBack={sendBack}
-                  onDuplicate={() => duplicateElement(selected.id)}
-                  onDelete={() => deleteElement(selected.id)}
-                  onToggleHidden={() => toggleHidden(selected.id)}
                 />
               )}
             </div>
@@ -1667,8 +1686,8 @@ function FieldManagerModal({
 }) {
   const [expanded, setExpanded] = useState<number | null>(fields.length ? 0 : null);
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-16" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-16" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-5 shadow-xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h2 className="text-sm font-bold text-[var(--foreground)]">Template fields</h2>
@@ -1720,22 +1739,12 @@ function SelectionToolbar({
   fontOptions,
   onEl,
   onBox,
-  onForward,
-  onBack,
-  onDuplicate,
-  onDelete,
-  onToggleHidden,
 }: {
   el: DocElement;
   box: DocLayoutBox;
   fontOptions: FontSelectOption[];
   onEl: (patch: Partial<DocElement>) => void;
   onBox: (patch: Partial<DocLayoutBox>) => void;
-  onForward: () => void;
-  onBack: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-  onToggleHidden: () => void;
 }) {
   const fontSize = box.fontSize ?? 16;
   return (
@@ -1782,14 +1791,10 @@ function SelectionToolbar({
           <BarBtn title="Uppercase" active={!!el.uppercase} onClick={() => onEl({ uppercase: !el.uppercase })}>
             <span className="text-[11px] font-bold leading-none">Aa</span>
           </BarBtn>
-          <BarSep />
         </>
       )}
       {el.type === 'shape' && (
-        <>
-          <ColorSwatchInput title="Fill" value={el.fill && el.fill !== 'brand' ? el.fill : '#4f46e5'} onChange={(v) => onEl({ fill: v })} />
-          <BarSep />
-        </>
+        <ColorSwatchInput title="Fill" value={el.fill && el.fill !== 'brand' ? el.fill : '#4f46e5'} onChange={(v) => onEl({ fill: v })} />
       )}
       {(el.type === 'image' || el.type === 'logo') && (
         <>
@@ -1799,24 +1804,8 @@ function SelectionToolbar({
           <BarBtn title="Fill (cover)" active={el.fit === 'cover'} onClick={() => onEl({ fit: 'cover' })}>
             <ArrowsPointingOutIcon className="h-4 w-4" />
           </BarBtn>
-          <BarSep />
         </>
       )}
-      <BarBtn title="Bring forward" onClick={onForward}>
-        <ChevronDoubleUpIcon className="h-4 w-4" />
-      </BarBtn>
-      <BarBtn title="Send back" onClick={onBack}>
-        <ChevronDoubleDownIcon className="h-4 w-4" />
-      </BarBtn>
-      <BarBtn title="Duplicate" onClick={onDuplicate}>
-        <DocumentDuplicateIcon className="h-4 w-4" />
-      </BarBtn>
-      <BarBtn title="Hide on this size" onClick={onToggleHidden}>
-        <EyeSlashIcon className="h-4 w-4" />
-      </BarBtn>
-      <BarBtn title="Delete" onClick={onDelete} danger>
-        <TrashIcon className="h-4 w-4" />
-      </BarBtn>
     </div>
   );
 }
@@ -1883,8 +1872,8 @@ function LoadModal({
   onDelete: (id: string) => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-16" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-16" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-5 shadow-xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h2 className="text-sm font-bold text-[var(--foreground)]">Template Library</h2>
