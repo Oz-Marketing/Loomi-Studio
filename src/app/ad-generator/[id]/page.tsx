@@ -211,6 +211,18 @@ export default function AdGeneratorPage() {
   const size = useMemo(() => template.sizes.find((s) => s.id === sizeId) ?? template.sizes[0], [template, sizeId]);
   const renderData = useMemo(() => ({ ...data, ...brandingData }), [data, brandingData]);
 
+  // Industry-aware tooling. The ad generator supports any industry/ad type via
+  // data-driven templates; the automotive-only helpers (OEM incentive lookup,
+  // EVOX vehicle picker) appear only for an Automotive account on a vehicle-
+  // offer template. Everything else (AI copy, branding, the template's own
+  // fields) is generic, so events, grand openings, etc. get a clean form.
+  const isAutomotive = (accountData?.category ?? '').trim().toLowerCase() === 'automotive';
+  const isVehicleOffer = useMemo(
+    () => template.fields.some((f) => f.key === 'offerType' || f.key === 'vehicleImageUrl'),
+    [template],
+  );
+  const showAutomotiveTools = isAutomotive && isVehicleOffer;
+
   // OEM compliance: pull the active account's make-keyed required-field rule
   // (resilient — null when none/unmigrated → baseline applies), then compute
   // which required fields are still empty. Export is gated on this.
@@ -384,11 +396,13 @@ export default function AdGeneratorPage() {
             onApply={(fields) => setData((d) => ({ ...d, ...fields }))}
           />
 
-          <OemIncentivesPanel
-            defaultMake={oemMake}
-            dual={template.fields.some((f) => f.key.startsWith('o2_'))}
-            onApply={(patch) => setData((d) => ({ ...d, ...patch }))}
-          />
+          {showAutomotiveTools && (
+            <OemIncentivesPanel
+              defaultMake={oemMake}
+              dual={template.fields.some((f) => f.key.startsWith('o2_'))}
+              onApply={(patch) => setData((d) => ({ ...d, ...patch }))}
+            />
+          )}
 
           {/* Branding — from the active account */}
           <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
@@ -484,7 +498,7 @@ export default function AdGeneratorPage() {
                       onChange={(v) => set('disclaimer', v)}
                     />
                   ) : (
-                    <Field key={f.key} field={f} value={data[f.key] ?? ''} onChange={(v) => set(f.key, v)} />
+                    <Field key={f.key} field={f} value={data[f.key] ?? ''} onChange={(v) => set(f.key, v)} allowVehiclePicker={showAutomotiveTools} />
                   ),
                 )}
               </div>
@@ -1040,7 +1054,7 @@ function DisclaimerField({
   );
 }
 
-function Field({ field, value, onChange }: { field: FieldSpec; value: string; onChange: (v: string) => void }) {
+function Field({ field, value, onChange, allowVehiclePicker }: { field: FieldSpec; value: string; onChange: (v: string) => void; allowVehiclePicker?: boolean }) {
   const label = (
     <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
       {field.label}
@@ -1067,7 +1081,7 @@ function Field({ field, value, onChange }: { field: FieldSpec; value: string; on
     );
   }
   if (field.type === 'image') {
-    return <ImageField field={field} value={value} onChange={onChange} />;
+    return <ImageField field={field} value={value} onChange={onChange} allowVehiclePicker={allowVehiclePicker} />;
   }
   return (
     <div>
@@ -1088,7 +1102,7 @@ function Field({ field, value, onChange }: { field: FieldSpec; value: string; on
  * picker. Picking a vehicle/color re-hosts the transparent PNG on our S3 and
  * drops the stable URL into the field.
  */
-function ImageField({ field, value, onChange }: { field: FieldSpec; value: string; onChange: (v: string) => void }) {
+function ImageField({ field, value, onChange, allowVehiclePicker }: { field: FieldSpec; value: string; onChange: (v: string) => void; allowVehiclePicker?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -1104,14 +1118,17 @@ function ImageField({ field, value, onChange }: { field: FieldSpec; value: strin
           onChange={(e) => onChange(e.target.value)}
           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
         />
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)]"
-        >
-          <TruckIcon className="h-4 w-4" />
-          Vehicle
-        </button>
+        {/* EVOX vehicle photography — automotive vehicle offers only. */}
+        {allowVehiclePicker && (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)]"
+          >
+            <TruckIcon className="h-4 w-4" />
+            Vehicle
+          </button>
+        )}
       </div>
       {value && (
         // eslint-disable-next-line @next/next/no-img-element
