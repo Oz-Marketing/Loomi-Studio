@@ -1977,3 +1977,27 @@ model AdDisclaimerTemplate {
 
   @@index([offerType, make, isActive])
 }
+
+// ─────────────────────────────────────────────────────
+// Ad Generator — OEM offer compliance rules
+// ─────────────────────────────────────────────────────
+//
+// Per-make required-field rules for the Ad Generator: which offer fields
+// MUST be filled before an ad can be exported, per offer type. Port of Oz
+// Dealer Tools' OemOfferRuleModel (a make-keyed required_fields map). The
+// generator unions these with the code-defined baseline (the numbers an
+// offer intrinsically needs) and blocks export while any are empty.
+//
+// `requiredFields` is a JSON object keyed by offer type → array of field
+// keys, e.g. {"apr":["vin","aprTerm","financialInstitution"],"lease":["vin","leaseTerm"]}.
+// Field keys match the template's FieldSpec keys (camelCase). Global
+// (no accountKey) — OEM rules are brand-wide.
+model AdOemOfferRule {
+  id             String   @id @default(cuid())
+  make           String   @unique // vehicle make / OEM (case-insensitive lookup)
+  requiredFields String   @db.Text // JSON: { [offerType]: string[] }
+  notes          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
