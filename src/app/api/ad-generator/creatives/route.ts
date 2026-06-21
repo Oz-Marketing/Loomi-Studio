@@ -17,6 +17,7 @@ type Row = {
   id: string;
   name: string;
   templateId: string;
+  doc: string | null;
   data: string;
   status: string;
   thumbnailUrl: string | null;
@@ -31,6 +32,14 @@ function shape(r: Row) {
   } catch {
     data = {};
   }
+  let doc: unknown = null;
+  if (r.doc) {
+    try {
+      doc = JSON.parse(r.doc);
+    } catch {
+      doc = null;
+    }
+  }
   return {
     id: r.id,
     name: r.name,
@@ -39,6 +48,7 @@ function shape(r: Row) {
     thumbnailUrl: r.thumbnailUrl,
     updatedAt: r.updatedAt,
     createdByName: r.createdByName,
+    doc,
     data,
   };
 }
@@ -77,12 +87,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'accountKey and templateId are required' }, { status: 400 });
   }
   const u = session.user as { id?: string; name?: string | null };
+
+  // Snapshot the source template's design into the ad so it's an independent
+  // copy — later edits to the master template won't change this ad. Only DB
+  // (AdTemplateDoc) templates are editable, so only those need freezing; code
+  // templates are stable, so they stay referenced (doc = null).
+  let docSnapshot: string | null = null;
+  try {
+    const tpl = await prisma.adTemplateDoc.findUnique({ where: { id: templateId }, select: { doc: true } });
+    if (tpl?.doc) docSnapshot = tpl.doc;
+  } catch {
+    docSnapshot = null;
+  }
+
   try {
     const row = await prisma.adCreative.create({
       data: {
         accountKey,
         name,
         templateId,
+        doc: docSnapshot,
         data: JSON.stringify(body.data ?? {}),
         status: body.status === 'ready' ? 'ready' : 'draft',
         createdById: u.id ?? null,

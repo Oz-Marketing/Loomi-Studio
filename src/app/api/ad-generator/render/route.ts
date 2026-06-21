@@ -14,6 +14,8 @@ import { getAuthSession } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { downloadFromS3, s3KeyFromPublicUrl } from '@/lib/s3';
 import { resolveTemplate } from '@/lib/ad-generator/resolve-template';
+import { adTemplateFromDoc } from '@/lib/ad-generator/doc-template';
+import type { TemplateDoc } from '@/lib/ad-generator/doc-types';
 import { renderAd } from '@/lib/ad-generator/render';
 import { fontFaceRule, parseCustomFonts, type FontFace } from '@/lib/ad-generator/fonts';
 
@@ -50,14 +52,20 @@ export async function POST(req: NextRequest) {
   const session = await getAuthSession();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  let body: { templateId?: string; sizeId?: string; accountKey?: string; data?: Record<string, string> };
+  let body: { templateId?: string; sizeId?: string; accountKey?: string; data?: Record<string, string>; doc?: TemplateDoc };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const template = await resolveTemplate(body.templateId ?? '');
+  // Prefer the ad's own snapshot doc when supplied (each ad is an independent
+  // copy); otherwise resolve the template id live (code templates / older ads).
+  const snapshot = body.doc;
+  const template =
+    snapshot && Array.isArray(snapshot.sizes) && Array.isArray(snapshot.elements) && snapshot.layouts
+      ? adTemplateFromDoc(body.templateId || 'snapshot', snapshot)
+      : await resolveTemplate(body.templateId ?? '');
   if (!template) return NextResponse.json({ error: 'Unknown template' }, { status: 400 });
   const size = template.sizes.find((s) => s.id === body.sizeId);
   if (!size) return NextResponse.json({ error: 'Unknown size' }, { status: 400 });

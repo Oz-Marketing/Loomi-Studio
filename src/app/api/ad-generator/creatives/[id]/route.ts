@@ -24,8 +24,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     } catch {
       data = {};
     }
+    let doc: unknown = null;
+    if (row.doc) {
+      try {
+        doc = JSON.parse(row.doc);
+      } catch {
+        doc = null;
+      }
+    }
     return NextResponse.json({
-      creative: { id: row.id, accountKey: row.accountKey, name: row.name, templateId: row.templateId, status: row.status, data },
+      creative: { id: row.id, accountKey: row.accountKey, name: row.name, templateId: row.templateId, status: row.status, doc, data },
     });
   } catch (err) {
     console.warn('[api/ad-generator/creatives/[id]] GET failed:', err);

@@ -88,7 +88,14 @@ export default function AdGeneratorPage() {
   const templates = useMemo(() => [...AD_TEMPLATES, ...dbTemplates], [dbTemplates]);
 
   const [templateId, setTemplateId] = useState(AD_TEMPLATES[0].id);
-  const template = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0], [templates, templateId]);
+  // The ad's own frozen copy of the template design (snapshot at creation). When
+  // present the ad renders from THIS — independent of later master-template
+  // edits. Falls back to resolving templateId live for older / code-template ads.
+  const [docSnapshot, setDocSnapshot] = useState<TemplateDoc | null>(null);
+  const template = useMemo(
+    () => (docSnapshot ? adTemplateFromDoc(templateId, docSnapshot) : templates.find((t) => t.id === templateId) ?? templates[0]),
+    [docSnapshot, templates, templateId],
+  );
 
   const [data, setData] = useState<AdData>(() => ({ ...AD_TEMPLATES[0].defaults }));
   const [sizeId, setSizeId] = useState(AD_TEMPLATES[0].sizes[0].id);
@@ -110,10 +117,11 @@ export default function AdGeneratorPage() {
     let cancelled = false;
     fetch(`/api/ad-generator/creatives/${creativeId}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: { creative?: { name: string; templateId: string; status: string; data: AdData } }) => {
+      .then((d: { creative?: { name: string; templateId: string; status: string; data: AdData; doc?: TemplateDoc | null } }) => {
         if (cancelled || !d.creative) return;
         const c = d.creative;
         setTemplateId(c.templateId);
+        if (c.doc && Array.isArray(c.doc.sizes) && Array.isArray(c.doc.elements) && c.doc.layouts) setDocSnapshot(c.doc);
         setData({ ...c.data });
         setCreativeName(c.name);
         setAdStatus(c.status === 'ready' ? 'ready' : 'draft');
@@ -273,7 +281,7 @@ export default function AdGeneratorPage() {
       const res = await fetch('/api/ad-generator/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId: template.id, sizeId: targetSizeId, accountKey, data: renderData }),
+        body: JSON.stringify({ templateId: template.id, sizeId: targetSizeId, accountKey, data: renderData, ...(docSnapshot ? { doc: docSnapshot } : {}) }),
       });
       if (!res.ok) {
         const msg = (await res.json().catch(() => null))?.error || `HTTP ${res.status}`;

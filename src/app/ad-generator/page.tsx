@@ -31,6 +31,7 @@ type Creative = {
   status: string;
   updatedAt: string;
   createdByName: string | null;
+  doc?: TemplateDoc | null;
   data: AdData;
 };
 
@@ -232,7 +233,9 @@ export default function AdGeneratorListPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {visible.map((c) => {
-            const template = templates.find((t) => t.id === c.templateId);
+            // Render the thumbnail from the ad's own snapshot when present, so it
+            // matches the editor/export even if the master template later changed.
+            const template = c.doc ? adTemplateFromDoc(c.id, c.doc) : templates.find((t) => t.id === c.templateId);
             return (
               <div
                 key={c.id}
