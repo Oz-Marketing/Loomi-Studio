@@ -56,7 +56,7 @@ import { buildFontFaceCssFromUrls } from '@/lib/ad-generator/fonts';
 import { FontSelect, type FontSelectOption } from '@/components/font-select';
 import { vehicleOfferDoc, vehicleOfferPreviewData } from '@/lib/ad-generator/templates/vehicle-offer-doc';
 import { enrichOfferFields } from '@/lib/ad-generator/offer-text';
-import { buildLayerEntries, flattenLayerEntries } from '@/lib/ad-generator/layer-tree';
+import { buildLayerEntries, flattenLayerEntries, normalizeGroupZ } from '@/lib/ad-generator/layer-tree';
 import { TextElementIcon, ShapeElementIcon, DashboardLayoutIcon, LayersIcon } from '@/components/ad-generator/builder-icons';
 import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
 import { useIndustries } from '@/lib/hooks/use-industries';
@@ -640,10 +640,14 @@ export default function AdBuilderPage() {
     const gid = `grp-${rid()}`;
     setDoc((prev) => {
       const used = (prev.groups ?? []).length;
+      const elements = prev.elements.map((e) => (ids.includes(e.id) ? { ...e, groupId: gid } : e));
       return {
         ...prev,
-        elements: prev.elements.map((e) => (ids.includes(e.id) ? { ...e, groupId: gid } : e)),
+        elements,
         groups: [...(prev.groups ?? []), { id: gid, name: `Group ${used + 1}` }],
+        // Normalize z everywhere so the group is contiguous in the canvas stack,
+        // matching how it nests in the Layers tree.
+        layouts: normalizeGroupZ(elements, prev.sizes, prev.layouts),
       };
     });
   }

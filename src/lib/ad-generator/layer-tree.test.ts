@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildLayerEntries, flattenLayerEntries, clusterByGroup } from './layer-tree';
+import { buildLayerEntries, flattenLayerEntries, clusterByGroup, normalizeGroupZ } from './layer-tree';
 
 describe('layer-tree', () => {
   it('nests a group at its frontmost member, members in order', () => {
@@ -30,5 +30,16 @@ describe('layer-tree', () => {
   it('flatten is the inverse of build for already-contiguous input', () => {
     const order = [{ id: 'a', groupId: 'g1' }, { id: 'c', groupId: 'g1' }, { id: 'b' }];
     expect(flattenLayerEntries(buildLayerEntries(order))).toEqual(['a', 'c', 'b']);
+  });
+
+  it('normalizeGroupZ makes a group contiguous in z while preserving order, per size', () => {
+    // z desc (front→back): a(g1, z3), b(z2), c(g1, z1) — b sits between members.
+    const elements = [{ id: 'a', groupId: 'g1' }, { id: 'b' }, { id: 'c', groupId: 'g1' }];
+    const layouts = { sq: { a: { z: 3 }, b: { z: 2 }, c: { z: 1 } } };
+    const out = normalizeGroupZ(elements, [{ id: 'sq' }], layouts);
+    // Front→back becomes a, c (clustered), then b → z 3,2,1.
+    expect(out.sq.a.z).toBe(3);
+    expect(out.sq.c.z).toBe(2);
+    expect(out.sq.b.z).toBe(1);
   });
 });

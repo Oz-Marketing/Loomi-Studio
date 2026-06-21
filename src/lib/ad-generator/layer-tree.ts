@@ -54,3 +54,37 @@ export function flattenLayerEntries(entries: LayerEntry[]): string[] {
 export function clusterByGroup(order: { id: string; groupId?: string | null }[]): string[] {
   return flattenLayerEntries(buildLayerEntries(order));
 }
+
+interface ZBox {
+  z?: number;
+}
+
+/**
+ * Reassign per-size z so the canvas stacking matches the Layers tree exactly:
+ * within each size, take the current front→back order (z desc), re-cluster so a
+ * group's members are contiguous, then write back contiguous z (front = highest).
+ * Preserves each size's relative order; only pulls group members together.
+ *
+ * Returns a fresh `layouts` map; pass `elements` (for groupId) + `sizes` + the
+ * existing `layouts`. Boxes keep every other field.
+ */
+export function normalizeGroupZ<B extends ZBox>(
+  elements: { id: string; groupId?: string | null }[],
+  sizes: { id: string }[],
+  layouts: Record<string, Record<string, B>>,
+): Record<string, Record<string, B>> {
+  const groupOf = new Map(elements.map((e) => [e.id, e.groupId ?? null]));
+  const next: Record<string, Record<string, B>> = {};
+  for (const s of sizes) {
+    const lay = layouts[s.id] ?? {};
+    const ids = Object.keys(lay).sort((a, b) => (lay[b].z ?? 0) - (lay[a].z ?? 0)); // front→back
+    const clustered = clusterByGroup(ids.map((id) => ({ id, groupId: groupOf.get(id) ?? null })));
+    const n = clustered.length;
+    const sized: Record<string, B> = { ...lay };
+    clustered.forEach((id, i) => {
+      sized[id] = { ...sized[id], z: n - i }; // front of list = highest z
+    });
+    next[s.id] = sized;
+  }
+  return next;
+}
