@@ -29,13 +29,15 @@ import {
   PlusIcon,
   TrashIcon,
   DocumentDuplicateIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { renderDoc } from '@/lib/ad-generator/doc-renderer';
 import { buildFontFaceCssFromUrls } from '@/lib/ad-generator/fonts';
 import { FontSelect, type FontSelectOption } from '@/components/font-select';
 import { vehicleOfferDoc, vehicleOfferPreviewData } from '@/lib/ad-generator/templates/vehicle-offer-doc';
-import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox } from '@/lib/ad-generator/doc-types';
+import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, Binding } from '@/lib/ad-generator/doc-types';
+import type { FieldSpec, FieldType } from '@/lib/ad-generator/types';
 
 const CANVAS_MAX = 560; // px the canvas fits within (longest edge)
 const MIN_FRAC = 0.03; // smallest element edge as a fraction of the canvas
@@ -73,6 +75,20 @@ const FIT_OPTIONS: FontSelectOption[] = [
   { value: 'contain', label: 'Contain (fit)' },
   { value: 'cover', label: 'Cover (fill)' },
 ];
+const FIELD_TYPE_OPTIONS: FontSelectOption[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'textarea', label: 'Text area' },
+  { value: 'number', label: 'Number' },
+  { value: 'date', label: 'Date' },
+  { value: 'select', label: 'Select' },
+  { value: 'color', label: 'Color' },
+  { value: 'image', label: 'Image URL' },
+];
+const BRAND_OPTIONS: FontSelectOption[] = [
+  { value: 'dealerName', label: 'Dealer name' },
+  { value: 'logoUrl', label: 'Logo' },
+  { value: 'brandColor', label: 'Brand color' },
+];
 
 type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
@@ -107,14 +123,6 @@ function elName(el: DocElement): string {
   if (!b) return el.id;
   if (b.kind === 'static') return b.value || el.id;
   return b.key;
-}
-
-function bindingDescription(el: DocElement): string {
-  const b = el.binding;
-  if (!b) return el.type;
-  if (b.kind === 'field') return `Field · ${b.key}`;
-  if (b.kind === 'brand') return `Brand · ${b.key}`;
-  return 'Static text';
 }
 
 /** Apply a drag/resize delta (in canvas fractions) to a box, clamped on-canvas. */
@@ -172,6 +180,7 @@ export default function AdBuilderPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showOutlines, setShowOutlines] = useState(true);
   const [dragBox, setDragBox] = useState<DocLayoutBox | null>(null);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
 
   const size = useMemo(() => doc.sizes.find((s) => s.id === sizeId) ?? doc.sizes[0], [doc, sizeId]);
 
@@ -191,12 +200,13 @@ export default function AdBuilderPage() {
   const previewData = useMemo(
     () => ({
       ...vehicleOfferPreviewData,
+      ...doc.defaults, // designer-set default / preview values for fields
       ...(fontFaceCss ? { fontFaceCss } : {}),
       ...(accountData?.dealer ? { dealerName: accountData.dealer } : {}),
       ...(accountData?.logos?.light ? { logoUrl: accountData.logos.light } : {}),
       ...(accountData?.branding?.colors?.primary ? { brandColor: accountData.branding.colors.primary } : {}),
     }),
-    [accountData, fontFaceCss],
+    [accountData, fontFaceCss, doc.defaults],
   );
 
   const html = useMemo(() => renderDoc(doc, previewData, size, { preview: true }), [doc, previewData, size]);
@@ -311,6 +321,52 @@ export default function AdBuilderPage() {
     const minZ = Object.values(layout).reduce((m, b) => Math.min(m, b.z ?? 0), 0);
     setBox(size.id, selected.id, { ...selectedBox, z: minZ - 1 });
   }
+
+  // ── template field-list operations ──
+  const addField = () => {
+    setDoc((prev) => ({ ...prev, fields: [...prev.fields, { key: `field_${rid()}`, label: 'New field', type: 'text' }] }));
+  };
+  const updateFieldAt = (i: number, patch: Partial<FieldSpec>) => {
+    setDoc((prev) => ({ ...prev, fields: prev.fields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)) }));
+  };
+  // Renaming a field key cascades to every binding that references it (and its default).
+  const renameFieldKeyAt = (i: number, newKey: string) => {
+    setDoc((prev) => {
+      const old = prev.fields[i]?.key;
+      if (old == null) return prev;
+      const fields = prev.fields.map((f, idx) => (idx === i ? { ...f, key: newKey } : f));
+      const elements = prev.elements.map((e) =>
+        e.binding?.kind === 'field' && e.binding.key === old ? { ...e, binding: { kind: 'field' as const, key: newKey } } : e,
+      );
+      const defaults = { ...prev.defaults };
+      if (old in defaults) {
+        defaults[newKey] = defaults[old];
+        delete defaults[old];
+      }
+      return { ...prev, fields, elements, defaults };
+    });
+  };
+  const deleteFieldAt = (i: number) => {
+    setDoc((prev) => {
+      const key = prev.fields[i]?.key;
+      const fields = prev.fields.filter((_, idx) => idx !== i);
+      const elements = key
+        ? prev.elements.map((e) =>
+            e.binding?.kind === 'field' && e.binding.key === key ? { ...e, binding: { kind: 'static' as const, value: '' } } : e,
+          )
+        : prev.elements;
+      const defaults = { ...prev.defaults };
+      if (key && key in defaults) delete defaults[key];
+      return { ...prev, fields, elements, defaults };
+    });
+  };
+  const setDefaultAt = (i: number, val: string) => {
+    setDoc((prev) => {
+      const key = prev.fields[i]?.key;
+      if (!key) return prev;
+      return { ...prev, defaults: { ...prev.defaults, [key]: val } };
+    });
+  };
 
   // ── pointer drag/resize ──
   const dragRef = useRef<{
@@ -477,6 +533,24 @@ export default function AdBuilderPage() {
             </div>
           </section>
 
+          {/* Template fields — drive the generator form + AI copy */}
+          <section className="glass-card rounded-2xl border border-[var(--border)] p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Fields</h2>
+                <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
+                  {doc.fields.length} field{doc.fields.length === 1 ? '' : 's'} drive the form
+                </p>
+              </div>
+              <button
+                onClick={() => setFieldsOpen(true)}
+                className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)]"
+              >
+                Manage
+              </button>
+            </div>
+          </section>
+
           {/* Selected element controls */}
           {selected && selectedBox && (
             <section className="glass-card rounded-2xl border border-[var(--border)] p-4">
@@ -506,18 +580,10 @@ export default function AdBuilderPage() {
                   <LayerBtn onClick={sendBack}>Send back</LayerBtn>
                 </div>
 
-                <Row label="Binding" value={bindingDescription(selected)} />
-
-                {/* Edit static text content inline (binding to fields is Phase 5). */}
-                {selected.type === 'text' && selected.binding?.kind === 'static' && (
-                  <div>
-                    <label className="mb-1 block text-[var(--muted-foreground)]">Text</label>
-                    <input
-                      value={selected.binding.value}
-                      onChange={(e) => updEl({ binding: { kind: 'static', value: e.target.value } })}
-                      className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
-                    />
-                  </div>
+                {selected.type === 'shape' ? (
+                  <p className="text-[11px] text-[var(--muted-foreground)]">Shapes are decorative — no data binding.</p>
+                ) : (
+                  <BindingEditor el={selected} fields={doc.fields} onChange={(b) => updEl({ binding: b })} />
                 )}
 
                 {/* Geometry */}
@@ -701,15 +767,19 @@ export default function AdBuilderPage() {
           </section>
         </div>
       </div>
-    </div>
-  );
-}
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-[var(--muted-foreground)]">{label}</span>
-      <span className="truncate font-medium text-[var(--foreground)]">{value}</span>
+      {fieldsOpen && (
+        <FieldManagerModal
+          fields={doc.fields}
+          defaults={doc.defaults}
+          onClose={() => setFieldsOpen(false)}
+          onAdd={addField}
+          onUpdate={updateFieldAt}
+          onRename={renameFieldKeyAt}
+          onDelete={deleteFieldAt}
+          onSetDefault={setDefaultAt}
+        />
+      )}
     </div>
   );
 }
@@ -780,6 +850,72 @@ function ModeBtn({ active, onClick, children }: { active: boolean; onClick: () =
 }
 
 /**
+ * Choose where an element's value comes from: a form Field, a Brand value, or
+ * a Static literal. Field/brand keys resolve at render time; static is baked in.
+ */
+function BindingEditor({ el, fields, onChange }: { el: DocElement; fields: FieldSpec[]; onChange: (b: Binding) => void }) {
+  const kind = el.binding?.kind ?? 'static';
+  const boundKey = el.binding?.kind === 'field' ? el.binding.key : null;
+
+  const fieldOptions: FontSelectOption[] = (() => {
+    const opts = fields.map((f) => ({ value: f.key, label: f.label || f.key }));
+    // A computed/orphan binding (e.g. an assembled offer field) still shows.
+    if (boundKey && !fields.some((f) => f.key === boundKey)) {
+      opts.unshift({ value: boundKey, label: boundKey });
+    }
+    return opts.length ? opts : [{ value: '', label: 'No fields yet' }];
+  })();
+
+  function switchKind(k: Binding['kind']) {
+    if (k === kind) return;
+    if (k === 'field') onChange({ kind: 'field', key: fields[0]?.key ?? '' });
+    else if (k === 'brand') onChange({ kind: 'brand', key: el.type === 'text' ? 'dealerName' : 'logoUrl' });
+    else onChange({ kind: 'static', value: el.binding?.kind === 'static' ? el.binding.value : '' });
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-[var(--muted-foreground)]">Content</label>
+      <div className="flex gap-1.5">
+        <ModeBtn active={kind === 'field'} onClick={() => switchKind('field')}>
+          Field
+        </ModeBtn>
+        <ModeBtn active={kind === 'brand'} onClick={() => switchKind('brand')}>
+          Brand
+        </ModeBtn>
+        <ModeBtn active={kind === 'static'} onClick={() => switchKind('static')}>
+          Static
+        </ModeBtn>
+      </div>
+      {kind === 'field' && (
+        <FontSelect
+          value={el.binding?.kind === 'field' ? el.binding.key : ''}
+          onChange={(v) => onChange({ kind: 'field', key: v })}
+          options={fieldOptions}
+          previewFont={false}
+        />
+      )}
+      {kind === 'brand' && (
+        <FontSelect
+          value={el.binding?.kind === 'brand' ? el.binding.key : 'dealerName'}
+          onChange={(v) => onChange({ kind: 'brand', key: v as 'dealerName' | 'logoUrl' | 'brandColor' })}
+          options={BRAND_OPTIONS}
+          previewFont={false}
+        />
+      )}
+      {kind === 'static' && (
+        <input
+          value={el.binding?.kind === 'static' ? el.binding.value : ''}
+          onChange={(e) => onChange({ kind: 'static', value: e.target.value })}
+          placeholder={el.type === 'text' ? 'Static text' : 'Image URL'}
+          className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
  * Color picker that maps to the doc's color model: `'brand'` (the account
  * color), a custom hex, or — when `allowNone` — unset (renderer default).
  */
@@ -819,6 +955,205 @@ function ColorControl({
             className="h-7 w-9 cursor-pointer rounded border border-[var(--border)] bg-transparent"
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+function LabeledInput({
+  label,
+  value,
+  onChange,
+  type,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[var(--muted-foreground)]">{label}</span>
+      <input
+        type={type ?? 'text'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+      />
+    </label>
+  );
+}
+
+function SelectOptionsEditor({
+  options,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  onChange: (o: { value: string; label: string }[]) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[var(--muted-foreground)]">Options</label>
+      {options.map((o, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <input
+            value={o.value}
+            placeholder="value"
+            onChange={(e) => onChange(options.map((x, xi) => (xi === i ? { ...x, value: e.target.value } : x)))}
+            className="w-1/2 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+          />
+          <input
+            value={o.label}
+            placeholder="label"
+            onChange={(e) => onChange(options.map((x, xi) => (xi === i ? { ...x, label: e.target.value } : x)))}
+            className="w-1/2 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+          />
+          <button
+            onClick={() => onChange(options.filter((_, xi) => xi !== i))}
+            className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:text-red-500"
+          >
+            <TrashIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <button onClick={() => onChange([...options, { value: '', label: '' }])} className="text-[11px] font-medium text-[var(--primary)] hover:underline">
+        + Add option
+      </button>
+    </div>
+  );
+}
+
+function FieldRow({
+  field,
+  index,
+  expanded,
+  defaultValue,
+  onToggle,
+  onUpdate,
+  onRename,
+  onDelete,
+  onSetDefault,
+}: {
+  field: FieldSpec;
+  index: number;
+  expanded: boolean;
+  defaultValue: string;
+  onToggle: () => void;
+  onUpdate: (i: number, patch: Partial<FieldSpec>) => void;
+  onRename: (i: number, newKey: string) => void;
+  onDelete: (i: number) => void;
+  onSetDefault: (i: number, val: string) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border)]">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <button onClick={onToggle} className="flex flex-1 items-center gap-2 text-left">
+          <span className="truncate text-xs font-medium text-[var(--foreground)]">{field.label || field.key}</span>
+          <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">{field.type}</span>
+          {field.copy && <span className="rounded bg-[var(--primary)]/10 px-1 text-[9px] font-medium text-[var(--primary)]">AI</span>}
+        </button>
+        <button
+          onClick={() => onDelete(index)}
+          title="Delete field"
+          className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500"
+        >
+          <TrashIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {expanded && (
+        <div className="space-y-2 border-t border-[var(--border)] px-3 py-3 text-xs">
+          <div className="grid grid-cols-2 gap-2">
+            <LabeledInput label="Label" value={field.label} onChange={(v) => onUpdate(index, { label: v })} />
+            <LabeledInput label="Key" value={field.key} onChange={(v) => onRename(index, v)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <SelectRow label="Type">
+              <FontSelect value={field.type} onChange={(v) => onUpdate(index, { type: v as FieldType })} options={FIELD_TYPE_OPTIONS} previewFont={false} />
+            </SelectRow>
+            <LabeledInput label="Group" value={field.group ?? ''} onChange={(v) => onUpdate(index, { group: v || undefined })} />
+          </div>
+          <LabeledInput label="Default / preview value" value={defaultValue} onChange={(v) => onSetDefault(index, v)} />
+          <LabeledInput label="Placeholder" value={field.placeholder ?? ''} onChange={(v) => onUpdate(index, { placeholder: v || undefined })} />
+          <LabeledInput label="Help" value={field.help ?? ''} onChange={(v) => onUpdate(index, { help: v || undefined })} />
+          <div className="grid grid-cols-2 items-end gap-2">
+            <LabeledInput
+              label="Max length"
+              type="number"
+              value={field.maxLength != null ? String(field.maxLength) : ''}
+              onChange={(v) => onUpdate(index, { maxLength: v ? Number(v) : undefined })}
+            />
+            <ToggleRow label="AI may write" on={!!field.copy} onClick={() => onUpdate(index, { copy: field.copy ? undefined : true })} />
+          </div>
+          {field.type === 'select' && <SelectOptionsEditor options={field.options ?? []} onChange={(opts) => onUpdate(index, { options: opts })} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Manage the template's fields — the form users fill, and what AI copy and
+ * element bindings read. Renaming a key cascades to bindings; deleting a field
+ * detaches any element bound to it.
+ */
+function FieldManagerModal({
+  fields,
+  defaults,
+  onClose,
+  onAdd,
+  onUpdate,
+  onRename,
+  onDelete,
+  onSetDefault,
+}: {
+  fields: FieldSpec[];
+  defaults: Record<string, string>;
+  onClose: () => void;
+  onAdd: () => void;
+  onUpdate: (i: number, patch: Partial<FieldSpec>) => void;
+  onRename: (i: number, newKey: string) => void;
+  onDelete: (i: number) => void;
+  onSetDefault: (i: number, val: string) => void;
+}) {
+  const [expanded, setExpanded] = useState<number | null>(fields.length ? 0 : null);
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-16" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <h2 className="text-sm font-bold text-[var(--foreground)]">Template fields</h2>
+            <p className="text-xs text-[var(--muted-foreground)]">The form users fill — and what AI copy + element bindings read.</p>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
+            <XMarkIcon className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="space-y-2">
+          {fields.map((f, i) => (
+            <FieldRow
+              key={i}
+              field={f}
+              index={i}
+              expanded={expanded === i}
+              defaultValue={defaults[f.key] ?? ''}
+              onToggle={() => setExpanded(expanded === i ? null : i)}
+              onUpdate={onUpdate}
+              onRename={onRename}
+              onDelete={onDelete}
+              onSetDefault={onSetDefault}
+            />
+          ))}
+          {!fields.length && (
+            <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">No fields yet.</p>
+          )}
+        </div>
+        <button
+          onClick={onAdd}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+          Add field
+        </button>
       </div>
     </div>
   );
