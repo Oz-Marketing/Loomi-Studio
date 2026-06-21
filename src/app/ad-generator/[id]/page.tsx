@@ -30,6 +30,7 @@ import type { AdCopyVariation } from '@/lib/ad-generator/copy-types';
 import { composeDisclaimer } from '@/lib/ad-generator/disclaimer';
 import { missingRequired, type OemOfferRule } from '@/lib/ad-generator/compliance';
 import type { EvoxVehicle, EvoxColor } from '@/lib/integrations/evox';
+import type { MarketCheckIncentive } from '@/lib/integrations/marketcheck';
 
 const PREVIEW_W = 460;
 const PREVIEW_H = 560;
@@ -374,6 +375,11 @@ export default function AdGeneratorPage() {
             onApply={(fields) => setData((d) => ({ ...d, ...fields }))}
           />
 
+          <OemIncentivesPanel
+            defaultMake={oemMake}
+            onApply={(patch) => setData((d) => ({ ...d, ...patch }))}
+          />
+
           {/* Branding — from the active account */}
           <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
             <div className="mb-4 flex items-center justify-between">
@@ -563,6 +569,157 @@ const TONES = [
   { value: 'urgent', label: 'Urgent' },
   { value: 'luxury', label: 'Luxury' },
 ];
+
+/**
+/**
+ * OEM Incentives (MarketCheck) — look up the live lease / APR / cash programs
+ * for a vehicle and apply one to auto-fill the structured offer fields. Manual
+ * entry below still works; this is just a faster, accurate source. Renders a
+ * "not configured" hint when MARKETCHECK_API_KEY is unset.
+ */
+function OemIncentivesPanel({ defaultMake, onApply }: { defaultMake?: string; onApply: (patch: Record<string, string>) => void }) {
+  const [year, setYear] = useState(String(EVOX_CURRENT_YEAR));
+  const [make, setMake] = useState(defaultMake || '');
+  const [model, setModel] = useState('');
+  const [zip, setZip] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [incentives, setIncentives] = useState<MarketCheckIncentive[] | null>(null);
+  const [notConfigured, setNotConfigured] = useState(false);
+
+  const yearOptions: FontSelectOption[] = EVOX_YEARS.filter((y) => y >= 2020).map((y) => ({ value: String(y), label: String(y) }));
+  const makeOptions: FontSelectOption[] = [{ value: '', label: 'Select make…' }, ...EVOX_MAKES.map((m) => ({ value: m, label: m }))];
+
+  async function find() {
+    if (!make) {
+      toast.error('Pick a make');
+      return;
+    }
+    setBusy(true);
+    setIncentives(null);
+    setNotConfigured(false);
+    try {
+      const res = await fetch('/api/ad-generator/marketcheck/incentives', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ make, model: model.trim(), year: Number(year), zip: zip.trim() }),
+      });
+      const json = await res.json();
+      if (json.configured === false) {
+        setNotConfigured(true);
+        setIncentives([]);
+        return;
+      }
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setIncentives(json.incentives ?? []);
+    } catch (err) {
+      toast.error(`MarketCheck lookup failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+      setIncentives([]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function apply(inc: MarketCheckIncentive) {
+    const patch: Record<string, string> = {};
+    if (inc.type === 'lease') {
+      patch.offerType = 'lease';
+      if (inc.payment) patch.monthlyPayment = String(Math.round(inc.payment));
+      if (inc.term) patch.leaseTerm = String(inc.term);
+      if (inc.downPayment) patch.dueAtSigning = String(Math.round(inc.downPayment));
+    } else if (inc.type === 'apr') {
+      patch.offerType = 'apr';
+      patch.aprRate = String(inc.rate);
+      if (inc.term) patch.aprTerm = String(inc.term);
+    } else if (inc.type === 'cash') {
+      patch.offerType = 'discount';
+      if (inc.amount) patch.discountAmount = String(Math.round(inc.amount));
+    }
+    if (inc.msrp) patch.msrp = String(Math.round(inc.msrp));
+    if (inc.endDate) {
+      const d = new Date(inc.endDate);
+      if (!Number.isNaN(d.getTime())) patch.expiration = d.toISOString().slice(0, 10);
+    }
+    onApply(patch);
+    toast.success('Offer filled from the incentive');
+  }
+
+  const typeBadge: Record<string, string> = {
+    lease: 'bg-blue-500/15 text-blue-500',
+    apr: 'bg-emerald-500/15 text-emerald-500',
+    cash: 'bg-amber-500/15 text-amber-500',
+    other: 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+  };
+
+  return (
+    <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
+      <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">OEM Incentives</h2>
+      <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+        Live lease / APR / cash programs from MarketCheck — apply one to fill the offer below, or enter it manually.
+      </p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <FontSelect value={year} onChange={setYear} options={yearOptions} previewFont={false} />
+        <FontSelect value={make} onChange={setMake} options={makeOptions} previewFont={false} />
+        <input
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && find()}
+          placeholder="Model (optional)"
+          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+        />
+        <input
+          value={zip}
+          onChange={(e) => setZip(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && find()}
+          placeholder="ZIP (optional)"
+          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+        />
+      </div>
+      <button
+        onClick={find}
+        disabled={busy}
+        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] disabled:opacity-50"
+      >
+        {busy ? 'Searching…' : 'Find incentives'}
+      </button>
+
+      {notConfigured && (
+        <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+          MarketCheck isn’t configured here. Set <span className="font-mono">MARKETCHECK_API_KEY</span> to enable the incentive feed.
+        </div>
+      )}
+      {incentives && incentives.length === 0 && !notConfigured && (
+        <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">No incentives found for that vehicle.</p>
+      )}
+      {incentives && incentives.length > 0 && (
+        <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
+          {incentives.map((inc, i) => (
+            <div key={inc.id || i} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${typeBadge[inc.type]}`}>{inc.type}</span>
+                <button
+                  onClick={() => apply(inc)}
+                  className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20"
+                >
+                  Apply to offer
+                </button>
+              </div>
+              <p className="text-xs font-medium text-[var(--foreground)]">{inc.offerDetails || inc.description}</p>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[var(--muted-foreground)]">
+                {inc.payment > 0 && <span>${Math.round(inc.payment).toLocaleString()}/mo</span>}
+                {inc.rate > 0 && <span>{inc.rate}% APR</span>}
+                {inc.amount > 0 && <span>${Math.round(inc.amount).toLocaleString()} cash</span>}
+                {inc.term > 0 && <span>{inc.term} mo</span>}
+                {inc.downPayment > 0 && <span>${Math.round(inc.downPayment).toLocaleString()} DAS</span>}
+                {inc.trim && <span>{inc.trim}</span>}
+                {inc.endDate && <span>ends {inc.endDate.slice(0, 10)}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 /**
  * "Write with AI" — generates marketing copy for the template's `copy` fields
