@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { SparklesIcon, PlusIcon, TrashIcon, Squares2X2Icon, XMarkIcon } from '@heroicons/react/24/outline';
+import { SparklesIcon, PlusIcon, TrashIcon, Squares2X2Icon, RectangleGroupIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { ListToolbar } from '@/components/list-toolbar';
 import type { StatusFilterValue } from '@/components/status-filter';
@@ -147,7 +147,14 @@ export default function AdGeneratorListPage() {
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <Link
-              href="/ad-generator/builder"
+              href={`/ad-generator/sizes${accountKey ? `?account=${encodeURIComponent(accountKey)}` : ''}`}
+              className="hidden sm:flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            >
+              <RectangleGroupIcon className="w-4 h-4" />
+              Ad Sizes
+            </Link>
+            <Link
+              href={`/ad-generator/builder${accountKey ? `?account=${encodeURIComponent(accountKey)}` : ''}`}
               className="hidden sm:flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
             >
               <Squares2X2Icon className="w-4 h-4" />
