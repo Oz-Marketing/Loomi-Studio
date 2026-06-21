@@ -2060,7 +2060,12 @@ model AdCreative {
   id            String   @id @default(cuid())
   accountKey    String
   name          String
-  templateId    String // code template id or AdTemplateDoc id
+  templateId    String // code template id or AdTemplateDoc id (the source)
+  // Frozen copy of the template's design at creation (JSON TemplateDoc). The ad
+  // renders from THIS, so later edits to the master template don't change it —
+  // each ad is an independent, subaccount-owned copy. Null for older ads /
+  // code-render templates, which fall back to resolving templateId live.
+  doc           String?  @db.Text
   data          String   @db.Text // JSON of the filled AdData
   status        String   @default("draft") // draft | ready
   thumbnailUrl  String?  @db.Text
