@@ -41,7 +41,6 @@ import { AccountSwitcher } from '@/components/account-switcher';
 import { AppLogo } from '@/components/app-logo';
 import { SidebarFrame } from '@/components/sidebar-frame';
 import { accountKeyToSlug, isSubaccountRoute, stripSubaccountPrefix } from '@/lib/account-slugs';
-import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -136,6 +135,9 @@ const adGeneratorNav: NavItem = {
   label: 'Ad Generator',
   icon: SparklesIcon,
   absolute: true,
+  // Shown as a non-clickable "Soon" teaser — the route itself stays reachable
+  // by direct URL where the AD_GENERATOR_ENABLED flag is on (e.g. staging).
+  comingSoon: true,
 };
 // Media library — re-added below Ad Generator.
 const mediaNav: NavItem = { href: '/media', label: 'Media', icon: PhotoIcon };
@@ -188,8 +190,7 @@ const adminNavItems: NavEntry[] = [
   emailSmsNav,
   websitesNav,
   flowsNavItem,
-  // Ad Generator is gated off until it's production-ready (feature flag).
-  ...(AD_GENERATOR_ENABLED ? [adGeneratorNav] : []),
+  adGeneratorNav,
   mediaNav,
   { divider: true, label: 'Tools' },
   toolsNavItem,
@@ -435,6 +436,35 @@ export function Sidebar() {
                 controlledOpen={openGroupKey === item.label}
                 onToggle={() => setOpenGroupKey((p) => (p === item.label ? null : item.label))}
               />
+            );
+          }
+          // Top-level "Soon" teaser — a disabled row that doesn't navigate
+          // (the route may still be reachable by direct URL where enabled).
+          if (item.comingSoon) {
+            const soon = (
+              <div
+                key={item.href}
+                title="Coming soon"
+                aria-disabled="true"
+                className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} py-2 rounded-xl text-sm font-normal text-[var(--sidebar-muted-foreground)]/50 cursor-not-allowed select-none`}
+              >
+                {item.icon && <item.icon className="w-5 h-5 opacity-60" />}
+                {!collapsed && (
+                  <>
+                    <span className="flex-1">{item.label}</span>
+                    <span className="rounded-full bg-[var(--sidebar-muted)] px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
+                      Soon
+                    </span>
+                  </>
+                )}
+              </div>
+            );
+            return collapsed ? (
+              <SidebarTooltip key={item.href} label={`${item.label} — coming soon`}>
+                {soon}
+              </SidebarTooltip>
+            ) : (
+              soon
             );
           }
           const itemPage = item.href.replace(prefix, '');
