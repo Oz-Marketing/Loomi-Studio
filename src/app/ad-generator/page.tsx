@@ -10,11 +10,12 @@
  * route layout 404s when off).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { SparklesIcon, PlusIcon, TrashIcon, Squares2X2Icon, RectangleGroupIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { SparklesIcon, PlusIcon, TrashIcon, Squares2X2Icon, RectangleGroupIcon, XMarkIcon, Cog6ToothIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { ListToolbar } from '@/components/list-toolbar';
 import type { StatusFilterValue } from '@/components/status-filter';
@@ -44,6 +45,22 @@ export default function AdGeneratorListPage() {
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
+  // Header dropdowns: the settings cog + the "New ad" split menu.
+  const [cogOpen, setCogOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
+  const cogRef = useRef<HTMLDivElement>(null);
+  const newRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!cogOpen && !newOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (cogOpen && !cogRef.current?.contains(t)) setCogOpen(false);
+      if (newOpen && !newRef.current?.contains(t)) setNewOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [cogOpen, newOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,29 +164,76 @@ export default function AdGeneratorListPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            <Link
-              href={`/ad-generator/sizes${accountKey ? `?account=${encodeURIComponent(accountKey)}` : ''}`}
-              className="hidden sm:flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-            >
-              <RectangleGroupIcon className="w-4 h-4" />
-              Ad Sizes
-            </Link>
-            <Link
-              href={`/ad-generator/builder${accountKey ? `?account=${encodeURIComponent(accountKey)}` : ''}`}
-              className="hidden sm:flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-            >
-              <Squares2X2Icon className="w-4 h-4" />
-              Template Builder
-            </Link>
-            <button
-              type="button"
-              onClick={() => setPickerOpen(true)}
-              disabled={!accountKey}
-              className="flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <PlusIcon className="w-4 h-4" />
-              New ad
-            </button>
+            {/* Settings cog → management links (Ad Sizes, Template Builder) */}
+            <div className="relative" ref={cogRef}>
+              <button
+                type="button"
+                onClick={() => setCogOpen((v) => !v)}
+                title="Settings"
+                aria-label="Settings"
+                className="flex items-center justify-center w-10 h-10 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <Cog6ToothIcon className="w-4 h-4" />
+              </button>
+              {cogOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 w-48 glass-dropdown">
+                  <Link
+                    href={`/ad-generator/sizes${accountKey ? `?account=${encodeURIComponent(accountKey)}` : ''}`}
+                    onClick={() => setCogOpen(false)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <RectangleGroupIcon className="w-4 h-4" />
+                    Ad Sizes
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* New ad → from the template library, or from scratch in the builder */}
+            <div className="relative" ref={newRef}>
+              <button
+                type="button"
+                onClick={() => setNewOpen((v) => !v)}
+                disabled={!accountKey}
+                className="flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <PlusIcon className="w-4 h-4" />
+                New ad
+                <ChevronDownIcon className={`w-3.5 h-3.5 transition-transform ${newOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {newOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 w-56 glass-dropdown">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewOpen(false);
+                      setPickerOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <SparklesIcon className="w-4 h-4 flex-shrink-0" />
+                    <span>
+                      From template library
+                      <span className="block text-[11px] text-[var(--muted-foreground)]">Start from a ready-made layout.</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewOpen(false);
+                      router.push(`/ad-generator/builder${accountKey ? `?account=${encodeURIComponent(accountKey)}` : ''}`);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <Squares2X2Icon className="w-4 h-4 flex-shrink-0" />
+                    <span>
+                      From scratch
+                      <span className="block text-[11px] text-[var(--muted-foreground)]">Design a new layout in the builder.</span>
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -278,8 +342,8 @@ export default function AdGeneratorListPage() {
         </div>
       )}
 
-      {pickerOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-16" onClick={() => !creating && setPickerOpen(false)}>
+      {pickerOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-16" onClick={() => !creating && setPickerOpen(false)}>
           <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-5 shadow-xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-start justify-between">
               <div>
@@ -307,7 +371,8 @@ export default function AdGeneratorListPage() {
               ))}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

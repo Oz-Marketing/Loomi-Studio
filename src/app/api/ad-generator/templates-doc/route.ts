@@ -28,6 +28,9 @@ type Row = {
   status: string;
   isActive: boolean;
   updatedAt: Date;
+  createdByName: string | null;
+  createdByEmail: string | null;
+  createdByImage: string | null;
 };
 
 /** Parse a stored doc; null if it's not a usable TemplateDoc shape. */
@@ -49,6 +52,9 @@ function shape(r: Row) {
     status: r.status,
     isActive: r.isActive,
     updatedAt: r.updatedAt,
+    createdByName: r.createdByName,
+    createdByEmail: r.createdByEmail,
+    createdByImage: r.createdByImage,
     doc: parseDoc(r.doc),
   };
 }
@@ -105,6 +111,7 @@ export async function POST(req: NextRequest) {
   }
   const status = body.status === 'published' ? 'published' : 'draft';
 
+  const u = session?.user as { name?: string | null; email?: string | null; image?: string | null } | undefined;
   try {
     const row = await prisma.adTemplateDoc.create({
       data: {
@@ -112,7 +119,10 @@ export async function POST(req: NextRequest) {
         description: body.description?.trim() || null,
         doc: JSON.stringify(doc),
         status,
-        createdBy: session?.user?.email ?? null,
+        createdBy: u?.email ?? null,
+        createdByName: u?.name ?? null,
+        createdByEmail: u?.email ?? null,
+        createdByImage: u?.image ?? null,
       },
     });
     return NextResponse.json({ template: { id: row.id, name: row.name, status: row.status } });

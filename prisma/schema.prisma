@@ -2019,6 +2019,10 @@ model AdTemplateDoc {
   status      String   @default("draft") // draft | published
   isActive    Boolean  @default(true)
   createdBy   String? // user id / email who last saved it
+  // Last-saver display info (for the template card author, like email cards).
+  createdByName  String?
+  createdByEmail String?
+  createdByImage String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

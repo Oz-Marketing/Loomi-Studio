@@ -55,8 +55,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof body.status === 'string') data.status = body.status === 'published' ? 'published' : 'draft';
   if (typeof body.isActive === 'boolean') data.isActive = body.isActive;
   if (body.doc && typeof body.doc === 'object' && Array.isArray((body.doc as { sizes?: unknown }).sizes)) {
+    const u = session?.user as { name?: string | null; email?: string | null; image?: string | null } | undefined;
     data.doc = JSON.stringify(body.doc);
-    data.createdBy = session?.user?.email ?? null;
+    data.createdBy = u?.email ?? null;
+    data.createdByName = u?.name ?? null;
+    data.createdByEmail = u?.email ?? null;
+    data.createdByImage = u?.image ?? null;
   }
 
   try {
