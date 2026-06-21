@@ -49,7 +49,7 @@ const SHARED_ACCOUNT_ROUTE_ROOTS = new Set([
 // Switching accounts should keep these paths unchanged — only the account
 // context updates. Used for admin-only tools that don't have a subaccount-
 // scoped route variant.
-const CONTEXT_SCOPED_ROUTE_ROOTS = new Set(['tools']);
+const CONTEXT_SCOPED_ROUTE_ROOTS = new Set(['tools', 'ad-generator']);
 
 const ADMIN_SETTINGS_TO_SUBACCOUNT_TAB: Record<string, string> = {
   subaccounts: 'company',
@@ -136,7 +136,10 @@ function resolveAdminPath(pathname: string): string {
     return SUBACCOUNT_SETTINGS_TO_ADMIN_PATH[segments[1] || ''] || '/settings/subaccounts';
   }
 
-  return '/dashboard';
+  // Default: stay on the current page (treat unknown roots as context-scoped),
+  // never bounce to the dashboard. The page reads the active account from
+  // context, so only the data refreshes.
+  return strippedPath || '/dashboard';
 }
 
 function resolveSubaccountPath(pathname: string, slug: string): string {
@@ -170,7 +173,10 @@ function resolveSubaccountPath(pathname: string, slug: string): string {
     return `/subaccount/${slug}/settings/company`;
   }
 
-  return subaccountPath(slug, 'dashboard');
+  // Default: stay on the current page (treat unknown roots as context-scoped) so
+  // switching accounts never bounces to the dashboard. The path is unchanged and
+  // the page re-reads the active account from context.
+  return `/${segments.join('/')}`;
 }
 
 
