@@ -21,6 +21,7 @@ export function FontSelect({
   placeholder = 'Select…',
   previewFont = true,
   className = '',
+  openUp = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -28,6 +29,8 @@ export function FontSelect({
   placeholder?: string;
   previewFont?: boolean;
   className?: string;
+  /** Open the menu upward (for triggers anchored near the bottom of a pane). */
+  openUp?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -64,7 +67,11 @@ export function FontSelect({
       </button>
 
       {open && (
-        <div className="glass-dropdown animate-fade-in-up absolute left-0 right-0 top-full z-50 mt-2 shadow-lg">
+        <div
+          className={`glass-dropdown animate-fade-in-up absolute left-0 right-0 z-50 shadow-lg ${
+            openUp ? 'bottom-full mb-2' : 'top-full mt-2'
+          }`}
+        >
           {/* glass-dropdown is overflow:hidden (rounded); scroll on an inner box. */}
           <div className="max-h-72 overflow-y-auto p-1.5">
             {options.map((o) => (

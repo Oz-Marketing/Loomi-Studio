@@ -22,15 +22,22 @@ import { toast } from 'sonner';
 import {
   PhotoIcon,
   Bars3BottomLeftIcon,
+  Bars3Icon,
+  Bars3BottomRightIcon,
   BuildingStorefrontIcon,
   RectangleGroupIcon,
   ArrowLeftIcon,
   EyeIcon,
   EyeSlashIcon,
   PlusIcon,
+  MinusIcon,
   TrashIcon,
   DocumentDuplicateIcon,
   XMarkIcon,
+  ChevronDoubleUpIcon,
+  ChevronDoubleDownIcon,
+  ArrowsPointingInIcon,
+  ArrowsPointingOutIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { renderDoc } from '@/lib/ad-generator/doc-renderer';
@@ -1128,6 +1135,21 @@ export default function AdBuilderPage() {
                   })}
                 </div>
               </div>
+
+              {selected && selectedBox && !selectedBox.hidden && (
+                <SelectionToolbar
+                  el={selected}
+                  box={selectedBox}
+                  fontOptions={fontOptions}
+                  onEl={updEl}
+                  onBox={(patch) => setBox(size.id, selected.id, { ...selectedBox, ...patch })}
+                  onForward={bringForward}
+                  onBack={sendBack}
+                  onDuplicate={() => duplicateElement(selected.id)}
+                  onDelete={() => deleteElement(selected.id)}
+                  onToggleHidden={() => toggleHidden(selected.id)}
+                />
+              )}
             </div>
 
           <div className="flex-shrink-0 border-t border-[var(--border)] px-4 py-1.5 text-center text-[11px] text-[var(--muted-foreground)]">
@@ -1535,6 +1557,163 @@ function FieldManagerModal({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Floating contextual toolbar over the canvas (mirrors the flows action bar) —
+ * quick, in-context styling for the selected element, font controls first. The
+ * full set (binding, geometry, pill, spacing) stays in the left sidebar.
+ */
+function SelectionToolbar({
+  el,
+  box,
+  fontOptions,
+  onEl,
+  onBox,
+  onForward,
+  onBack,
+  onDuplicate,
+  onDelete,
+  onToggleHidden,
+}: {
+  el: DocElement;
+  box: DocLayoutBox;
+  fontOptions: FontSelectOption[];
+  onEl: (patch: Partial<DocElement>) => void;
+  onBox: (patch: Partial<DocLayoutBox>) => void;
+  onForward: () => void;
+  onBack: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onToggleHidden: () => void;
+}) {
+  const fontSize = box.fontSize ?? 16;
+  return (
+    <div className="absolute bottom-4 left-1/2 z-20 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--card-strong)] p-1.5 shadow-lg backdrop-blur-2xl backdrop-saturate-150">
+      {el.type === 'text' && (
+        <>
+          <div className="w-40">
+            <FontSelect value={el.fontFamily ?? ''} onChange={(v) => onEl({ fontFamily: v || undefined })} options={fontOptions} openUp />
+          </div>
+          <BarSep />
+          <div className="flex items-center gap-0.5">
+            <BarBtn title="Smaller" onClick={() => onBox({ fontSize: Math.max(4, fontSize - 2) })}>
+              <MinusIcon className="h-4 w-4" />
+            </BarBtn>
+            <input
+              type="number"
+              value={fontSize}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isNaN(n)) onBox({ fontSize: clamp(Math.round(n), 4, 400) });
+              }}
+              className="w-12 rounded-md border border-[var(--border)] bg-[var(--background)] px-1 py-1 text-center text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+            />
+            <BarBtn title="Larger" onClick={() => onBox({ fontSize: Math.min(400, fontSize + 2) })}>
+              <PlusIcon className="h-4 w-4" />
+            </BarBtn>
+          </div>
+          <BarSep />
+          <div className="w-28">
+            <FontSelect value={String(el.fontWeight ?? 400)} onChange={(v) => onEl({ fontWeight: Number(v) })} options={WEIGHT_OPTIONS} previewFont={false} openUp />
+          </div>
+          <BarSep />
+          <BarBtn title="Align left" active={(el.align ?? 'left') === 'left'} onClick={() => onEl({ align: 'left' })}>
+            <Bars3BottomLeftIcon className="h-4 w-4" />
+          </BarBtn>
+          <BarBtn title="Align center" active={el.align === 'center'} onClick={() => onEl({ align: 'center' })}>
+            <Bars3Icon className="h-4 w-4" />
+          </BarBtn>
+          <BarBtn title="Align right" active={el.align === 'right'} onClick={() => onEl({ align: 'right' })}>
+            <Bars3BottomRightIcon className="h-4 w-4" />
+          </BarBtn>
+          <BarSep />
+          <ColorSwatchInput title="Text color" value={el.color && el.color !== 'brand' ? el.color : '#4f46e5'} onChange={(v) => onEl({ color: v })} />
+          <BarBtn title="Uppercase" active={!!el.uppercase} onClick={() => onEl({ uppercase: !el.uppercase })}>
+            <span className="text-[11px] font-bold leading-none">Aa</span>
+          </BarBtn>
+          <BarSep />
+        </>
+      )}
+      {el.type === 'shape' && (
+        <>
+          <ColorSwatchInput title="Fill" value={el.fill && el.fill !== 'brand' ? el.fill : '#4f46e5'} onChange={(v) => onEl({ fill: v })} />
+          <BarSep />
+        </>
+      )}
+      {(el.type === 'image' || el.type === 'logo') && (
+        <>
+          <BarBtn title="Fit (contain)" active={(el.fit ?? 'contain') === 'contain'} onClick={() => onEl({ fit: 'contain' })}>
+            <ArrowsPointingInIcon className="h-4 w-4" />
+          </BarBtn>
+          <BarBtn title="Fill (cover)" active={el.fit === 'cover'} onClick={() => onEl({ fit: 'cover' })}>
+            <ArrowsPointingOutIcon className="h-4 w-4" />
+          </BarBtn>
+          <BarSep />
+        </>
+      )}
+      <BarBtn title="Bring forward" onClick={onForward}>
+        <ChevronDoubleUpIcon className="h-4 w-4" />
+      </BarBtn>
+      <BarBtn title="Send back" onClick={onBack}>
+        <ChevronDoubleDownIcon className="h-4 w-4" />
+      </BarBtn>
+      <BarBtn title="Duplicate" onClick={onDuplicate}>
+        <DocumentDuplicateIcon className="h-4 w-4" />
+      </BarBtn>
+      <BarBtn title="Hide on this size" onClick={onToggleHidden}>
+        <EyeSlashIcon className="h-4 w-4" />
+      </BarBtn>
+      <BarBtn title="Delete" onClick={onDelete} danger>
+        <TrashIcon className="h-4 w-4" />
+      </BarBtn>
+    </div>
+  );
+}
+
+function BarBtn({
+  title,
+  onClick,
+  active,
+  danger,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  active?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+        danger
+          ? 'text-[var(--muted-foreground)] hover:bg-red-500/10 hover:text-red-500'
+          : active
+            ? 'bg-[var(--primary)]/15 text-[var(--primary)]'
+            : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function BarSep() {
+  return <span className="mx-0.5 h-6 w-px bg-[var(--border)]" />;
+}
+
+function ColorSwatchInput({ title, value, onChange }: { title: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label title={title} className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-[var(--muted)]">
+      <span className="h-4 w-4 rounded-full border border-[var(--border)]" style={{ background: value }} />
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="sr-only" />
+    </label>
   );
 }
 
