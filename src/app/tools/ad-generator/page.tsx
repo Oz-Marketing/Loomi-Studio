@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowDownTrayIcon, SparklesIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
+import { ArrowDownTrayIcon, SparklesIcon, ClipboardDocumentIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { AD_TEMPLATES } from '@/lib/ad-generator/templates';
 import { buildFontFaceCssFromUrls } from '@/lib/ad-generator/fonts';
@@ -23,6 +23,7 @@ import { FontSelect, type FontSelectOption } from '@/components/font-select';
 import { isFieldVisible, type AdData, type AdTemplate, type FieldSpec } from '@/lib/ad-generator/types';
 import type { AdCopyVariation } from '@/lib/ad-generator/copy-types';
 import { composeDisclaimer } from '@/lib/ad-generator/disclaimer';
+import { missingRequired, type OemOfferRule } from '@/lib/ad-generator/compliance';
 
 const PREVIEW_W = 460;
 const PREVIEW_H = 560;
@@ -63,6 +64,7 @@ export default function AdGeneratorPage() {
   const [data, setData] = useState<AdData>(() => ({ ...AD_TEMPLATES[0].defaults }));
   const [sizeId, setSizeId] = useState(AD_TEMPLATES[0].sizes[0].id);
   const [busy, setBusy] = useState<string | null>(null);
+  const [oemRule, setOemRule] = useState<OemOfferRule | null>(null);
 
   // ── Branding from the active account ──
   const logos = accountData?.logos;
@@ -136,6 +138,30 @@ export default function AdGeneratorPage() {
 
   const size = useMemo(() => template.sizes.find((s) => s.id === sizeId) ?? template.sizes[0], [template, sizeId]);
   const renderData = useMemo(() => ({ ...data, ...brandingData }), [data, brandingData]);
+
+  // OEM compliance: pull the active account's make-keyed required-field rule
+  // (resilient — null when none/unmigrated → baseline applies), then compute
+  // which required fields are still empty. Export is gated on this.
+  const oemMake = accountData?.oem || accountData?.oems?.[0] || '';
+  useEffect(() => {
+    if (!oemMake) {
+      setOemRule(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/ad-generator/oem-rules?make=${encodeURIComponent(oemMake)}`)
+      .then((r) => (r.ok ? r.json() : { rule: null }))
+      .then((d: { rule?: OemOfferRule | null }) => {
+        if (!cancelled) setOemRule(d.rule ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setOemRule(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [oemMake]);
+  const missing = useMemo(() => missingRequired(renderData, oemRule), [renderData, oemRule]);
   const previewHtml = useMemo(() => template.render({ ...template.defaults, ...renderData }, size), [template, renderData, size]);
 
   const groups = useMemo(() => {
@@ -375,18 +401,29 @@ export default function AdGeneratorPage() {
             </p>
 
             <div className="mt-4 space-y-2">
+              {missing.length > 0 && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+                  <ExclamationTriangleIcon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                  <span>
+                    Required before export{oemMake ? ` for ${oemMake}` : ''}:{' '}
+                    <span className="font-medium">{missing.map((m) => m.label).join(', ')}</span>
+                  </span>
+                </div>
+              )}
               <button
                 onClick={() => download(size.id)}
-                disabled={busy !== null}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                disabled={busy !== null || missing.length > 0}
+                title={missing.length > 0 ? 'Fill the required fields before exporting' : undefined}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ArrowDownTrayIcon className="h-4 w-4" />
                 {busy === size.id ? 'Rendering…' : `Download ${size.label.split(' ')[0]}`}
               </button>
               <button
                 onClick={downloadAll}
-                disabled={busy !== null}
-                className="w-full rounded-lg border border-[var(--border)] px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)] disabled:opacity-50"
+                disabled={busy !== null || missing.length > 0}
+                title={missing.length > 0 ? 'Fill the required fields before exporting' : undefined}
+                className="w-full rounded-lg border border-[var(--border)] px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Rendering…' : `Download all ${template.sizes.length} sizes`}
               </button>
