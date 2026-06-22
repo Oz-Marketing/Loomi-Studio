@@ -240,6 +240,7 @@ export function DevImpersonate() {
             createPortal(
             <div
               ref={panelRef}
+              data-viewas-panel
               className="fixed z-[80] w-[22rem] glass-dropdown rounded-xl overflow-hidden animate-fade-in-up shadow-lg"
               style={{ top: pos.top, left: pos.left, maxWidth: 'calc(100vw - 1rem)' }}
             >

@@ -9,7 +9,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession, requireRole } from '@/lib/api-auth';
-import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
+import { adGeneratorAllowed } from '@/lib/ad-generator/access';
 import { prisma } from '@/lib/prisma';
 import { parseOemRule } from '@/lib/ad-generator/compliance';
 
@@ -17,7 +17,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  if (!AD_GENERATOR_ENABLED) {
+  if (!(await adGeneratorAllowed())) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!AD_GENERATOR_ENABLED) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!(await adGeneratorAllowed())) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const { error } = await requireRole('developer', 'super_admin', 'admin');
   if (error) return error;
 
