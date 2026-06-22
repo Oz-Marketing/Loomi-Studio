@@ -1781,8 +1781,9 @@ export default function AdBuilderPage() {
                 // The element ids a dragged row moves: a group moves ALL its leaves
                 // as one block; an element moves just itself.
                 const movingIds = (rowId: string) => (isGroupId(rowId) ? membersOf(rowId) : [rowId]);
-                // Rows being dragged render blank (a gap at the landing spot) rather
-                // than a dimmed placeholder. A dragged group blanks its whole block.
+                // The row being dragged stays VISIBLE (it live-shifts into its
+                // landing spot) — we just mark it as active. A dragged group marks
+                // its whole block.
                 const draggedLeaves = dragLayer ? new Set(movingIds(dragLayer)) : null;
                 const rowIsDragged = (rowId: string, isGroupRow: boolean) => {
                   if (!draggedLeaves) return false;
@@ -1854,7 +1855,7 @@ export default function AdBuilderPage() {
                       onContextMenu={(e) => openLayerMenu(e, { elId: el.id })}
                       className={`flex items-center gap-1 rounded-lg pr-1 ${
                         isSel ? 'bg-[var(--primary)]/10' : 'hover:bg-[var(--muted)]/60'
-                      } ${box.hidden ? 'opacity-50' : ''} ${rowIsDragged(el.id, false) ? 'opacity-0' : ''}`}
+                      } ${box.hidden ? 'opacity-50' : ''} ${rowIsDragged(el.id, false) ? 'ring-1 ring-[var(--primary)]/60' : ''}`}
                     >
                       {renaming ? (
                         <input
@@ -1920,7 +1921,7 @@ export default function AdBuilderPage() {
                         data-layer-row={gid}
                         {...dragHandlers(gid, true, renamingG)}
                         onContextMenu={(e) => openLayerMenu(e, { gid })}
-                        className={`flex items-center gap-1 rounded-lg pr-1 ${allSel ? 'bg-[var(--primary)]/10' : 'hover:bg-[var(--muted)]/60'} ${rowIsDragged(gid, true) ? 'opacity-0' : ''}`}
+                        className={`flex items-center gap-1 rounded-lg pr-1 ${allSel ? 'bg-[var(--primary)]/10' : 'hover:bg-[var(--muted)]/60'} ${rowIsDragged(gid, true) ? 'ring-1 ring-[var(--primary)]/60' : ''}`}
                       >
                         <button onClick={() => toggleGroupCollapsed(gid)} title={collapsed ? 'Expand' : 'Collapse'} className="rounded p-0.5 pl-1 text-[var(--muted-foreground)]/70 hover:text-[var(--foreground)]">
                           {collapsed ? <ChevronRightIcon className="h-3.5 w-3.5" /> : <ChevronDownIcon className="h-3.5 w-3.5" />}
@@ -2231,7 +2232,15 @@ export default function AdBuilderPage() {
             </div>
           </div>
 
-          <div ref={canvasRef} className="relative flex flex-1 items-center justify-center overflow-auto bg-[var(--muted)]/30 p-6" style={{ userSelect: 'none' }}>
+          <div
+            ref={canvasRef}
+            className="relative flex flex-1 items-center justify-center overflow-auto bg-[var(--muted)]/30 p-6"
+            style={{ userSelect: 'none' }}
+            onPointerDown={(e) => {
+              // Clicking the empty area around the artboard clears the selection.
+              if (e.target === e.currentTarget) clearSelection();
+            }}
+          >
               <div className="relative shadow-lg ring-1 ring-black/5" style={{ width: frameW, height: frameH }}>
                 {/* The export renderer, scaled to fit. */}
                 <div className="absolute inset-0 overflow-hidden rounded-md">
@@ -2262,17 +2271,17 @@ export default function AdBuilderPage() {
                     const sa = showSafe ? safeAreaFractions(doc.safeArea, size.width, size.height) : null;
                     return sa ? (
                       <div
-                        className="pointer-events-none absolute z-10 rounded-[2px] border border-dashed border-[#14b8a6]/70"
+                        className="pointer-events-none absolute z-10 rounded-[2px] border-2 border-dashed border-[#14b8a6]/90"
                         style={{ left: sa.x * frameW, top: sa.y * frameH, width: (1 - 2 * sa.x) * frameW, height: (1 - 2 * sa.y) * frameH }}
                       />
                     ) : null;
                   })()}
                   {/* Alignment guides (Figma-style) while dragging */}
                   {dragBox && guides.x != null && (
-                    <span className="pointer-events-none absolute bottom-0 top-0 z-30 w-px bg-[#ec4899]" style={{ left: guides.x * frameW }} />
+                    <span className="pointer-events-none absolute bottom-0 top-0 z-30 w-0.5 -translate-x-1/2 bg-[#ec4899]" style={{ left: guides.x * frameW }} />
                   )}
                   {dragBox && guides.y != null && (
-                    <span className="pointer-events-none absolute left-0 right-0 z-30 h-px bg-[#ec4899]" style={{ top: guides.y * frameH }} />
+                    <span className="pointer-events-none absolute left-0 right-0 z-30 h-0.5 -translate-y-1/2 bg-[#ec4899]" style={{ top: guides.y * frameH }} />
                   )}
                   {/* Marquee select rectangle */}
                   {marquee && (
@@ -2317,10 +2326,10 @@ export default function AdBuilderPage() {
                             isSel
                               ? 'ring-2 ring-[var(--primary)] bg-[var(--primary)]/10'
                               : box.hidden
-                                ? 'ring-1 ring-dashed ring-[var(--muted-foreground)]/30 group-hover:ring-[var(--muted-foreground)]/60'
+                                ? 'ring-1 ring-dashed ring-[var(--muted-foreground)]/45 group-hover:ring-[var(--muted-foreground)]/70'
                                 : showOutlines
-                                  ? 'ring-1 ring-dashed ring-[var(--primary)]/30 group-hover:ring-[var(--primary)]/70'
-                                  : 'group-hover:ring-1 group-hover:ring-[var(--primary)]/50'
+                                  ? 'ring-[1.5px] ring-dashed ring-[var(--primary)]/55 group-hover:ring-[var(--primary)]/90'
+                                  : 'group-hover:ring-[1.5px] group-hover:ring-[var(--primary)]/70'
                           }`}
                         />
                         {isSingleSel && (
@@ -2446,7 +2455,7 @@ export default function AdBuilderPage() {
       {ctxMenu && typeof document !== 'undefined' &&
         createPortal(
           <div
-            className="fixed z-[200] min-w-[12rem] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card-strong)] py-1 text-sm shadow-2xl backdrop-blur-2xl"
+            className="fixed z-[200] min-w-[11rem] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card-strong)] py-1 text-[13px] shadow-2xl backdrop-blur-2xl"
             style={{ left: Math.min(ctxMenu.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 230), top: ctxMenu.y }}
             onPointerDown={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
@@ -2461,7 +2470,7 @@ export default function AdBuilderPage() {
               const Item = ({ onClick, danger, kbd, children }: { onClick: () => void; danger?: boolean; kbd?: string; children: React.ReactNode }) => (
                 <button
                   onClick={run(onClick)}
-                  className={`flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left transition-colors hover:bg-[var(--muted)] ${danger ? 'text-red-500' : 'text-[var(--foreground)]'}`}
+                  className={`flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left transition-colors hover:bg-[var(--muted)] ${danger ? 'text-red-500' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'}`}
                 >
                   <span>{children}</span>
                   {kbd && <span className="text-[10px] text-[var(--muted-foreground)]">{kbd}</span>}
