@@ -20,7 +20,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ArrowDownTrayIcon, SparklesIcon, ClipboardDocumentIcon, ExclamationTriangleIcon, Squares2X2Icon, TruckIcon, XMarkIcon, MagnifyingGlassIcon, ArrowLeftIcon, ArrowPathIcon, CheckIcon, CloudIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
-import { AD_TEMPLATES } from '@/lib/ad-generator/templates';
+import { AD_TEMPLATES, ALL_TEMPLATES } from '@/lib/ad-generator/templates';
 import { adTemplateFromDoc } from '@/lib/ad-generator/doc-template';
 import { isVehicleIndustry } from '@/lib/ad-generator/industry';
 import type { TemplateDoc } from '@/lib/ad-generator/doc-types';
@@ -86,7 +86,8 @@ export default function AdGeneratorPage() {
       cancelled = true;
     };
   }, []);
-  const templates = useMemo(() => [...AD_TEMPLATES, ...dbTemplates], [dbTemplates]);
+  // Resolve against ALL templates (incl. retired) so older ads still render.
+  const templates = useMemo(() => [...ALL_TEMPLATES, ...dbTemplates], [dbTemplates]);
 
   const [templateId, setTemplateId] = useState(AD_TEMPLATES[0].id);
   // The ad's own frozen copy of the template design (snapshot at creation). When
