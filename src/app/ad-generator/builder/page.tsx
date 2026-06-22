@@ -33,10 +33,7 @@ import {
   PlusCircleIcon,
   MinusIcon,
   TrashIcon,
-  DocumentDuplicateIcon,
   XMarkIcon,
-  ChevronDoubleUpIcon,
-  ChevronDoubleDownIcon,
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
   ArrowUturnLeftIcon,
@@ -479,6 +476,10 @@ export default function AdBuilderPage() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   // Inline text editing: double-click a text element to edit its value on-canvas.
   const [editingText, setEditingText] = useState<{ id: string; value: string } | null>(null);
+  // Background panning: natural size of the selected bg image + the live pan
+  // preview (the full image, with its off-canvas "bleed" shown while dragging).
+  const [bgNatural, setBgNatural] = useState<{ w: number; h: number } | null>(null);
+  const [bgPan, setBgPan] = useState<{ url: string; coverW: number; coverH: number; overflowX: number; overflowY: number; objectX: number; objectY: number } | null>(null);
   // FLIP: gently slide Layers rows to their new spots when the drop order
   // actually changes during a drag. Transforms are cleared before measuring, so
   // an in-flight animation never pollutes the next measurement (no jitter).
@@ -532,6 +533,56 @@ export default function AdBuilderPage() {
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
   const selected = selectedId ? doc.elements.find((e) => e.id === selectedId) ?? null : null;
   const selectedBox = selectedId ? layout[selectedId] : undefined;
+
+  // A full-bleed element (covering ~the whole canvas — a background photo or its
+  // scrim) behaves like the empty backdrop on click: it clears the selection
+  // rather than swallowing every "click outside".
+  const isFullBleed = useCallback(
+    (elId: string) => {
+      const b = layout[elId];
+      return !!b && b.x <= 0.02 && b.y <= 0.02 && b.x + b.w >= 0.98 && b.y + b.h >= 0.98;
+    },
+    [layout],
+  );
+
+  // Resolve an element's image URL (for the background-pan bleed preview).
+  const resolveBindingUrl = useCallback(
+    (el: DocElement | null | undefined): string | null => {
+      if (!el?.binding) return null;
+      if (el.binding.kind === 'static') return el.binding.value || null;
+      const v = previewData[el.binding.key];
+      return typeof v === 'string' && v ? v : null;
+    },
+    [previewData],
+  );
+
+  // The full-bleed COVER image in the doc — the pannable background photo, if
+  // any. Found regardless of selection so it's pannable on the first click.
+  const bgImageId = useMemo(() => {
+    const cand = doc.elements.find((e) => e.type === 'image' && (e.fit ?? 'cover') === 'cover' && isFullBleed(e.id));
+    return cand?.id ?? null;
+  }, [doc.elements, isFullBleed]);
+
+  // Load the background's natural pixel size so we can map drag distance to
+  // object-position and draw the bleed at the right cover scale.
+  useEffect(() => {
+    if (!bgImageId) {
+      setBgNatural(null);
+      return;
+    }
+    const url = resolveBindingUrl(doc.elements.find((e) => e.id === bgImageId));
+    if (!url) {
+      setBgNatural(null);
+      return;
+    }
+    let alive = true;
+    const img = new Image();
+    img.onload = () => alive && setBgNatural({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+    img.src = url;
+    return () => {
+      alive = false;
+    };
+  }, [bgImageId, doc.elements, resolveBindingUrl]);
 
   // ── doc mutations (all functional so they don't capture stale state) ──
   const setBox = useCallback((sid: string, elId: string, box: DocLayoutBox) => {
@@ -1208,7 +1259,8 @@ export default function AdBuilderPage() {
     | { kind: 'single'; handle: Handle; sx: number; sy: number; fw: number; fh: number; nw: number; nh: number; sizeId: string; elId: string; start: DocLayoutBox; live: DocLayoutBox; targetsX: number[]; targetsY: number[]; scaleFont: boolean }
     | { kind: 'group'; sx: number; sy: number; fw: number; fh: number; nw: number; nh: number; sizeId: string; items: { elId: string; start: DocLayoutBox }[]; bounds: { left: number; cx: number; right: number; top: number; cy: number; bottom: number }; minDx: number; maxDx: number; minDy: number; maxDy: number; targetsX: number[]; targetsY: number[]; live: Record<string, DocLayoutBox> }
     | { kind: 'groupresize'; handle: Handle; sx: number; sy: number; fw: number; fh: number; nw: number; nh: number; sizeId: string; bounds: { left: number; top: number; right: number; bottom: number }; items: { elId: string; start: DocLayoutBox; isText: boolean }[]; live: Record<string, DocLayoutBox> }
-    | { kind: 'marquee'; left: number; top: number; fw: number; fh: number; startXF: number; startYF: number; rect: { x: number; y: number; w: number; h: number } };
+    | { kind: 'marquee'; left: number; top: number; fw: number; fh: number; startXF: number; startYF: number; rect: { x: number; y: number; w: number; h: number } }
+    | { kind: 'bgpan'; sx: number; sy: number; sizeId: string; elId: string; startObjX: number; startObjY: number; overflowX: number; overflowY: number; url: string; coverW: number; coverH: number; dragging: boolean; live: { objectX: number; objectY: number } };
   const dragRef = useRef<DragState | null>(null);
 
   const onMoveRef = useRef<(e: PointerEvent) => void>(() => {});
@@ -1255,6 +1307,21 @@ export default function AdBuilderPage() {
       const y = clamp(Math.min(d.startYF, cy), 0, 1);
       d.rect = { x, y, w: clamp(Math.abs(cx - d.startXF), 0, 1 - x), h: clamp(Math.abs(cy - d.startYF), 0, 1 - y) };
       setMarquee(d.rect);
+      return;
+    }
+    if (d.kind === 'bgpan') {
+      const dxPx = e.clientX - d.sx;
+      const dyPx = e.clientY - d.sy;
+      // Ignore sub-threshold jitter so a plain click never flashes the preview.
+      if (!d.dragging && Math.abs(dxPx) < 3 && Math.abs(dyPx) < 3) return;
+      d.dragging = true;
+      // Pan the background: dragging the image right reveals more of its left
+      // side, so object-position decreases. Movement is 1:1 with the cursor
+      // (mapped through the cover overflow). Axes with no overflow stay put.
+      const ox = d.overflowX > 0 ? clamp(d.startObjX - dxPx / d.overflowX, 0, 1) : d.startObjX;
+      const oy = d.overflowY > 0 ? clamp(d.startObjY - dyPx / d.overflowY, 0, 1) : d.startObjY;
+      d.live = { objectX: ox, objectY: oy };
+      setBgPan({ url: d.url, coverW: d.coverW, coverH: d.coverH, overflowX: d.overflowX, overflowY: d.overflowY, objectX: ox, objectY: oy });
       return;
     }
     const dxF = (e.clientX - d.sx) / d.fw;
@@ -1338,12 +1405,21 @@ export default function AdBuilderPage() {
           .map((p) => p.el.id);
         setSelectedIds(hit);
       }
+    } else if (d?.kind === 'bgpan' && d.dragging) {
+      const { elId, sizeId, live } = d;
+      setDoc((prev) => {
+        const lay = prev.layouts[sizeId] ?? {};
+        const b = lay[elId];
+        if (!b) return prev;
+        return { ...prev, layouts: { ...prev.layouts, [sizeId]: { ...lay, [elId]: { ...b, objectX: live.objectX, objectY: live.objectY } } } };
+      });
     }
     dragRef.current = null;
     setDragBox(null);
     setGroupLive(null);
     setGuides({ x: null, y: null });
     setMarquee(null);
+    setBgPan(null);
     window.removeEventListener('pointermove', moveListener);
     window.removeEventListener('pointerup', upListener);
   };
@@ -1447,31 +1523,47 @@ export default function AdBuilderPage() {
     listen();
   }
 
+  // Pan the selected background photo: dragging maps to object-position via the
+  // cover overflow, so the image tracks the cursor and its off-canvas bleed shows.
+  function startBgPan(e: React.PointerEvent, elId: string) {
+    const box = layout[elId];
+    const url = resolveBindingUrl(doc.elements.find((x) => x.id === elId));
+    if (!box || !bgNatural || !url) return;
+    const coverScale = Math.max(frameW / bgNatural.w, frameH / bgNatural.h);
+    const coverW = bgNatural.w * coverScale;
+    const coverH = bgNatural.h * coverScale;
+    const overflowX = Math.max(0, coverW - frameW);
+    const overflowY = Math.max(0, coverH - frameH);
+    const startObjX = box.objectX ?? 0.5;
+    const startObjY = box.objectY ?? 0.5;
+    // Armed, but the bleed preview only appears once the pointer actually moves —
+    // a plain click just selects the background (no flash).
+    dragRef.current = { kind: 'bgpan', sx: e.clientX, sy: e.clientY, sizeId: size.id, elId, startObjX, startObjY, overflowX, overflowY, url, coverW, coverH, dragging: false, live: { objectX: startObjX, objectY: startObjY } };
+    listen();
+  }
+
   // Element pointerdown: Shift toggles selection; otherwise select (or keep a
   // multi-selection) and start a single / group drag.
-  // A full-bleed element (covering ~the whole canvas — i.e. a background photo or
-  // its scrim) behaves like the empty backdrop: clicking it clears the selection
-  // and can start a marquee, so it doesn't swallow every "click outside". Select
-  // a background from the Layers panel to edit it directly.
-  const isFullBleed = useCallback(
-    (elId: string) => {
-      const b = layout[elId];
-      return !!b && b.x <= 0.02 && b.y <= 0.02 && b.x + b.w >= 0.98 && b.y + b.h >= 0.98;
-    },
-    [layout],
-  );
-
   function onBoxPointerDown(e: React.PointerEvent, elId: string) {
     e.preventDefault();
     e.stopPropagation();
-    // A full-bleed background acts as the backdrop (even if locked): deselect.
-    if (isFullBleed(elId) && !e.shiftKey) {
-      startMarquee(e);
+    // A LOCKED element can't be selected — clicking it clears the selection, so a
+    // locked background behaves like the backdrop ("click off an element to
+    // deselect"). Unlocked elements select normally.
+    if (lockedIds.has(elId)) {
+      if (!e.shiftKey) clearSelection();
       return;
     }
-    if (lockedIds.has(elId)) return; // locked → not selectable/draggable on canvas
     if (e.shiftKey) {
       toggleSelect(elId);
+      return;
+    }
+    // Clicking the (unlocked) background photo — or the full-bleed scrim above
+    // it — selects the background and lets you drag to reposition it, showing the
+    // off-canvas bleed. Resize via the Layers panel / handles if you need to.
+    if (bgImageId && bgNatural && !lockedIds.has(bgImageId) && (elId === bgImageId || isFullBleed(elId))) {
+      if (selectedId !== bgImageId) selectOne(bgImageId);
+      startBgPan(e, bgImageId);
       return;
     }
     // A grouped element selects (and drags) its OUTERMOST group as a unit
@@ -2353,6 +2445,20 @@ export default function AdBuilderPage() {
                       style={{ left: marquee.x * frameW, top: marquee.y * frameH, width: marquee.w * frameW, height: marquee.h * frameH }}
                     />
                   )}
+                  {/* Background pan preview — the whole photo, with the off-canvas
+                      bleed dimmed and the live frame outlined. */}
+                  {bgPan && (
+                    <>
+                      <img
+                        src={bgPan.url}
+                        alt=""
+                        draggable={false}
+                        className="pointer-events-none absolute z-30 max-w-none select-none"
+                        style={{ left: -bgPan.objectX * bgPan.overflowX, top: -bgPan.objectY * bgPan.overflowY, width: bgPan.coverW, height: bgPan.coverH }}
+                      />
+                      <div className="pointer-events-none absolute inset-0 z-30 ring-2 ring-[var(--primary)]" style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)' }} />
+                    </>
+                  )}
                   {placed.map(({ el, box }) => {
                     const isSel = selectedIds.includes(el.id);
                     const isSingleSel = el.id === selectedId;
@@ -2364,12 +2470,13 @@ export default function AdBuilderPage() {
                       top: b.y * frameH,
                       width: b.w * frameW,
                       height: b.h * frameH,
-                      // The selected element's overlay (its ring, handles, and the
-                      // action tab) jumps above all other element overlays so a
-                      // more-forward element can't intercept clicks on its chrome.
-                      // These overlays are transparent, so this doesn't change how
-                      // the ad itself (rendered in the iframe) is stacked.
-                      zIndex: isSel ? 50 : (b.z ?? 0) + 1,
+                      // The selected element's overlay (its ring + handles) jumps
+                      // above other element overlays so a more-forward element can't
+                      // intercept clicks on its chrome. NOT for a full-bleed layer
+                      // (a background): its overlay covers the whole canvas, so
+                      // raising it would block selecting anything else. Overlays are
+                      // transparent, so this never changes the ad's own stacking.
+                      zIndex: isSel && !isFullBleed(el.id) ? 50 : (b.z ?? 0) + 1,
                       cursor: el.locked ? 'default' : box.hidden ? 'pointer' : 'move',
                       touchAction: 'none',
                     };
@@ -2411,27 +2518,6 @@ export default function AdBuilderPage() {
                             <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-[var(--primary)] px-1.5 py-0.5 text-[10px] font-medium text-white">
                               {elName(el)}
                             </span>
-                            {/* Element actions — a tab anchored to the box's top-right */}
-                            <div
-                              onPointerDown={(e) => e.stopPropagation()}
-                              className="absolute bottom-full right-0 mb-1 flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--card-strong)] p-1 shadow-lg backdrop-blur-2xl"
-                            >
-                              <BarBtn title="Bring forward" onClick={bringForward}>
-                                <ChevronDoubleUpIcon className="h-4 w-4" />
-                              </BarBtn>
-                              <BarBtn title="Send back" onClick={sendBack}>
-                                <ChevronDoubleDownIcon className="h-4 w-4" />
-                              </BarBtn>
-                              <BarBtn title="Duplicate" onClick={() => duplicateElement(el.id)}>
-                                <DocumentDuplicateIcon className="h-4 w-4" />
-                              </BarBtn>
-                              <BarBtn title="Hide on this size" onClick={() => toggleHidden(el.id)}>
-                                <EyeSlashIcon className="h-4 w-4" />
-                              </BarBtn>
-                              <BarBtn title="Delete" onClick={() => deleteElement(el.id)} danger>
-                                <TrashIcon className="h-4 w-4" />
-                              </BarBtn>
-                            </div>
                             {RESIZE_HANDLES.map((rh) => (
                               <span
                                 key={rh.h}
@@ -3018,35 +3104,12 @@ function SelectionToolbar({
           {el.type === 'image' && el.fit === 'cover' && (
             <>
               <BarSep />
-              <span className="px-1 text-[10px] font-medium text-[var(--muted-foreground)]" title="Which part of a cover image stays in frame — set per size">
-                Focus
+              <span className="px-1 text-[10px] font-medium text-[var(--muted-foreground)]" title="Drag the image on the canvas to reposition it — its off-canvas bleed shows while you drag (per size)">
+                Drag on canvas to reposition
               </span>
-              <FocalGrid x={box.objectX ?? 0.5} y={box.objectY ?? 0.5} onChange={(fx, fy) => onBox({ objectX: fx, objectY: fy })} />
             </>
           )}
         </>
-      )}
-    </div>
-  );
-}
-
-/** 3×3 focal-point picker — sets a cover image's object-position per size. */
-function FocalGrid({ x, y, onChange }: { x: number; y: number; onChange: (x: number, y: number) => void }) {
-  const cells = [0, 0.5, 1];
-  return (
-    <div className="grid grid-cols-3 gap-0.5 rounded-md border border-[var(--border)] p-0.5">
-      {cells.map((fy) =>
-        cells.map((fx) => {
-          const active = Math.abs(x - fx) < 0.01 && Math.abs(y - fy) < 0.01;
-          return (
-            <button
-              key={`${fx}-${fy}`}
-              onClick={() => onChange(fx, fy)}
-              title={`Focus ${fy === 0 ? 'top' : fy === 1 ? 'bottom' : 'middle'} ${fx === 0 ? 'left' : fx === 1 ? 'right' : 'center'}`}
-              className={`h-2.5 w-2.5 rounded-sm transition-colors ${active ? 'bg-[var(--primary)]' : 'bg-[var(--muted-foreground)]/30 hover:bg-[var(--muted-foreground)]/60'}`}
-            />
-          );
-        }),
       )}
     </div>
   );
