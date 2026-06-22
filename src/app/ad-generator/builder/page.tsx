@@ -1488,6 +1488,20 @@ export default function AdBuilderPage() {
               <ArrowUturnRightIcon className="h-4 w-4" />
             </button>
           </div>
+          {/* Fields — the form that drives the ad; a toggleable floating panel. */}
+          <button
+            onClick={() => setFieldsOpen((v) => !v)}
+            title="Template fields — the form users fill"
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+              fieldsOpen
+                ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]'
+            }`}
+          >
+            <TextElementIcon className="h-4 w-4" />
+            Fields
+            <span className="rounded bg-[var(--muted)] px-1.5 text-[11px] text-[var(--muted-foreground)]">{doc.fields.length}</span>
+          </button>
           {/* Template-management controls — hidden when editing a single ad. */}
           {!adId && (
             <>
@@ -1752,24 +1766,6 @@ export default function AdBuilderPage() {
                   );
                 });
               })()}
-            </div>
-          </section>
-
-          {/* Template fields — drive the generator form + AI copy */}
-          <section className="glass-card rounded-2xl border border-[var(--border)] p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Fields</h2>
-                <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
-                  {doc.fields.length} field{doc.fields.length === 1 ? '' : 's'} drive the form
-                </p>
-              </div>
-              <button
-                onClick={() => setFieldsOpen(true)}
-                className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)]"
-              >
-                Manage
-              </button>
             </div>
           </section>
 
@@ -2219,7 +2215,7 @@ export default function AdBuilderPage() {
       </div>
 
       {fieldsOpen && (
-        <FieldManagerModal
+        <FieldsSidebar
           fields={doc.fields}
           defaults={doc.defaults}
           onClose={() => setFieldsOpen(false)}
@@ -2405,7 +2401,7 @@ function FieldRow({
  * element bindings read. Renaming a key cascades to bindings; deleting a field
  * detaches any element bound to it.
  */
-function FieldManagerModal({
+function FieldsSidebar({
   fields,
   defaults,
   onClose,
@@ -2426,44 +2422,44 @@ function FieldManagerModal({
 }) {
   const [expanded, setExpanded] = useState<number | null>(fields.length ? 0 : null);
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-16" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-5 shadow-xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-[var(--foreground)]">Template fields</h2>
-            <p className="text-xs text-[var(--muted-foreground)]">The form users fill — and what AI copy + element bindings read.</p>
-          </div>
-          <button onClick={onClose} className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
-            <XMarkIcon className="h-5 w-5" />
-          </button>
+    // Floating right-docked sidebar (no modal / backdrop) — the form that drives
+    // the ad stays open beside the canvas while you design.
+    <div className="fixed right-4 top-20 bottom-4 z-40 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl">
+      <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] p-4">
+        <div>
+          <h2 className="text-sm font-bold text-[var(--foreground)]">Template fields</h2>
+          <p className="text-xs text-[var(--muted-foreground)]">The form users fill — and what AI copy + element bindings read.</p>
         </div>
-        <div className="space-y-2">
-          {fields.map((f, i) => (
-            <FieldRow
-              key={i}
-              field={f}
-              index={i}
-              expanded={expanded === i}
-              defaultValue={defaults[f.key] ?? ''}
-              onToggle={() => setExpanded(expanded === i ? null : i)}
-              onUpdate={onUpdate}
-              onRename={onRename}
-              onDelete={onDelete}
-              onSetDefault={onSetDefault}
-            />
-          ))}
-          {!fields.length && (
-            <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">No fields yet.</p>
-          )}
-        </div>
-        <button
-          onClick={onAdd}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
-        >
-          <PlusIcon className="h-3.5 w-3.5" />
-          Add field
+        <button onClick={onClose} title="Close" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
+          <XMarkIcon className="h-5 w-5" />
         </button>
       </div>
+      <div className="flex-1 space-y-2 overflow-y-auto p-4">
+        {fields.map((f, i) => (
+          <FieldRow
+            key={i}
+            field={f}
+            index={i}
+            expanded={expanded === i}
+            defaultValue={defaults[f.key] ?? ''}
+            onToggle={() => setExpanded(expanded === i ? null : i)}
+            onUpdate={onUpdate}
+            onRename={onRename}
+            onDelete={onDelete}
+            onSetDefault={onSetDefault}
+          />
+        ))}
+        {!fields.length && (
+          <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">No fields yet.</p>
+        )}
+      </div>
+      <button
+        onClick={onAdd}
+        className="m-4 mt-0 flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
+      >
+        <PlusIcon className="h-3.5 w-3.5" />
+        Add field
+      </button>
     </div>
   );
 }
