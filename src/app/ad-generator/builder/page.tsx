@@ -1449,9 +1449,26 @@ export default function AdBuilderPage() {
 
   // Element pointerdown: Shift toggles selection; otherwise select (or keep a
   // multi-selection) and start a single / group drag.
+  // A full-bleed element (covering ~the whole canvas — i.e. a background photo or
+  // its scrim) behaves like the empty backdrop: clicking it clears the selection
+  // and can start a marquee, so it doesn't swallow every "click outside". Select
+  // a background from the Layers panel to edit it directly.
+  const isFullBleed = useCallback(
+    (elId: string) => {
+      const b = layout[elId];
+      return !!b && b.x <= 0.02 && b.y <= 0.02 && b.x + b.w >= 0.98 && b.y + b.h >= 0.98;
+    },
+    [layout],
+  );
+
   function onBoxPointerDown(e: React.PointerEvent, elId: string) {
     e.preventDefault();
     e.stopPropagation();
+    // A full-bleed background acts as the backdrop (even if locked): deselect.
+    if (isFullBleed(elId) && !e.shiftKey) {
+      startMarquee(e);
+      return;
+    }
     if (lockedIds.has(elId)) return; // locked → not selectable/draggable on canvas
     if (e.shiftKey) {
       toggleSelect(elId);
@@ -1545,6 +1562,11 @@ export default function AdBuilderPage() {
     function onKey(e: KeyboardEvent) {
       const tag = (document.activeElement?.tagName ?? '').toLowerCase();
       if (tag === 'input' || tag === 'textarea') return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        clearSelection();
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         selectedIds.forEach((id) => deleteElement(id));
@@ -1570,7 +1592,7 @@ export default function AdBuilderPage() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedIds, size.id, deleteElement, setDoc]);
+  }, [selectedIds, size.id, deleteElement, setDoc, clearSelection]);
 
   // ⌘Z / ⌘⇧Z undo-redo + ⌘G / ⌘⇧G group/ungroup — global, but defer to the
   // browser inside text fields.
@@ -2342,7 +2364,12 @@ export default function AdBuilderPage() {
                       top: b.y * frameH,
                       width: b.w * frameW,
                       height: b.h * frameH,
-                      zIndex: (b.z ?? 0) + 1,
+                      // The selected element's overlay (its ring, handles, and the
+                      // action tab) jumps above all other element overlays so a
+                      // more-forward element can't intercept clicks on its chrome.
+                      // These overlays are transparent, so this doesn't change how
+                      // the ad itself (rendered in the iframe) is stacked.
+                      zIndex: isSel ? 50 : (b.z ?? 0) + 1,
                       cursor: el.locked ? 'default' : box.hidden ? 'pointer' : 'move',
                       touchAction: 'none',
                     };
@@ -2454,7 +2481,7 @@ export default function AdBuilderPage() {
                               setEditingText(null);
                             }
                           }}
-                          className="absolute z-40 resize-none overflow-hidden rounded-[2px] bg-[var(--card)] p-0.5 shadow-[0_0_0_2px_var(--primary)] outline-none"
+                          className="absolute z-[60] resize-none overflow-hidden rounded-[2px] bg-[var(--card)] p-0.5 shadow-[0_0_0_2px_var(--primary)] outline-none"
                           style={{
                             left: eb.x * frameW,
                             top: eb.y * frameH,
