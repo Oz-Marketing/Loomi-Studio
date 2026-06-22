@@ -20,7 +20,7 @@ import { useAccount } from '@/contexts/account-context';
 import { ListToolbar } from '@/components/list-toolbar';
 import type { StatusFilterValue } from '@/components/status-filter';
 import { AdPreviewThumb, brandingFromAccount } from '@/components/ad-generator/ad-preview-thumb';
-import { AD_TEMPLATES } from '@/lib/ad-generator/templates';
+import { AD_TEMPLATES, ALL_TEMPLATES } from '@/lib/ad-generator/templates';
 import { adTemplateFromDoc, blankTemplateDoc } from '@/lib/ad-generator/doc-template';
 import { templateInIndustry } from '@/lib/ad-generator/industry';
 import type { TemplateDoc } from '@/lib/ad-generator/doc-types';
@@ -78,11 +78,13 @@ export default function AdGeneratorListPage() {
       cancelled = true;
     };
   }, []);
-  const templates = useMemo(() => [...AD_TEMPLATES, ...dbTemplates], [dbTemplates]);
-  // Templates offered for THIS account's industry (non-automotive sees none for now).
+  // Resolution list (incl. retired templates) — for rendering existing ads.
+  const templates = useMemo(() => [...ALL_TEMPLATES, ...dbTemplates], [dbTemplates]);
+  // Picker list — only OFFERED templates, scoped to this account's industry
+  // (non-automotive sees none for now).
   const pickerTemplates = useMemo(
-    () => templates.filter((t) => templateInIndustry(t, accountData?.category)),
-    [templates, accountData?.category],
+    () => [...AD_TEMPLATES, ...dbTemplates].filter((t) => templateInIndustry(t, accountData?.category)),
+    [dbTemplates, accountData?.category],
   );
 
   useEffect(() => {
