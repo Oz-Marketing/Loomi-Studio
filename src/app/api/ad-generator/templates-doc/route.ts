@@ -14,7 +14,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession, requireRole } from '@/lib/api-auth';
-import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
+import { adGeneratorAllowed } from '@/lib/ad-generator/access';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -60,7 +60,7 @@ function shape(r: Row) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!AD_GENERATOR_ENABLED) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!(await adGeneratorAllowed())) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   // Admin: full list (incl. drafts) for the builder's Load.
   if (req.nextUrl.searchParams.get('all') === '1') {
@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!AD_GENERATOR_ENABLED) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!(await adGeneratorAllowed())) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const { error } = await requireRole('developer', 'super_admin', 'admin');
   if (error) return error;
   const session = await getAuthSession();

@@ -7,14 +7,14 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/api-auth';
-import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
+import { adGeneratorAllowed } from '@/lib/ad-generator/access';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  if (!AD_GENERATOR_ENABLED) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!(await adGeneratorAllowed())) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const session = await getAuthSession();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
@@ -27,7 +27,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  if (!AD_GENERATOR_ENABLED) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!(await adGeneratorAllowed())) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const session = await getAuthSession();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

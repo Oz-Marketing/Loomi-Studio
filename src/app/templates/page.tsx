@@ -61,7 +61,9 @@ function TemplatesPageInner() {
   const isClient = userRole === 'client';
   const canManage =
     userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
-  const showAdsTab = canManage && AD_GENERATOR_ENABLED;
+  // The Ad Generator is WIP — its Ads tab shows when the env flag is on (staging)
+  // or for developers (any env), matching the route/nav gating.
+  const showAdsTab = canManage && (AD_GENERATOR_ENABLED || userRole === 'developer');
   const tabs = canManage
     ? showAdsTab
       ? [...MANAGER_TABS, ADS_TAB]
