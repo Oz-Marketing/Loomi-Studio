@@ -8,7 +8,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/api-auth';
-import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
+import { adGeneratorAllowed } from '@/lib/ad-generator/access';
 import { evoxConfigured, resolveImageUrl, importEvoxImage } from '@/lib/integrations/evox';
 
 export const runtime = 'nodejs';
@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  if (!AD_GENERATOR_ENABLED) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!(await adGeneratorAllowed())) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const session = await getAuthSession();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!evoxConfigured()) return NextResponse.json({ error: 'EVOX is not configured' }, { status: 400 });

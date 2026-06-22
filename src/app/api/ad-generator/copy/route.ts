@@ -10,7 +10,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/api-auth';
-import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
+import { adGeneratorAllowed } from '@/lib/ad-generator/access';
 import { resolveTemplate } from '@/lib/ad-generator/resolve-template';
 import { generateAdCopy } from '@/lib/ai/ad-copy';
 import type { AdCopyField } from '@/lib/ad-generator/copy-types';
@@ -29,7 +29,7 @@ interface CopyBody {
 }
 
 export async function POST(req: NextRequest) {
-  if (!AD_GENERATOR_ENABLED) {
+  if (!(await adGeneratorAllowed())) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 

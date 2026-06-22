@@ -103,7 +103,11 @@ export function TopUtilityBar() {
   useEffect(() => {
     if (!userMenuOpen) return;
     function handleMouseDown(event: MouseEvent) {
-      if (!userMenuRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      // The "View as…" picker is portaled to <body>, so it's outside the menu's
+      // DOM — don't treat clicks inside it as "outside" (would close the menu).
+      const inViewAsPanel = target instanceof Element && !!target.closest('[data-viewas-panel]');
+      if (!userMenuRef.current?.contains(target) && !inViewAsPanel) {
         setUserMenuOpen(false);
       }
     }
