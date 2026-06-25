@@ -547,91 +547,57 @@ const calcDays = (start: string | null, end: string | null): number => {
     Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1,
   );
 };
-/** Subtract N business days (Mon–Fri only) from a YYYY-MM-DD date string. */
-function subtractBusinessDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + 'T00:00:00');
-  let count = 0;
-  while (count < n) {
-    d.setDate(d.getDate() - 1);
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) count++;
-  }
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// ─── Run-dates bar (Monday-style) ───────────────────────────────────────────
+// A status-colored progress bar behind the flight window: the elapsed share of
+// the run is filled in, the rest is a neutral track. Green = on track (Live /
+// Scheduled / Live - Changes Required / Ready- Pending Approval), gray = In
+// Draft, red = anything else (needs attention).
+const RUN_DATE_GREEN_STATUSES = new Set([
+  'Live',
+  'Scheduled',
+  'Live - Changes Required',
+  'Ready- Pending Approval',
+]);
+function runDateColor(status: string): string {
+  if (status === 'In Draft') return '#9ca3af';
+  return RUN_DATE_GREEN_STATUSES.has(status) ? COLORS.success : COLORS.error;
 }
-function autoDueDateFromFlightStart(flightStart: string | null): string | null {
-  if (!flightStart) return null;
-  return subtractBusinessDays(flightStart, 2);
+// Share (0–100) of the flight window that has elapsed as of today.
+function flightElapsedPct(
+  flightStart: string | null,
+  flightEnd: string | null,
+): number {
+  if (!flightStart || !flightEnd) return 0;
+  const start = new Date(flightStart + 'T00:00:00').getTime();
+  const end = new Date(flightEnd + 'T23:59:59').getTime();
+  if (!(end > start)) return 0;
+  const now = Date.now();
+  if (now <= start) return 0;
+  if (now >= end) return 100;
+  return ((now - start) / (end - start)) * 100;
+}
+function FlightBar({ ad }: { ad: PacerAd }) {
+  if (!ad.flightStart || !ad.flightEnd) {
+    return <span className="text-xs text-[var(--muted-foreground)]">—</span>;
+  }
+  const pct = flightElapsedPct(ad.flightStart, ad.flightEnd);
+  const color = runDateColor(ad.adStatus);
+  return (
+    <div className="relative h-[22px] min-w-[132px] w-full overflow-hidden rounded-full bg-[var(--muted)]">
+      <div
+        className="absolute inset-y-0 left-0 transition-[width] duration-500"
+        style={{ width: `${pct}%`, background: color }}
+      />
+      <span
+        className="absolute inset-0 flex items-center justify-center px-2 text-[11px] font-semibold whitespace-nowrap text-white"
+        style={{ textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
+      >
+        {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
+      </span>
+    </div>
+  );
 }
 
-/**
- * Classify the urgency of an ad's overall due date.
- * Returns null when there's nothing actionable to surface (no due date, or the
- * ad is already live/completed/off so the due date is moot).
- */
-type DueDateUrgency = {
-  label: string;
-  level: 'overdue' | 'today' | 'soon' | 'upcoming';
-};
-const DUE_DATE_DONE_STATUSES = new Set(['Live', 'Completed Run', 'Off']);
-function classifyDueDate(ad: PacerAd): DueDateUrgency | null {
-  if (!ad.dueDate) return null;
-  if (DUE_DATE_DONE_STATUSES.has(ad.adStatus)) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const dayMs = 86400000;
-  const dueDiff = Math.ceil(
-    (new Date(ad.dueDate + 'T00:00:00').getTime() - today.getTime()) / dayMs,
-  );
-  // The flight start is the real deadline — the ad should be live by then. The
-  // auto due date (≈2 business days earlier) is only a soft target, so slipping
-  // past it isn't "late": you're late only once the flight has started and the
-  // ad still isn't live. This stops the false "you're late" during the lead-time
-  // window when you're really just finishing the task within it.
-  if (ad.flightStart) {
-    const flightDiff = Math.ceil(
-      (new Date(ad.flightStart + 'T00:00:00').getTime() - today.getTime()) /
-        dayMs,
-    );
-    if (flightDiff < 0)
-      return { label: `Late ${Math.abs(flightDiff)}d`, level: 'overdue' };
-    if (dueDiff < 0) return { label: 'Due now', level: 'soon' };
-    if (dueDiff === 0) return { label: 'Due today', level: 'today' };
-    if (dueDiff <= 2) return { label: `Due in ${dueDiff}d`, level: 'soon' };
-    if (dueDiff <= 7) return { label: `Due in ${dueDiff}d`, level: 'upcoming' };
-    return null;
-  }
-  // No flight start → the due date is the only signal; keep the firm behavior.
-  if (dueDiff < 0)
-    return { label: `Overdue ${Math.abs(dueDiff)}d`, level: 'overdue' };
-  if (dueDiff === 0) return { label: 'Due today', level: 'today' };
-  if (dueDiff <= 2) return { label: `Due in ${dueDiff}d`, level: 'soon' };
-  if (dueDiff <= 7) return { label: `Due in ${dueDiff}d`, level: 'upcoming' };
-  return null;
-}
-const DUE_DATE_CHIP_STYLES: Record<DueDateUrgency['level'], { bg: string; color: string }> = {
-  overdue: { bg: 'rgba(239,68,68,0.18)', color: '#fca5a5' },
-  today: { bg: 'rgba(252,211,77,0.22)', color: '#fcd34d' },
-  soon: { bg: 'rgba(252,211,77,0.18)', color: '#fcd34d' },
-  upcoming: { bg: 'rgba(190,242,100,0.18)', color: '#bef264' },
-};
-function DueDateChip({ ad }: { ad: PacerAd }) {
-  const urgency = classifyDueDate(ad);
-  if (!urgency) return null;
-  const { bg, color } = DUE_DATE_CHIP_STYLES[urgency.level];
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap"
-      style={{ background: bg, color }}
-    >
-      {urgency.level === 'overdue' || urgency.level === 'today' ? (
-        <ExclamationTriangleIcon className="w-3 h-3" />
-      ) : (
-        <ClockIcon className="w-3 h-3" />
-      )}
-      {urgency.label}
-    </span>
-  );
-}
 const num = (s: string | null | undefined): number | null => {
   if (s == null || s === '') return null;
   const n = parseFloat(s);
@@ -2396,11 +2362,6 @@ function AdSummaryRow({
         <AdStatusPill status={ad.adStatus} />
       </td>
 
-      {/* Due date chip */}
-      <td className="px-3 py-2 align-middle whitespace-nowrap">
-        <DueDateChip ad={ad} />
-      </td>
-
       {/* Budget tags */}
       <td className="px-3 py-2 align-middle whitespace-nowrap">
         <div className="flex items-center gap-1">
@@ -2435,11 +2396,9 @@ function AdSummaryRow({
         {allocation != null ? fmt(allocation) : '—'}
       </td>
 
-      {/* Flight */}
-      <td className="px-3 py-2 align-middle text-xs text-[var(--foreground)] whitespace-nowrap">
-        {ad.flightStart && ad.flightEnd
-          ? `${fmtDate(ad.flightStart)} – ${fmtDate(ad.flightEnd)}`
-          : '—'}
+      {/* Run dates (status-colored progress bar) */}
+      <td className="px-3 py-2 align-middle">
+        <FlightBar ad={ad} />
       </td>
 
       {/* Design */}
@@ -3021,27 +2980,7 @@ function PlanAdForm({
             </Field>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-3 max-w-2xl">
-            <Field label="Due Date">
-              <div className="relative">
-                <DatePicker
-                  value={ad.dueDate}
-                  onChange={(v) => onUpdate({ ...ad, dueDate: v })}
-                  placeholder="Pick a date"
-                  presets={[TODAY_PRESET]}
-                />
-                {ad.dueDate &&
-                  ad.flightStart &&
-                  ad.dueDate === autoDueDateFromFlightStart(ad.flightStart) && (
-                    <span
-                      className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider"
-                      style={{ color: COLORS.daily }}
-                    >
-                      ● Auto-set from flight start
-                    </span>
-                  )}
-              </div>
-            </Field>
+          <div className="mb-3 max-w-xs">
             <Field label="Task Completed">
               <div className="relative">
                 <DatePicker
@@ -3071,17 +3010,10 @@ function PlanAdForm({
                 mode="range"
                 value={{ start: ad.flightStart, end: ad.flightEnd }}
                 onChange={(r) => {
-                  const next = r.start;
-                  const previousAuto = autoDueDateFromFlightStart(ad.flightStart);
-                  const dueDateIsAuto =
-                    ad.dueDate == null || ad.dueDate === previousAuto;
                   onUpdate({
                     ...ad,
                     flightStart: r.start,
                     flightEnd: r.end,
-                    dueDate: dueDateIsAuto
-                      ? autoDueDateFromFlightStart(next)
-                      : ad.dueDate,
                   });
                 }}
                 placeholder="Click & drag to select flight window"
@@ -5870,16 +5802,13 @@ function AdPlannerPanel({
                     Status
                   </th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Due
-                  </th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                     Budget
                   </th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                     Allocation
                   </th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Flight
+                    Run Dates
                   </th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                     Design
