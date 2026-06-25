@@ -10582,6 +10582,11 @@ interface OverviewAccount {
   markup: number;
   baseBudgetGoal: string | null;
   addedBudgetGoal: string | null;
+  // Per-source carryover folded into the spend target (target = goal × markup
+  // + carryover). Lets the remaining-budget footer reconcile against the same
+  // target the planner uses, so an applied carryover doesn't read as unallocated.
+  baseCarryover: string | null;
+  addedCarryover: string | null;
   // Server-side aggregated count of account-level pacer notes — drives
   // the chat badge on the overview row without an extra round-trip.
   notesCount: number;
@@ -10811,24 +10816,31 @@ function OverviewAccountRow({
             </div>
           )}
 
-          {/* Remaining-budget summary — reconciles the account's client budget
-              (gross) against what's been allocated to ads this month, using the
-              same grossed-up dollars as the Client Budget column. Reflects the
-              full account, not the filtered subset, so it's a true month total. */}
+          {/* Remaining-budget summary — reconciles what's allocated to ads this
+              month against the account's SPEND TARGET, mirroring the planner:
+              target = client budget × markup + carryover. Folding carryover in
+              keeps an applied carryover from reading as unallocated budget (the
+              raw client budget would otherwise disagree with the planner). Uses
+              the full account, not the filtered subset, so it's a true total. */}
           {combinedTotal > 0 &&
             (() => {
               const m = effMarkupOf(account.markup);
-              const allocatedGross =
-                m > 0
-                  ? account.ads.reduce((s, a) => {
-                      const net = num(a.allocation);
-                      return (
-                        s + (net != null ? Math.round((net / m) * 100) / 100 : 0)
-                      );
-                    }, 0)
-                  : 0;
+              // Net (actual-spend) sums across the whole account.
+              const allocatedNet = account.ads.reduce(
+                (s, a) => s + (num(a.allocation) ?? 0),
+                0,
+              );
+              const carryoverNet =
+                (num(account.baseCarryover) ?? 0) +
+                (num(account.addedCarryover) ?? 0);
+              // Gross (client-dollar) equivalents so the readout matches the
+              // Total Budget figure and the Client Budget column.
+              const allocatedGross = m > 0 ? allocatedNet / m : 0;
+              const carryoverGross = m > 0 ? carryoverNet / m : 0;
+              const targetGross = combinedTotal + carryoverGross;
               const remaining =
-                Math.round((combinedTotal - allocatedGross) * 100) / 100;
+                Math.round((targetGross - allocatedGross) * 100) / 100;
+              const hasCarry = Math.abs(carryoverGross) >= 0.005;
               const over = remaining < -0.005;
               const fullyAllocated = Math.abs(remaining) <= 0.005;
               const accent = over
@@ -10844,9 +10856,17 @@ function OverviewAccountRow({
                     </span>{' '}
                     of{' '}
                     <span className="font-semibold text-[var(--foreground)] tabular-nums">
-                      {fmt(combinedTotal)}
+                      {fmt(hasCarry ? targetGross : combinedTotal)}
                     </span>{' '}
-                    client budget allocated
+                    {hasCarry ? 'spend target allocated' : 'client budget allocated'}
+                    {hasCarry && (
+                      <span>
+                        {' · '}
+                        {fmt(combinedTotal)} budget{' '}
+                        {carryoverGross > 0 ? '+' : '−'}
+                        {fmt(Math.abs(carryoverGross))} carryover
+                      </span>
+                    )}
                   </span>
                   <span
                     className="font-semibold tabular-nums"
@@ -10855,7 +10875,7 @@ function OverviewAccountRow({
                     {over
                       ? `Over budget by ${fmt(-remaining)}`
                       : fullyAllocated
-                        ? 'Fully allocated — $0 remaining'
+                        ? 'Fully allocated'
                         : `${fmt(remaining)} remaining to allocate`}
                   </span>
                 </div>

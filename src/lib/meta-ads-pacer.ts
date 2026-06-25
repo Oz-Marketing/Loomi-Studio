@@ -719,6 +719,12 @@ export async function fetchOverview(accountKeys: string[], period: string) {
         markup: accountMarginSetting(acct.markup, globalDefaultMarkup),
         baseBudgetGoal: budget?.baseBudgetGoal ?? null,
         addedBudgetGoal: budget?.addedBudgetGoal ?? null,
+        // Carryover folded into each source's spend target (target = goal ×
+        // markup + carryover), so the overview's remaining-budget footer can
+        // reconcile against the same target the planner uses instead of the
+        // raw client budget.
+        baseCarryover: budget?.baseCarryover ?? null,
+        addedCarryover: budget?.addedCarryover ?? null,
         notesCount: noteCountByKey.get(acct.key) ?? 0,
         ads: acctAds.map((ad) => ({
           ...ad,
