@@ -19,6 +19,7 @@ export const metadata: Metadata = {
 async function resolveSurface(): Promise<Surface> {
   const h = await headers();
   const host = (h.get('host') ?? '').toLowerCase();
+  if (host.startsWith('app.')) return 'app';
   return host.startsWith('reporting.') ? 'reporting' : 'studio';
 }
 
