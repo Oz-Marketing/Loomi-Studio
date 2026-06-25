@@ -376,6 +376,16 @@ function sourceTint(s: 'base' | 'added' | 'split'): string {
       : 'rgba(244,114,182,0.22)';
 }
 
+// Display helpers for the budget TYPE (Daily / Lifetime), mirroring the source
+// helpers above. Daily reads yellow, Lifetime violet — centralized so the pill
+// text and tint stay paired everywhere a type tag or type-colored figure renders.
+function budgetTypeColor(t: string): string {
+  return t === 'Lifetime' ? COLORS.lifetime : '#eab308';
+}
+function budgetTypeTint(t: string): string {
+  return t === 'Lifetime' ? 'rgba(167,139,250,0.18)' : 'rgba(234,179,8,0.18)';
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface DirectoryUser {
   id: string;
@@ -568,13 +578,34 @@ function classifyDueDate(ad: PacerAd): DueDateUrgency | null {
   if (DUE_DATE_DONE_STATUSES.has(ad.adStatus)) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const due = new Date(ad.dueDate + 'T00:00:00');
-  const diff = Math.ceil((due.getTime() - today.getTime()) / 86400000);
-  if (diff < 0)
-    return { label: `Overdue ${Math.abs(diff)}d`, level: 'overdue' };
-  if (diff === 0) return { label: 'Due today', level: 'today' };
-  if (diff <= 2) return { label: `Due in ${diff}d`, level: 'soon' };
-  if (diff <= 7) return { label: `Due in ${diff}d`, level: 'upcoming' };
+  const dayMs = 86400000;
+  const dueDiff = Math.ceil(
+    (new Date(ad.dueDate + 'T00:00:00').getTime() - today.getTime()) / dayMs,
+  );
+  // The flight start is the real deadline — the ad should be live by then. The
+  // auto due date (≈2 business days earlier) is only a soft target, so slipping
+  // past it isn't "late": you're late only once the flight has started and the
+  // ad still isn't live. This stops the false "you're late" during the lead-time
+  // window when you're really just finishing the task within it.
+  if (ad.flightStart) {
+    const flightDiff = Math.ceil(
+      (new Date(ad.flightStart + 'T00:00:00').getTime() - today.getTime()) /
+        dayMs,
+    );
+    if (flightDiff < 0)
+      return { label: `Late ${Math.abs(flightDiff)}d`, level: 'overdue' };
+    if (dueDiff < 0) return { label: 'Due now', level: 'soon' };
+    if (dueDiff === 0) return { label: 'Due today', level: 'today' };
+    if (dueDiff <= 2) return { label: `Due in ${dueDiff}d`, level: 'soon' };
+    if (dueDiff <= 7) return { label: `Due in ${dueDiff}d`, level: 'upcoming' };
+    return null;
+  }
+  // No flight start → the due date is the only signal; keep the firm behavior.
+  if (dueDiff < 0)
+    return { label: `Overdue ${Math.abs(dueDiff)}d`, level: 'overdue' };
+  if (dueDiff === 0) return { label: 'Due today', level: 'today' };
+  if (dueDiff <= 2) return { label: `Due in ${dueDiff}d`, level: 'soon' };
+  if (dueDiff <= 7) return { label: `Due in ${dueDiff}d`, level: 'upcoming' };
   return null;
 }
 const DUE_DATE_CHIP_STYLES: Record<DueDateUrgency['level'], { bg: string; color: string }> = {
@@ -1481,8 +1512,8 @@ function BudgetTypeToggle({
     <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--input)] overflow-hidden">
       {(['Daily', 'Lifetime'] as const).map((t) => {
         const active = value === t;
-        const tint = t === 'Daily' ? 'rgba(56,189,248,0.18)' : 'rgba(167,139,250,0.18)';
-        const fg = t === 'Daily' ? COLORS.daily : COLORS.lifetime;
+        const tint = budgetTypeTint(t);
+        const fg = budgetTypeColor(t);
         return (
           <button
             key={t}
@@ -1925,11 +1956,7 @@ function MetaAdsPacerFilterSidebar({
               {(['all', 'Daily', 'Lifetime'] as const).map((t) => {
                 const isActive = filters.adType === t;
                 const accent =
-                  t === 'Daily'
-                    ? COLORS.daily
-                    : t === 'Lifetime'
-                      ? COLORS.lifetime
-                      : 'var(--primary)';
+                  t === 'all' ? 'var(--primary)' : budgetTypeColor(t);
                 return (
                   <button
                     key={t}
@@ -2380,10 +2407,8 @@ function AdSummaryRow({
           <span
             className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
             style={{
-              background: isLifetime
-                ? 'rgba(167,139,250,0.18)'
-                : 'rgba(56,189,248,0.18)',
-              color: isLifetime ? COLORS.lifetime : COLORS.daily,
+              background: budgetTypeTint(ad.budgetType),
+              color: budgetTypeColor(ad.budgetType),
             }}
           >
             {ad.budgetType}
@@ -2980,8 +3005,13 @@ function PlanAdForm({
                   onUpdate({
                     ...ad,
                     adStatus: newStatus,
+                    // Stamp the Task Completed date when the ad is scheduled —
+                    // that's when the build/setup task is done. Still fires on
+                    // Live too (an ad that skips straight to Live), and only
+                    // when not already set so a manual date is never overwritten.
                     dateCompleted:
-                      newStatus === 'Live' && !ad.dateCompleted
+                      (newStatus === 'Scheduled' || newStatus === 'Live') &&
+                      !ad.dateCompleted
                         ? today
                         : ad.dateCompleted,
                   });
@@ -3012,7 +3042,7 @@ function PlanAdForm({
                   )}
               </div>
             </Field>
-            <Field label="Date Completed">
+            <Field label="Task Completed">
               <div className="relative">
                 <DatePicker
                   value={ad.dateCompleted}
@@ -3020,14 +3050,15 @@ function PlanAdForm({
                   placeholder="Pick a date"
                   presets={[TODAY_PRESET]}
                 />
-                {ad.dateCompleted && ad.adStatus === 'Live' && (
-                  <span
-                    className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider"
-                    style={{ color: COLORS.success }}
-                  >
-                    ● Auto-filled when set Live
-                  </span>
-                )}
+                {ad.dateCompleted &&
+                  (ad.adStatus === 'Scheduled' || ad.adStatus === 'Live') && (
+                    <span
+                      className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider"
+                      style={{ color: COLORS.success }}
+                    >
+                      ● Auto-filled when scheduled
+                    </span>
+                  )}
               </div>
             </Field>
           </div>
@@ -6477,10 +6508,8 @@ function BudgetLogMiniTable({ rows }: { rows: AdSnapshot[] }) {
                   <span
                     className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded"
                     style={{
-                      background: isLifetime
-                        ? 'rgba(167,139,250,0.18)'
-                        : 'rgba(56,189,248,0.18)',
-                      color: isLifetime ? COLORS.lifetime : COLORS.daily,
+                      background: budgetTypeTint(r.budgetType),
+                      color: budgetTypeColor(r.budgetType),
                     }}
                   >
                     {r.budgetType}
@@ -6488,7 +6517,7 @@ function BudgetLogMiniTable({ rows }: { rows: AdSnapshot[] }) {
                 </td>
                 <td
                   className="px-1.5 py-1.5 tabular-nums whitespace-nowrap"
-                  style={{ color: isLifetime ? COLORS.lifetime : COLORS.daily }}
+                  style={{ color: budgetTypeColor(r.budgetType) }}
                 >
                   {fmt(r.budget)}
                   <span className="ml-0.5 text-[8px] text-[var(--muted-foreground)]">
@@ -7620,7 +7649,7 @@ function PacerRow({
   siblings: Record<string, { allocation: number; actual: number }> | null;
 }) {
   const isLifetime = ad.budgetType === 'Lifetime';
-  const typeColor = isLifetime ? COLORS.lifetime : COLORS.daily;
+  const typeColor = budgetTypeColor(ad.budgetType);
   // Once a row is linked to Meta and has synced, Meta owns its actual spend
   // (read-only here) and its daily budget is edited-then-pushed, not free-typed.
   const syncedFromMeta = !!ad.metaObjectId && !!ad.pacerSyncedAt;
@@ -7946,9 +7975,7 @@ function PacerRow({
               <span
                 className="font-bold uppercase tracking-wider px-2 py-0.5 rounded"
                 style={{
-                  background: isLifetime
-                    ? 'rgba(167,139,250,0.18)'
-                    : 'rgba(56,189,248,0.18)',
+                  background: budgetTypeTint(ad.budgetType),
                   color: typeColor,
                 }}
               >
@@ -9281,10 +9308,8 @@ function SummaryPanel({ plan }: { plan: PacerPlan }) {
                   <span
                     className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
                     style={{
-                      background: c.isLifetime
-                        ? 'rgba(167,139,250,0.18)'
-                        : 'rgba(56,189,248,0.18)',
-                      color: c.isLifetime ? COLORS.lifetime : COLORS.daily,
+                      background: budgetTypeTint(c.ad.budgetType),
+                      color: budgetTypeColor(c.ad.budgetType),
                     }}
                   >
                     {c.ad.budgetType}
@@ -9311,7 +9336,7 @@ function SummaryPanel({ plan }: { plan: PacerPlan }) {
                 </td>
                 <td
                   className="px-2.5 py-2.5"
-                  style={{ color: c.isLifetime ? COLORS.lifetime : COLORS.daily }}
+                  style={{ color: budgetTypeColor(c.ad.budgetType) }}
                 >
                   {fmt(c.totalBudget)}
                   <span className="ml-1 text-[9px] text-[var(--muted-foreground)]">
