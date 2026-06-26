@@ -362,6 +362,22 @@ export async function getPeriodPlanView(
   // ad's card can show its real per-month split. Computed once here so both the
   // live and frozen views carry it.
   const siblingsByName = await getSiblingAllocations(plan.id);
+  // §0.1: markup is a LIVE factor, never part of the frozen historical record.
+  // Resolve it here (Account.markup override, else the agency default) and
+  // override whatever a snapshot baked in — months frozen before markup config
+  // existed (or before this account's markup was set) carry markup=0/undefined,
+  // which would surface every derived target as $0 / $∞ and make the carryover
+  // banner treat the WHOLE spend as the over/under. Re-resolving live keeps the
+  // frozen planner view + the carryover prompt in lockstep with Reconciliation,
+  // which already re-resolves markup the same way.
+  const [account, globalDefaultMarkup] = await Promise.all([
+    prisma.account.findUnique({
+      where: { key: accountKey },
+      select: { markup: true },
+    }),
+    getGlobalDefaultMarkup(),
+  ]);
+  const liveMarkup = accountMarginSetting(account?.markup ?? null, globalDefaultMarkup);
 
   const view = await (async () => {
   if (state === 'closed') {
@@ -428,7 +444,7 @@ export async function getPeriodPlanView(
   };
   })();
 
-  return { ...view, siblingsByName };
+  return { ...view, markup: liveMarkup, siblingsByName };
 }
 
 // ─── Carryover (Change 7) ──────────────────────────────────────────────────
