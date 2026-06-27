@@ -2,7 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowLeftIcon,
+  BuildingStorefrontIcon,
+  UsersIcon,
+  PaintBrushIcon,
+  GlobeAltIcon,
+  PuzzlePieceIcon,
+  TagIcon,
+  SwatchIcon,
+} from '@heroicons/react/24/outline';
 import { SidebarTooltip } from '@/components/sidebar-collapsed-ui';
 import { useSettingsTabs } from '@/components/settings/use-settings-tabs';
 
@@ -11,10 +20,28 @@ export function isSettingsPath(pathname: string): boolean {
   return pathname === '/settings' || /\/settings(\/|$)/.test(pathname);
 }
 
+/** Sub-account settings sections — mirrors SETTINGS_TABS in subaccount-detail.tsx
+ *  (Company → Users → Branding → …). Used when the path is /subaccount/<slug>/settings. */
+const SUBACCOUNT_SETTINGS_SECTIONS: {
+  key: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { key: 'company', label: 'Company', icon: BuildingStorefrontIcon },
+  { key: 'users', label: 'Users', icon: UsersIcon },
+  { key: 'branding', label: 'Branding', icon: PaintBrushIcon },
+  { key: 'domains', label: 'Domains', icon: GlobeAltIcon },
+  { key: 'integrations', label: 'Integrations', icon: PuzzlePieceIcon },
+  { key: 'contact-fields', label: 'Custom Fields', icon: TagIcon },
+  { key: 'appearance', label: 'Appearance', icon: SwatchIcon },
+];
+
 /**
- * Settings-mode sidebar nav: a "Back to {surface}" button + the settings tabs
- * as links. Replaces the normal nav while on a /settings route, so the settings
- * tabs ARE the main nav and the content spans full width.
+ * Settings-mode sidebar nav: a "Back to {surface}" button + the settings links.
+ * Replaces the normal nav while on a /settings route, so the settings nav IS the
+ * main nav and the content spans full width. On a sub-account settings path it
+ * shows that sub-account's sections (Company/Users/Branding/…); otherwise the
+ * top-level settings tabs.
  */
 export function SettingsNav({
   backHref,
@@ -26,13 +53,23 @@ export function SettingsNav({
   collapsed?: boolean;
 }) {
   const pathname = usePathname();
-  const tabs = useSettingsTabs();
+  const genericTabs = useSettingsTabs();
 
-  // Settings base path (handles admin `/settings` + sub-account `/…/settings`),
-  // so tab links + active state work on either.
-  const idx = pathname.indexOf('/settings');
-  const base = idx >= 0 ? pathname.slice(0, idx + '/settings'.length) : '/settings';
-  const activeKey = pathname.slice(base.length).split('/').filter(Boolean)[0];
+  // Sub-account settings (`/subaccount/<slug>/settings/<section>`) → that
+  // sub-account's sections; the inner page rail is dropped in this mode.
+  const sub = pathname.match(/^\/subaccount\/([^/]+)\/settings/);
+  const items = sub
+    ? SUBACCOUNT_SETTINGS_SECTIONS.map((s) => ({ key: s.key, label: s.label, icon: s.icon, href: `/subaccount/${sub[1]}/settings/${s.key}` }))
+    : genericTabs.map((t) => {
+        const idx = pathname.indexOf('/settings');
+        const base = idx >= 0 ? pathname.slice(0, idx + '/settings'.length) : '/settings';
+        return { key: t.key, label: t.label, icon: t.icon, href: `${base}/${t.key}` };
+      });
+
+  // Active key = the path segment right after `/settings`.
+  const settingsIdx = pathname.indexOf('/settings');
+  const after = settingsIdx >= 0 ? pathname.slice(settingsIdx + '/settings'.length) : '';
+  const activeKey = after.split('/').filter(Boolean)[0];
 
   const backBtn = (
     <Link
@@ -52,12 +89,12 @@ export function SettingsNav({
           Settings
         </p>
       )}
-      {tabs.map((t) => {
+      {items.map((t) => {
         const active = activeKey === t.key;
         const link = (
           <Link
             key={t.key}
-            href={`${base}/${t.key}`}
+            href={t.href}
             className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} rounded-xl py-2 text-sm font-normal transition-all duration-200 ${
               active
                 ? 'bg-[var(--primary)]/10 text-[var(--primary)] font-medium'

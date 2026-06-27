@@ -98,13 +98,15 @@ const TABS: TabDef[] = [
 // messaging-scoped settings page at /subaccount/<slug>/messaging/settings
 // since they're tightly coupled to the email engine. Legacy URLs are
 // redirected from the [tab] page below.
+// Order: Company → Users → Branding → rest. Shared with the sidebar settings
+// nav (see SUBACCOUNT_SETTINGS_SECTIONS in settings-nav).
 const SETTINGS_TABS: TabDef[] = [
   { key: 'company', label: 'Company', icon: BuildingStorefrontIcon },
+  { key: 'users', label: 'Users', icon: UsersIcon },
   { key: 'branding', label: 'Branding', icon: PaintBrushIcon },
   { key: 'domains', label: 'Domains', icon: GlobeAltIcon },
   { key: 'integrations', label: 'Integrations', icon: PuzzlePieceIcon },
   { key: 'contact-fields', label: 'Custom Fields', icon: TagIcon },
-  { key: 'users', label: 'Users', icon: UsersIcon },
   { key: 'appearance', label: 'Appearance', icon: SwatchIcon },
 ];
 
@@ -760,9 +762,13 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
           </div>
         )}
 
-        {/* ── Sidebar nav + content wrapper ── */}
-        <div className="flex gap-6">
-        {/* Vertical nav */}
+        {/* ── Sidebar nav + content wrapper ──
+            In settings mode the section nav lives in the app sidebar
+            (SettingsNav), so we drop the inner rail and go full-width. The
+            admin drill-in (non-settings) keeps its own rail. */}
+        <div className={settingsMode ? '' : 'flex gap-6'}>
+        {/* Vertical nav (admin drill-in only) */}
+        {!settingsMode && (
         <nav className="flex flex-col gap-1 w-48 shrink-0 sticky top-4 self-start">
           {visibleTabs.map(tab => (
             <button
@@ -781,6 +787,7 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
             </button>
           ))}
         </nav>
+        )}
 
         {/* Tab content */}
         <div className="flex-1 min-w-0">
