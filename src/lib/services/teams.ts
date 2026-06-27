@@ -70,7 +70,7 @@ export async function listTeamsWithMembers() {
         include: { user: { select: MEMBER_USER_SELECT } },
         orderBy: { createdAt: 'asc' },
       },
-      _count: { select: { tasks: true } },
+      _count: { select: { tasks: { where: { archivedAt: null, status: { notIn: ['done', 'canceled'] } } } } },
     },
   });
 }
@@ -117,7 +117,7 @@ export async function getTeamWithMembers(id: string) {
         include: { user: { select: MEMBER_USER_SELECT } },
         orderBy: { createdAt: 'asc' },
       },
-      _count: { select: { tasks: true } },
+      _count: { select: { tasks: { where: { archivedAt: null, status: { notIn: ['done', 'canceled'] } } } } },
     },
   });
   return t ? serializeTeam(t) : null;

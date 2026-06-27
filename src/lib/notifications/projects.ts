@@ -55,6 +55,46 @@ export async function notifyTicketFiled(args: {
   }
 }
 
+export async function notifyTaskDueSoon(args: {
+  userId: string;
+  taskId: string;
+  taskTitle: string;
+  accountDealer: string | null;
+}) {
+  // Digest channel — no immediate email; the daily scan bundles these into one
+  // digest email (see scanTaskDueDates). Returns null if the user disabled it.
+  return createNotification({
+    userId: args.userId,
+    type: 'task_due_soon',
+    severity: 'warning',
+    title: `Due soon: "${args.taskTitle}"`,
+    body: args.accountDealer
+      ? `${args.accountDealer} · due in the next couple of days.`
+      : 'Due in the next couple of days.',
+    link: taskLink(args.taskId),
+    meta: { taskId: args.taskId },
+  });
+}
+
+export async function notifyTaskOverdue(args: {
+  userId: string;
+  taskId: string;
+  taskTitle: string;
+  accountDealer: string | null;
+}) {
+  return createNotification({
+    userId: args.userId,
+    type: 'task_overdue',
+    severity: 'critical',
+    title: `Overdue: "${args.taskTitle}"`,
+    body: args.accountDealer
+      ? `${args.accountDealer} · past its due date and not done.`
+      : 'Past its due date and not done.',
+    link: taskLink(args.taskId),
+    meta: { taskId: args.taskId },
+  });
+}
+
 export async function notifyTaskComment(args: {
   recipientUserId: string;
   byUserId: string | null;

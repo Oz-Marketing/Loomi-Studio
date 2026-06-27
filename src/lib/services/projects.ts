@@ -6,8 +6,14 @@ import {
   notifyTaskAssigned,
   notifyTicketFiled,
   notifyTaskComment,
+  notifyTaskDueSoon,
+  notifyTaskOverdue,
 } from '@/lib/notifications/projects';
 import { isCreativeKind } from '@/lib/projects/ui';
+import {
+  sendDigestNotificationEmail,
+  type NotificationEmailItem,
+} from '@/lib/notifications/email';
 
 /**
  * Projects service — initiatives (per-account bodies of work), tasks (the
@@ -81,8 +87,10 @@ export function serializeTask(t: TaskRow) {
     priority: t.priority,
     assignee: t.assignee ?? null,
     requester: t.requester ?? null,
-    startDate: t.startDate ? t.startDate.toISOString() : null,
-    dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+    // Date-only fields — slice to YYYY-MM-DD so the UI parses them as LOCAL
+    // dates (full ISO is UTC-midnight → renders a day early west of UTC).
+    startDate: t.startDate ? t.startDate.toISOString().slice(0, 10) : null,
+    dueDate: t.dueDate ? t.dueDate.toISOString().slice(0, 10) : null,
     position: t.position,
     completedAt: t.completedAt ? t.completedAt.toISOString() : null,
     linkedAssetType: t.linkedAssetType,
@@ -139,13 +147,15 @@ export async function listInitiatives(opts: {
     include: {
       account: { select: { dealer: true } },
       owner: { select: { id: true, name: true, avatarUrl: true, email: true } },
-      _count: { select: { tasks: true } },
       tasks: { select: { status: true }, where: { archivedAt: null } },
     },
   });
 
   return rows.map((i) => {
-    const done = i.tasks.filter((t) => t.status === 'done').length;
+    // Progress over ACTIVE tasks only — canceled tasks shouldn't drag the bar
+    // below 100% (a fully-canceled initiative reads as 0/0 → complete).
+    const active = i.tasks.filter((t) => t.status !== 'canceled');
+    const done = active.filter((t) => t.status === 'done').length;
     return {
       id: i.id,
       accountKey: i.accountKey,
@@ -154,9 +164,9 @@ export async function listInitiatives(opts: {
       description: i.description,
       status: i.status,
       priority: i.priority,
-      dueDate: i.dueDate ? i.dueDate.toISOString() : null,
+      dueDate: i.dueDate ? i.dueDate.toISOString().slice(0, 10) : null,
       owner: i.owner ?? null,
-      taskCount: i._count.tasks,
+      taskCount: active.length,
       doneCount: done,
       createdAt: i.createdAt.toISOString(),
     };
@@ -191,7 +201,7 @@ export function serializeInitiative(i: InitiativeRow) {
     description: i.description,
     status: i.status,
     priority: i.priority,
-    dueDate: i.dueDate ? i.dueDate.toISOString() : null,
+    dueDate: i.dueDate ? i.dueDate.toISOString().slice(0, 10) : null,
     ownerUserId: i.ownerUserId,
     details: (i.details as Record<string, unknown> | null) ?? null,
     owner: i.owner ?? null,
@@ -222,16 +232,21 @@ export async function updateInitiative(
   if (patch.priority !== undefined) data.priority = patch.priority;
   if (patch.ownerUserId !== undefined) data.ownerUserId = patch.ownerUserId;
   if (patch.dueDate !== undefined) data.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
-  const row = await prisma.initiative.update({ where: { id }, data, include: INITIATIVE_INCLUDE });
 
-  // Canceling an initiative cancels every task under it (terminal state). Skip
-  // tasks already canceled/done so we don't churn them.
-  if (patch.status === 'canceled') {
-    await prisma.task.updateMany({
-      where: { initiativeId: id, status: { notIn: ['canceled'] } },
-      data: { status: 'canceled', completedAt: null },
-    });
-  }
+  // Canceling cancels every still-open task under it. Done tasks are left alone
+  // (don't demote finished work / wipe completedAt). Atomic with the initiative
+  // update so a crash can't leave the two out of sync.
+  const row =
+    patch.status === 'canceled'
+      ? await prisma.$transaction(async (tx) => {
+          const updated = await tx.initiative.update({ where: { id }, data, include: INITIATIVE_INCLUDE });
+          await tx.task.updateMany({
+            where: { initiativeId: id, status: { notIn: ['canceled', 'done'] } },
+            data: { status: 'canceled' },
+          });
+          return updated;
+        })
+      : await prisma.initiative.update({ where: { id }, data, include: INITIATIVE_INCLUDE });
 
   return serializeInitiative(row);
 }
@@ -520,7 +535,7 @@ export async function reconcileLinkedTaskStatuses(): Promise<{ advanced: number 
       archivedAt: null,
       linkedAssetType: 'campaign',
       linkedAssetId: { not: null },
-      status: { notIn: ['done', 'blocked'] },
+      status: { notIn: ['done', 'blocked', 'canceled'] },
     },
     select: { id: true, status: true, linkedAssetId: true },
   });
@@ -556,6 +571,106 @@ export async function reconcileLinkedTaskStatuses(): Promise<{ advanced: number 
   return { advanced };
 }
 
+/**
+ * Daily scan that fires due-soon (≤2 days) and overdue notifications for open
+ * tasks. De-duped via `Task.details._notify` keyed by the due date, so a task is
+ * pinged once per threshold per due date (and re-pings if the due date changes).
+ * Recipient = the assignee, or the routing team if unassigned. Piggybacks the
+ * internal daily scan route — no separate cron.
+ */
+export async function scanTaskDueDates(): Promise<{ dueSoon: number; overdue: number }> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const soonCutoff = new Date(today);
+  soonCutoff.setDate(soonCutoff.getDate() + 2);
+
+  const tasks = await prisma.task.findMany({
+    where: { dueDate: { not: null }, status: { notIn: ['done', 'canceled'] }, archivedAt: null },
+    include: { account: { select: { dealer: true } } },
+  });
+
+  // Collected per recipient → one Projects digest email at the end (only for
+  // users who have the type enabled; createNotification returns null otherwise).
+  const digestByUser = new Map<string, NotificationEmailItem[]>();
+
+  let dueSoon = 0;
+  let overdue = 0;
+  for (const t of tasks) {
+    if (!t.dueDate) continue;
+    const due = new Date(t.dueDate);
+    due.setHours(0, 0, 0, 0);
+    const dueIso = due.toISOString().slice(0, 10);
+
+    let kind: 'overdue' | 'dueSoon' | null = null;
+    if (due < today) kind = 'overdue';
+    else if (due <= soonCutoff) kind = 'dueSoon';
+    if (!kind) continue;
+
+    const details = (t.details as Record<string, unknown> | null) ?? {};
+    const notify = (details._notify as { dueSoon?: string; overdue?: string } | undefined) ?? {};
+    if (notify[kind] === dueIso) continue; // already pinged for this due date
+
+    const recipients = new Set<string>();
+    if (t.assigneeUserId) recipients.add(t.assigneeUserId);
+    else if (t.teamKey) {
+      const targets = await getTeamNotifyTargets(t.teamKey);
+      targets?.userIds.forEach((u) => recipients.add(u));
+    }
+    if (recipients.size === 0) continue; // nobody to notify yet — re-evaluate next run
+
+    const accountDealer = t.account?.dealer ?? null;
+    let anyCreated = false;
+    for (const userId of recipients) {
+      const created =
+        kind === 'overdue'
+          ? await notifyTaskOverdue({ userId, taskId: t.id, taskTitle: t.title, accountDealer })
+          : await notifyTaskDueSoon({ userId, taskId: t.id, taskTitle: t.title, accountDealer });
+      // Non-null = the user has this type enabled → include in their digest email.
+      if (created) {
+        anyCreated = true;
+        const arr = digestByUser.get(userId) ?? [];
+        arr.push({
+          title: created.title,
+          body: created.body,
+          link: created.link,
+          severity: created.severity as NotificationEmailItem['severity'],
+        });
+        digestByUser.set(userId, arr);
+      }
+    }
+    // Only mark as notified when someone was actually pinged — so a task whose
+    // only recipient had it disabled re-pings if they later enable it.
+    if (!anyCreated) continue;
+    await prisma.task.update({
+      where: { id: t.id },
+      data: { details: { ...details, _notify: { ...notify, [kind]: dueIso } } as Prisma.InputJsonValue },
+    });
+    if (kind === 'overdue') overdue += 1;
+    else dueSoon += 1;
+  }
+
+  // One Projects digest email per recipient (bundles all of today's due/overdue
+  // items). Respects prefs implicitly — only enabled notifications were collected.
+  if (digestByUser.size > 0) {
+    const recipients = await prisma.user.findMany({
+      where: { id: { in: [...digestByUser.keys()] } },
+      select: { id: true, email: true, name: true },
+    });
+    const byId = new Map(recipients.map((u) => [u.id, u]));
+    for (const [userId, items] of digestByUser) {
+      const user = byId.get(userId);
+      if (!user?.email) continue;
+      try {
+        await sendDigestNotificationEmail({ to: user.email, recipientName: user.name, items });
+      } catch (err) {
+        console.error('[projects] due-date digest send failed', err);
+      }
+    }
+  }
+
+  return { dueSoon, overdue };
+}
+
 /** Back-link a generated Loomi asset to a task (Phase 2 "Build it"). */
 export async function linkTaskAsset(
   taskId: string,
@@ -586,7 +701,17 @@ export async function addComment(input: {
   mentions?: string[];
   authorUserId: string | null;
 }) {
-  const mentions = [...new Set(input.mentions ?? [])];
+  // Only keep mentions that map to real users — drops bogus/duplicate ids so we
+  // never notify (or store) garbage from a hand-crafted request.
+  const requested = [...new Set(input.mentions ?? [])].filter((id) => typeof id === 'string' && id);
+  const mentions = requested.length
+    ? (
+        await prisma.user.findMany({
+          where: { id: { in: requested } },
+          select: { id: true },
+        })
+      ).map((u) => u.id)
+    : [];
   const comment = await prisma.taskComment.create({
     data: {
       taskId: input.taskId,
@@ -680,6 +805,13 @@ export async function createTicket(
     where: { key: { in: accountKeys } },
     select: { key: true, dealer: true },
   });
+  // Every requested account must exist — otherwise we'd create tasks against a
+  // dangling accountKey (FK error mid-loop / partial creation).
+  if (accounts.length !== new Set(accountKeys).size) {
+    const found = new Set(accounts.map((a) => a.key));
+    const missing = accountKeys.filter((k) => !found.has(k));
+    throw new Error(`Unknown account(s): ${missing.join(', ')}`);
+  }
   // `dealer` is the Account's display-name column (industry-agnostic — it's
   // just the account name, not automotive-specific).
   const accountNameByKey = new Map(accounts.map((a) => [a.key, a.dealer]));

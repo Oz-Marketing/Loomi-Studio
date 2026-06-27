@@ -22,7 +22,9 @@ export default async function InitiativeDetailPage({
 
   const tasks = await listTasks({ scope, initiativeId: id });
   const byStatus = STATUSES.map((s) => ({ ...s, tasks: tasks.filter((t) => t.status === s.key) }));
-  const done = tasks.filter((t) => t.status === 'done').length;
+  // Progress over active tasks only — canceled tasks shouldn't drag the bar down.
+  const active = tasks.filter((t) => t.status !== 'canceled');
+  const done = active.filter((t) => t.status === 'done').length;
   const dto = serializeInitiative(initiative);
 
   return (
@@ -47,7 +49,7 @@ export default async function InitiativeDetailPage({
       <div className="mt-4">
         <InitiativeHeader
           initiative={dto}
-          taskCount={tasks.length}
+          taskCount={active.length}
           doneCount={done}
         />
       </div>

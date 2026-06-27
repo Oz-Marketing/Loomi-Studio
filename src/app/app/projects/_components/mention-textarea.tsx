@@ -10,17 +10,19 @@ export type MentionUser = {
   avatarUrl: string | null;
 };
 
-/** Collect the ids of users @-mentioned in `text` (matches `@Full Name`). */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Collect the ids of users @-mentioned in `text`. Requires a trailing word
+ *  boundary so "@Jon" doesn't match inside "@Jonathan". */
 export function extractMentions(text: string, users: MentionUser[]): string[] {
   const ids = new Set<string>();
   for (const u of users) {
-    if (u.name && text.includes(`@${u.name}`)) ids.add(u.id);
+    if (!u.name) continue;
+    if (new RegExp(`@${escapeRegExp(u.name)}(?!\\w)`).test(text)) ids.add(u.id);
   }
   return [...ids];
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Render comment body with @mentions shown as inline avatar+name chips. */
@@ -28,7 +30,10 @@ export function MentionText({ text, users }: { text: string; users: MentionUser[
   const named = users.filter((u) => u.name);
   if (named.length === 0) return text;
   const byName = new Map(named.map((u) => [u.name, u]));
-  const re = new RegExp(`@(${named.map((u) => escapeRegExp(u.name)).join('|')})`, 'g');
+  // Longest names first so "@Jonathan" isn't matched as "@Jon" + "athan";
+  // trailing (?!\w) prevents matching a name inside a longer word.
+  const ordered = [...named].sort((a, b) => b.name.length - a.name.length);
+  const re = new RegExp(`@(${ordered.map((u) => escapeRegExp(u.name)).join('|')})(?!\\w)`, 'g');
   const out: ReactNode[] = [];
   let last = 0;
   let m: RegExpExecArray | null;

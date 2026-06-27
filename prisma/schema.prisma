@@ -2243,6 +2243,8 @@ model Task {
   @@index([teamKey, status])
   @@index([assigneeUserId, status])
   @@index([dueDate])
+  // Supports the daily due-soon/overdue scan (status + dueDate filter).
+  @@index([status, dueDate])
   @@index([archivedAt])
 }
 

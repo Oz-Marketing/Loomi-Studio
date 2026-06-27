@@ -46,6 +46,7 @@ export function TaskDetail({ initial }: { initial: Thread }) {
   const [activity] = useState(initial.activity);
   const [subtasks, setSubtasks] = useState(initial.subtasks);
   const [newSubtask, setNewSubtask] = useState('');
+  const [addingSubtask, setAddingSubtask] = useState(false);
   const [draft, setDraft] = useState('');
   const [posting, setPosting] = useState(false);
   const [linkedCampaign] = useState(initial.linkedCampaign);
@@ -83,7 +84,8 @@ export function TaskDetail({ initial }: { initial: Thread }) {
 
   async function addSubtask() {
     const title = newSubtask.trim();
-    if (!title) return;
+    if (!title || addingSubtask) return; // guard: no duplicate creates on rapid Enter
+    setAddingSubtask(true);
     try {
       const res = await fetch('/api/projects/tasks', {
         method: 'POST',
@@ -102,6 +104,8 @@ export function TaskDetail({ initial }: { initial: Thread }) {
       setNewSubtask('');
     } catch {
       toast.error('Could not add subtask');
+    } finally {
+      setAddingSubtask(false);
     }
   }
 
@@ -326,7 +330,7 @@ export function TaskDetail({ initial }: { initial: Thread }) {
               <button
                 type="button"
                 onClick={addSubtask}
-                disabled={!newSubtask.trim()}
+                disabled={!newSubtask.trim() || addingSubtask}
                 className="flex-shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--muted)] disabled:opacity-50"
               >
                 Add

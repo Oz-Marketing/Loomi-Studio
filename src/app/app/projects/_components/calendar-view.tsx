@@ -56,7 +56,9 @@ export function CalendarView() {
     for (const t of tasks) {
       if (!t.dueDate) continue;
       if (!matchesFilters(t, { assigneeUserId, priority })) continue;
-      const key = ymd(new Date(t.dueDate));
+      // dueDate is already a local 'YYYY-MM-DD' — bucket by it directly; routing
+      // through new Date() parses it as UTC and shifts a day west of UTC.
+      const key = t.dueDate.slice(0, 10);
       (map[key] ??= []).push(t);
     }
     return map;

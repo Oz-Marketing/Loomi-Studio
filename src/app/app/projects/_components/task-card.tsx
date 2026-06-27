@@ -14,7 +14,7 @@ import {
 /** Presentational task card — parents own click/drag behavior. */
 export function TaskCard({ task, showAccount = true }: { task: TaskDTO; showAccount?: boolean }) {
   const pr = PRIORITY_META[task.priority as PriorityKey] ?? PRIORITY_META.medium;
-  const isDone = task.status === 'done';
+  const isDone = task.status === 'done' || task.status === 'canceled';
   const due = dueState(task.dueDate, isDone);
 
   return (

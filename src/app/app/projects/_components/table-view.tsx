@@ -102,8 +102,8 @@ export function TableView() {
           <tbody>
             {sorted.map((t) => {
               const pr = PRIORITY_META[t.priority as PriorityKey] ?? PRIORITY_META.medium;
-              const isDone = t.status === 'done';
-              const due = dueState(t.dueDate, isDone);
+              const terminal = t.status === 'done' || t.status === 'canceled';
+              const due = dueState(t.dueDate, terminal);
               return (
                 <tr
                   key={t.id}
