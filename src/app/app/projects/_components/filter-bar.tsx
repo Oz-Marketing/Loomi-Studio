@@ -105,6 +105,7 @@ export function ProjectsFilterBar({
               value={search ?? ''}
               onChange={(e) => onSearch(e.target.value)}
               placeholder="Search tasks…"
+              aria-label="Search tasks"
               className="w-full rounded-xl border border-[var(--border)] bg-[var(--input)] py-2 pl-9 pr-8 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none"
             />
             {search && (
@@ -167,6 +168,8 @@ function FilterPopover({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click / Escape. Ignore clicks inside a MultiSelect's
   // portaled dropdown (it lives on document.body, outside this popover).
@@ -178,13 +181,23 @@ function FilterPopover({
       if (t.closest('[data-builder-popout-portal]')) return;
       setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        triggerRef.current?.focus(); // return focus to the trigger
+      }
+    };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
+  }, [open]);
+
+  // Move focus into the panel when it opens (keyboard users land inside it).
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
   }, [open]);
 
   const activeCount =
@@ -254,6 +267,7 @@ function FilterPopover({
   return (
     <div className="relative" ref={ref}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
@@ -274,7 +288,13 @@ function FilterPopover({
       </button>
 
       {open && (
-        <div className="absolute right-0 z-40 mt-2 w-72 rounded-xl border border-[var(--border)] bg-[var(--card-strong)] p-3 shadow-xl backdrop-blur-2xl backdrop-saturate-150">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-label="Task filters"
+          tabIndex={-1}
+          className="absolute right-0 z-40 mt-2 w-72 rounded-xl border border-[var(--border)] bg-[var(--card-strong)] p-3 shadow-xl outline-none backdrop-blur-2xl backdrop-saturate-150"
+        >
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
               Filters

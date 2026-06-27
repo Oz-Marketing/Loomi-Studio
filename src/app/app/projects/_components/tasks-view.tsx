@@ -120,11 +120,16 @@ export function TasksView() {
 }
 
 function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
-  const item = 'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition';
+  const item =
+    'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]';
   const active = 'bg-[var(--background)] text-[var(--foreground)] shadow-sm';
   const idle = 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]';
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 p-0.5">
+    <div
+      role="group"
+      aria-label="Switch view"
+      className="inline-flex items-center gap-0.5 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 p-0.5"
+    >
       <button
         type="button"
         onClick={() => onChange('board')}

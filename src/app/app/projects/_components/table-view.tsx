@@ -88,7 +88,16 @@ export function TableBody({
               <tr
                 key={t.id}
                 onClick={() => router.push(`/projects/tasks/${t.id}`)}
-                className="cursor-pointer border-b border-[var(--border)] last:border-0 transition hover:bg-[var(--muted)]/40"
+                tabIndex={0}
+                role="button"
+                aria-label={`Open task: ${t.title}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    router.push(`/projects/tasks/${t.id}`);
+                  }
+                }}
+                className="cursor-pointer border-b border-[var(--border)] outline-none transition last:border-0 hover:bg-[var(--muted)]/40 focus-visible:bg-[var(--muted)]/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--primary)]"
               >
                 <td className="max-w-[22rem] px-3 py-2.5">
                   <span className="block truncate font-medium text-[var(--foreground)]">{t.title}</span>

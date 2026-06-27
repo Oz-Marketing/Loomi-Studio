@@ -7,6 +7,7 @@ import type { KeyedMutator } from 'swr';
 import {
   DndContext,
   DragOverlay,
+  KeyboardSensor,
   PointerSensor,
   pointerWithin,
   rectIntersection,
@@ -21,6 +22,7 @@ import {
 import {
   SortableContext,
   arrayMove,
+  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
@@ -78,7 +80,11 @@ export function BoardBody({
   // so the dragged card visibly hops into the hovered column and its cards part
   // to reveal the drop slot — enabling drop-between-cards across columns.
   const [order, setOrder] = useState<Record<string, string[]> | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    // Keyboard drag: focus a card, Space to lift, arrows to move, Space to drop.
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const tasksById = useMemo(() => {
     const m: Record<string, TaskDTO> = {};
@@ -326,7 +332,10 @@ function SortableCard({ task, onOpen }: { task: TaskDTO; onOpen: () => void }) {
       {...listeners}
       {...attributes}
       onClick={onOpen}
-      className={`touch-none cursor-pointer ${isDragging ? 'cursor-grabbing opacity-40' : ''}`}
+      aria-label={`${task.title} — draggable task`}
+      className={`touch-none cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] ${
+        isDragging ? 'cursor-grabbing opacity-40' : ''
+      }`}
     >
       <TaskCard task={task} />
     </div>
