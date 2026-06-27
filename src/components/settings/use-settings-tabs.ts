@@ -12,6 +12,7 @@ import {
   Squares2X2Icon,
   BriefcaseIcon,
   CalculatorIcon,
+  PuzzlePieceIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 
@@ -26,6 +27,7 @@ export type SettingsTabKey =
   | 'alerts'
   | 'contact-fields'
   | 'contact-field-blueprints'
+  | 'integrations'
   | 'notifications'
   | 'appearance';
 
@@ -52,6 +54,7 @@ export function useSettingsTabs(): SettingsTab[] {
   if (isAccount) tabs.push({ key: 'subaccount', label: 'Sub-Account', titleLabel: 'Sub-Account Settings', icon: BuildingStorefrontIcon });
   if (hasAdminAccess) tabs.push({ key: 'users', label: 'Users', titleLabel: 'User Settings', icon: UsersIcon });
   if (hasAdminAccess) tabs.push({ key: 'teams', label: 'Teams', titleLabel: 'Teams', icon: UserGroupIcon });
+  if (hasAdminAccess && isAccount) tabs.push({ key: 'integrations', label: 'Integrations', titleLabel: 'Integrations', icon: PuzzlePieceIcon });
   if (hasAdminAccess && isAccount) tabs.push({ key: 'contact-fields', label: 'Custom Fields', titleLabel: 'Contact Custom Fields', icon: TagIcon });
   if (hasAdminAccess && isAdmin) tabs.push({ key: 'contact-field-blueprints', label: 'Field Blueprints', titleLabel: 'Contact Field Blueprints', icon: Squares2X2Icon });
   if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', titleLabel: 'Knowledge Base Settings', icon: SparklesIcon });

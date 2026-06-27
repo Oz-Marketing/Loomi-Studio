@@ -20,6 +20,7 @@ import { IndustriesTab } from '@/components/settings/industries-tab';
 import { DefaultMarkupTab } from '@/components/settings/default-markup-tab';
 import { AlertRulesTab } from '@/components/settings/alert-rules-tab';
 import { TeamsTab } from '@/components/settings/teams-tab';
+import { ReportingIntegrationCards } from '@/components/reporting-integration-cards';
 import { useSettingsTabs, type SettingsTabKey } from '@/components/settings/use-settings-tabs';
 import { useIndustries } from '@/lib/hooks/use-industries';
 
@@ -80,6 +81,7 @@ export default function SettingsPage() {
 
       {activeTab === 'subaccounts' && <AccountsList listPath="/settings/subaccounts" detailBasePath="/settings/subaccounts" />}
       {activeTab === 'subaccount' && <AccountSettingsTab />}
+      {activeTab === 'integrations' && hasAdminAccess && isAccount && <IntegrationsTab />}
       {activeTab === 'contact-fields' && hasAdminAccess && isAccount && <CustomFieldsTab />}
       {activeTab === 'contact-field-blueprints' && hasAdminAccess && isAdmin && <CustomFieldBlueprintsTab />}
       {activeTab === 'users' && <UsersTab />}
@@ -92,6 +94,17 @@ export default function SettingsPage() {
       {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
+}
+
+// ════════════════════════════════════════
+// Integrations Tab (account-scoped)
+// ════════════════════════════════════════
+function IntegrationsTab() {
+  const { accountKey } = useAccount();
+  if (!accountKey) {
+    return <div className="text-[var(--muted-foreground)]">Select a sub-account to manage its integrations.</div>;
+  }
+  return <ReportingIntegrationCards accountKey={accountKey} />;
 }
 
 // ════════════════════════════════════════
