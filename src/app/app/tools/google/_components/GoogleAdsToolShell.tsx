@@ -5,10 +5,14 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import {
   ArrowPathIcon,
+  ArrowDownTrayIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   PlusIcon,
   TrashIcon,
+  PlusCircleIcon,
+  MinusCircleIcon,
+  PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
@@ -19,6 +23,12 @@ import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { toast } from '@/lib/toast';
 import { buildPacerCalc } from '@/lib/ad-pacer/pacer-calc';
 import type { PacerAd } from '@/lib/ad-pacer/types';
+import {
+  mapChannelGroup,
+  mapGoogleBudgetType,
+  type ImportedGoogleCampaign,
+  type ImportDiff,
+} from '@/lib/ad-pacer/google-pacer-calc';
 
 // ── Reference data ──
 const CHANNELS = ['Search', 'Display', 'Video', 'Shopping', 'PMax'] as const;
@@ -76,6 +86,41 @@ function periodLabel(period: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
+// Google campaign status → the tool's status vocabulary.
+function mapGoogleStatus(status: string): string {
+  switch ((status ?? '').toUpperCase()) {
+    case 'ENABLED':
+      return 'Live';
+    case 'PAUSED':
+      return 'Off';
+    default:
+      return 'In Draft';
+  }
+}
+
+/**
+ * Turn an imported Google campaign into a new planner line. We bring in the
+ * structural fields (name, channel, budget type, daily budget, flight, status)
+ * and the campaign link, but deliberately leave `allocation` empty — observed
+ * platform budget is a suggestion, not the planner's intent (§8). The planner
+ * sets the monthly allocation; Sync later fills actual spend.
+ */
+function campaignToAd(c: ImportedGoogleCampaign): GoogleAd {
+  return {
+    name: c.name,
+    googleChannelType: mapChannelGroup(c.channelType),
+    adStatus: mapGoogleStatus(c.status),
+    budgetType: mapGoogleBudgetType(c.dailyBudget, c.totalBudget),
+    budgetSource: 'base',
+    allocation: null,
+    pacerActual: null,
+    pacerDailyBudget: c.dailyBudget != null ? String(c.dailyBudget) : null,
+    flightStart: c.startDate,
+    flightEnd: c.endDate,
+    googleCampaignId: c.id,
+  };
+}
+
 export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   const { accountKey, accountData } = useAccount();
   const { confirm } = useLoomiDialog();
@@ -83,6 +128,8 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   const [period, setPeriod] = useState(currentPeriod);
   const [editing, setEditing] = useState<GoogleAd | 'new' | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportDiff | null>(null);
 
   const swrKey = accountKey
     ? `/api/meta-ads-pacer/${encodeURIComponent(accountKey)}?period=${period}&platform=google`
@@ -183,6 +230,58 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
     if (ok) persist(ads.filter((a) => a.id !== c.id));
   }
 
+  // §8 — pull all live campaigns and diff against the planned Google lines, then
+  // open the review modal. Read-only until the user confirms in the modal.
+  async function fetchImport() {
+    if (!accountKey) return;
+    setImporting(true);
+    try {
+      const res = await fetch(
+        `/api/google-ads-pacer/${encodeURIComponent(accountKey)}/import?period=${period}`,
+        { method: 'POST' },
+      );
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error || 'Import failed');
+      const diff: ImportDiff | undefined = body?.diff;
+      if (!diff || (diff.adds.length === 0 && diff.removes.length === 0 && diff.changes.length === 0)) {
+        toast.success('Already in sync with Google — nothing to import');
+        return;
+      }
+      setImportPreview(diff);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  // Apply the user's confirmed selections from the import review: add new lines,
+  // drop removed ones, patch changed name/budget — then persist the merged set.
+  function applyImport(sel: { adds: Set<string>; removes: Set<string>; changes: Set<number> }) {
+    if (!importPreview) return;
+    let next = [...ads];
+    importPreview.changes.forEach((ch, i) => {
+      if (!sel.changes.has(i)) return;
+      next = next.map((a) => {
+        if (a.id !== ch.adId) return a;
+        if (ch.field === 'name') return { ...a, name: ch.to };
+        if (ch.field === 'budgetType') return { ...a, budgetType: ch.to };
+        return a;
+      });
+    });
+    const removeIds = new Set(
+      importPreview.removes.filter((r) => sel.removes.has(r.adId)).map((r) => r.adId),
+    );
+    if (removeIds.size) next = next.filter((a) => !a.id || !removeIds.has(a.id));
+    const added = importPreview.adds.filter((c) => sel.adds.has(c.id)).map(campaignToAd);
+    next = [...next, ...added];
+    persist(next);
+    setImportPreview(null);
+    toast.success(
+      `Imported ${added.length} new · ${removeIds.size} removed · ${sel.changes.size} updated`,
+    );
+  }
+
   async function syncFromGoogle() {
     if (!accountKey) return;
     setSyncing(true);
@@ -247,6 +346,17 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
 
         <div className="flex-1" />
 
+        {connected && (
+          <button
+            type="button"
+            onClick={fetchImport}
+            disabled={importing || frozen}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--muted-foreground)] transition hover:text-[var(--foreground)] disabled:opacity-50"
+          >
+            <ArrowDownTrayIcon className={`h-4 w-4 ${importing ? 'animate-pulse' : ''}`} />
+            Import campaigns
+          </button>
+        )}
         {connected && (
           <button
             type="button"
@@ -347,6 +457,14 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
           campaign={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}
           onSave={saveCampaign}
+        />
+      )}
+
+      {importPreview && (
+        <ImportReviewModal
+          diff={importPreview}
+          onClose={() => setImportPreview(null)}
+          onApply={applyImport}
         />
       )}
     </div>
@@ -635,6 +753,155 @@ function CampaignModal({
             className="rounded-lg bg-[var(--primary)] px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
           >
             {campaign ? 'Save' : 'Add campaign'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportReviewModal({
+  diff,
+  onClose,
+  onApply,
+}: {
+  diff: ImportDiff;
+  onClose: () => void;
+  onApply: (sel: { adds: Set<string>; removes: Set<string>; changes: Set<number> }) => void;
+}) {
+  // Adds + changes default ON (safe, non-destructive); removes default OFF
+  // (dropping a planned line is destructive — opt-in only).
+  const [addsSel, setAddsSel] = useState<Set<string>>(() => new Set(diff.adds.map((c) => c.id)));
+  const [changesSel, setChangesSel] = useState<Set<number>>(
+    () => new Set(diff.changes.map((_, i) => i)),
+  );
+  const [removesSel, setRemovesSel] = useState<Set<string>>(() => new Set());
+
+  const toggle = <T,>(set: Set<T>, key: T): Set<T> => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  };
+
+  const selectedCount = addsSel.size + changesSel.size + removesSel.size;
+  const rowCls =
+    'flex items-center gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm';
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-lg font-semibold text-[var(--foreground)]">Import from Google</h2>
+        <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">
+          Review what changed on Google, then apply the selected items to this month&apos;s plan.
+        </p>
+
+        <div className="mt-4 flex-1 space-y-5 overflow-y-auto pr-1">
+          {/* New campaigns */}
+          {diff.adds.length > 0 && (
+            <section>
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-500">
+                <PlusCircleIcon className="h-4 w-4" /> New campaigns ({diff.adds.length})
+              </div>
+              <div className="space-y-1.5">
+                {diff.adds.map((c) => {
+                  const budgetType = mapGoogleBudgetType(c.dailyBudget, c.totalBudget);
+                  const amount = budgetType === 'Lifetime' ? c.totalBudget : c.dailyBudget;
+                  return (
+                    <label key={c.id} className={`${rowCls} cursor-pointer`}>
+                      <input
+                        type="checkbox"
+                        checked={addsSel.has(c.id)}
+                        onChange={() => setAddsSel((s) => toggle(s, c.id))}
+                        className="h-4 w-4 accent-[var(--primary)]"
+                      />
+                      <span className="flex-1 truncate font-medium text-[var(--foreground)]">
+                        {c.name || 'Untitled campaign'}
+                      </span>
+                      <span className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">
+                        {mapChannelGroup(c.channelType)}
+                      </span>
+                      <span className="text-xs text-[var(--muted-foreground)]">
+                        {amount != null ? money(amount) : '—'}{' '}
+                        {budgetType === 'Lifetime' ? 'total' : '/day'}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Changed campaigns */}
+          {diff.changes.length > 0 && (
+            <section>
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-500">
+                <PencilSquareIcon className="h-4 w-4" /> Changed ({diff.changes.length})
+              </div>
+              <div className="space-y-1.5">
+                {diff.changes.map((ch, i) => (
+                  <label key={`${ch.adId}-${ch.field}`} className={`${rowCls} cursor-pointer`}>
+                    <input
+                      type="checkbox"
+                      checked={changesSel.has(i)}
+                      onChange={() => setChangesSel((s) => toggle(s, i))}
+                      className="h-4 w-4 accent-[var(--primary)]"
+                    />
+                    <span className="flex-1 text-[var(--foreground)]">
+                      <span className="text-xs uppercase text-[var(--muted-foreground)]">{ch.field}:</span>{' '}
+                      <span className="text-[var(--muted-foreground)] line-through">{ch.from || '—'}</span>{' '}
+                      → <span className="font-medium">{ch.to || '—'}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Removed campaigns */}
+          {diff.removes.length > 0 && (
+            <section>
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-red-500">
+                <MinusCircleIcon className="h-4 w-4" /> Gone on Google ({diff.removes.length})
+              </div>
+              <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+                These planned lines no longer match a live Google campaign. Check to remove them.
+              </p>
+              <div className="space-y-1.5">
+                {diff.removes.map((r) => (
+                  <label key={r.adId} className={`${rowCls} cursor-pointer`}>
+                    <input
+                      type="checkbox"
+                      checked={removesSel.has(r.adId)}
+                      onChange={() => setRemovesSel((s) => toggle(s, r.adId))}
+                      className="h-4 w-4 accent-red-500"
+                    />
+                    <span className="flex-1 truncate text-[var(--foreground)]">{r.name || 'Untitled'}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-3.5 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={selectedCount === 0}
+            onClick={() => onApply({ adds: addsSel, removes: removesSel, changes: changesSel })}
+            className="rounded-lg bg-[var(--primary)] px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            Apply {selectedCount > 0 ? `(${selectedCount})` : ''}
           </button>
         </div>
       </div>

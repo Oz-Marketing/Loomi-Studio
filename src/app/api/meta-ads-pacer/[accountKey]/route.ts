@@ -67,6 +67,10 @@ interface IncomingAd {
   platform?: string | null;
   // Google line: the channel-type rollup tag (Search/Display/Video/Shopping/PMax).
   googleChannelType?: string | null;
+  // Google campaign link — set once on create (from §8 import). Like the
+  // sync-managed Google fields, it's preserved on update so autosave can't
+  // clobber the link a sync depends on.
+  googleCampaignId?: string | null;
 }
 
 interface IncomingPeriodPayload {
@@ -280,15 +284,18 @@ export async function PUT(
       // platform is set once on create (Google tool sends 'google'; Meta/legacy
       // = null) and preserved on update so a save never re-tags an existing row.
       const createPlatform = ad.platform === 'google' ? 'google' : null;
+      // googleCampaignId is create-only (like platform) — preserved on update so
+      // autosave never wipes the link a Google sync matches on.
+      const createGoogleCampaignId = nullable(ad.googleCampaignId);
       if (ad.id) {
         await tx.metaAdsPacerAd.upsert({
           where: { id: ad.id },
-          create: { id: ad.id, planId: plan.id, platform: createPlatform, ...data },
+          create: { id: ad.id, planId: plan.id, platform: createPlatform, googleCampaignId: createGoogleCampaignId, ...data },
           update: data,
         });
       } else {
         await tx.metaAdsPacerAd.create({
-          data: { planId: plan.id, platform: createPlatform, ...data },
+          data: { planId: plan.id, platform: createPlatform, googleCampaignId: createGoogleCampaignId, ...data },
         });
       }
     }
