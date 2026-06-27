@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import {
+  adPlatformWhere,
   canAccessPacer,
   fetchPeriodPlan,
   getOrCreatePlan,
@@ -64,6 +65,8 @@ interface IncomingAd {
   // Ad platform — set once on create ('google' from the Google tool; null/Meta
   // otherwise). Preserved on update.
   platform?: string | null;
+  // Google line: the channel-type rollup tag (Search/Display/Video/Shopping/PMax).
+  googleChannelType?: string | null;
 }
 
 interface IncomingPeriodPayload {
@@ -167,7 +170,7 @@ export async function PUT(
   // diff tracked fields for the automatic audit log (Change 10), including
   // ads that are about to be deleted.
   const existingAds = await prisma.metaAdsPacerAd.findMany({
-    where: { planId: plan.id, period },
+    where: { planId: plan.id, period, ...adPlatformWhere(postPlatform) },
     select: {
       id: true,
       name: true,
@@ -215,13 +218,17 @@ export async function PUT(
       },
     });
 
-    // Reconcile only ads in THIS period — others are left alone.
+    // Reconcile only ads in THIS period + platform — the other platform's rows
+    // (and other periods) are left untouched, so a Google save never deletes
+    // Meta lines and vice-versa.
     if (incomingIds.length > 0) {
       await tx.metaAdsPacerAd.deleteMany({
-        where: { planId: plan.id, period, NOT: { id: { in: incomingIds } } },
+        where: { planId: plan.id, period, ...adPlatformWhere(postPlatform), NOT: { id: { in: incomingIds } } },
       });
     } else {
-      await tx.metaAdsPacerAd.deleteMany({ where: { planId: plan.id, period } });
+      await tx.metaAdsPacerAd.deleteMany({
+        where: { planId: plan.id, period, ...adPlatformWhere(postPlatform) },
+      });
     }
 
     for (let i = 0; i < incomingAds.length; i++) {
@@ -261,6 +268,7 @@ export async function PUT(
         digitalDetails: nullable(ad.digitalDetails),
         metaObjectId: nullable(ad.metaObjectId),
         metaObjectType: nullable(ad.metaObjectType),
+        googleChannelType: nullable(ad.googleChannelType),
         alertsMuted: ad.alertsMuted === true,
       };
 
