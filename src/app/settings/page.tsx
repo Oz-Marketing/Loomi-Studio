@@ -4,11 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
-import {
-  BuildingStorefrontIcon,
-  UsersIcon, UserGroupIcon, SwatchIcon, SparklesIcon,
-  CogIcon, BellIcon, BellAlertIcon, TagIcon, Squares2X2Icon, BriefcaseIcon, CalculatorIcon,
-} from '@heroicons/react/24/outline';
+import { CogIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { CodeEditor } from '@/components/code-editor';
 import { AccountsList } from '@/components/accounts-list';
@@ -24,61 +20,29 @@ import { IndustriesTab } from '@/components/settings/industries-tab';
 import { DefaultMarkupTab } from '@/components/settings/default-markup-tab';
 import { AlertRulesTab } from '@/components/settings/alert-rules-tab';
 import { TeamsTab } from '@/components/settings/teams-tab';
+import { useSettingsTabs, type SettingsTabKey } from '@/components/settings/use-settings-tabs';
 import { useIndustries } from '@/lib/hooks/use-industries';
 
-type Tab =
-  | 'subaccounts'
-  | 'subaccount'
-  | 'users'
-  | 'knowledge'
-  | 'industries'
-  | 'markup'
-  | 'alerts'
-  | 'teams'
-  | 'contact-fields'
-  | 'contact-field-blueprints'
-  | 'notifications'
-  | 'appearance';
+type Tab = SettingsTabKey;
 
 export default function SettingsPage() {
   const { isAdmin, isAccount, userRole } = useAccount();
-  const { confirmNavigation } = useUnsavedChanges();
   const router = useRouter();
   const pathname = usePathname();
 
-  // Determine available tabs based on role/mode. `label` is the sidebar
-  // nav text; `titleLabel` is the page-header title (singularised /
-  // suffixed with "Settings" for clean grammar).
-  const tabs: {
-    key: Tab;
-    label: string;
-    titleLabel: string;
-    icon: React.ComponentType<{ className?: string }>;
-  }[] = [];
+  // Role-gated tabs (shared with the sidebar's settings nav).
+  const tabs = useSettingsTabs();
   const hasAdminAccess = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
-  // Elevated = developer / super_admin only (no plain admin). Gates the
-  // app-wide Industries manager.
+  // Elevated = developer / super_admin only (no plain admin).
   const isElevated = userRole === 'developer' || userRole === 'super_admin';
-  if (hasAdminAccess && isAdmin) tabs.push({ key: 'subaccounts', label: 'Sub-Accounts', titleLabel: 'Sub-Account Settings', icon: BuildingStorefrontIcon });
-  if (isAccount) tabs.push({ key: 'subaccount', label: 'Sub-Account', titleLabel: 'Sub-Account Settings', icon: BuildingStorefrontIcon });
-  if (hasAdminAccess && isAccount) tabs.push({ key: 'contact-fields', label: 'Custom Fields', titleLabel: 'Contact Custom Fields', icon: TagIcon });
-  if (hasAdminAccess && isAdmin) tabs.push({ key: 'contact-field-blueprints', label: 'Field Blueprints', titleLabel: 'Contact Field Blueprints', icon: Squares2X2Icon });
-  if (hasAdminAccess) tabs.push({ key: 'users', label: 'Users', titleLabel: 'User Settings', icon: UsersIcon });
-  // Delivery teams that Projects tickets route to (internal-staff only).
-  if (hasAdminAccess) tabs.push({ key: 'teams', label: 'Teams', titleLabel: 'Teams', icon: UserGroupIcon });
-  if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', titleLabel: 'Knowledge Base Settings', icon: SparklesIcon });
-  if (isElevated && isAdmin) tabs.push({ key: 'industries', label: 'Industries', titleLabel: 'Industry Settings', icon: BriefcaseIcon });
-  if (isElevated && isAdmin) tabs.push({ key: 'markup', label: 'Markup', titleLabel: 'Default Markup', icon: CalculatorIcon });
-  if (isElevated && isAdmin) tabs.push({ key: 'alerts', label: 'Alerts', titleLabel: 'Alert Rules', icon: BellAlertIcon });
-  tabs.push({ key: 'notifications', label: 'Notifications', titleLabel: 'Notification Settings', icon: BellIcon });
-  tabs.push({ key: 'appearance', label: 'Appearance', titleLabel: 'Appearance Settings', icon: SwatchIcon });
 
-  const pathSegments = pathname.split('/').filter(Boolean);
-  const routeTab = pathSegments[0] === 'settings'
-    ? pathSegments[1]
-    : undefined;
+  // Active tab from the path (handles admin `/settings/<tab>` + sub-account
+  // `/…/settings/<tab>`).
+  const settingsIdx = pathname.indexOf('/settings');
+  const base = settingsIdx >= 0 ? pathname.slice(0, settingsIdx + '/settings'.length) : '/settings';
+  const routeTab = pathname.slice(base.length).split('/').filter(Boolean)[0];
   const defaultTab = tabs[0]?.key || 'appearance';
-  const defaultTabPath = `/settings/${defaultTab}`;
+  const defaultTabPath = `${base}/${defaultTab}`;
   const activeTab = tabs.some(t => t.key === routeTab)
     ? (routeTab as Tab)
     : defaultTab;
@@ -96,64 +60,36 @@ export default function SettingsPage() {
   const titleText = activeTabObj?.titleLabel ?? 'Settings';
 
   return (
+    // Full-width: the settings tabs live in the sidebar (SettingsNav) now, so
+    // the content spans the whole page-content width.
     <div className="animate-fade-in-up pt-4">
-      {/* Sidebar nav + content */}
-      <div className="flex gap-6">
-        {/* Vertical nav — sticky */}
-        <nav className="flex flex-col gap-1 w-48 shrink-0 sticky top-4 self-start">
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => {
-                const destination = `/settings/${tab.key}`;
-                confirmNavigation(() => router.push(destination), destination);
-              }}
-              className={`flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left ${
-                activeTab === tab.key
-                  ? 'bg-[var(--accent)] text-[var(--foreground)]'
-                  : 'text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50 hover:text-[var(--foreground)]'
-              }`}
-            >
-              <tab.icon className="w-4 h-4 shrink-0" />
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* Tab content — the title section sits directly above the active
-            tab's content (the active tab is also highlighted in the nav).
-            Tab-specific actions (e.g. "Add User") portal into
-            #settings-title-actions. */}
-        <div className="flex-1 min-w-0">
-          <div className="mb-6 px-1 flex items-start justify-between gap-4">
-            <div>
-              <h1 className="flex items-center gap-2 text-2xl font-bold text-[var(--foreground)]">
-                <TitleIcon className="w-6 h-6" />
-                {titleText}
-              </h1>
-              <p className="text-sm text-[var(--muted-foreground)] mt-1">
-                Manage your preferences and configuration
-              </p>
-            </div>
-            <div id="settings-title-actions" className="flex items-center gap-2" />
-          </div>
-
-          <div className="border-b border-[var(--border)] mb-6" />
-
-          {activeTab === 'subaccounts' && <AccountsList listPath="/settings/subaccounts" detailBasePath="/settings/subaccounts" />}
-          {activeTab === 'subaccount' && <AccountSettingsTab />}
-          {activeTab === 'contact-fields' && hasAdminAccess && isAccount && <CustomFieldsTab />}
-          {activeTab === 'contact-field-blueprints' && hasAdminAccess && isAdmin && <CustomFieldBlueprintsTab />}
-          {activeTab === 'users' && <UsersTab />}
-          {activeTab === 'teams' && hasAdminAccess && <TeamsTab />}
-          {activeTab === 'knowledge' && hasAdminAccess && isAdmin && <KnowledgeBaseTab />}
-          {activeTab === 'industries' && isElevated && isAdmin && <IndustriesTab />}
-          {activeTab === 'markup' && isElevated && isAdmin && <DefaultMarkupTab />}
-          {activeTab === 'alerts' && isElevated && isAdmin && <AlertRulesTab />}
-          {activeTab === 'notifications' && <NotificationsTab />}
-          {activeTab === 'appearance' && <AppearanceTab />}
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-[var(--foreground)]">
+            <TitleIcon className="w-6 h-6" />
+            {titleText}
+          </h1>
+          <p className="text-sm text-[var(--muted-foreground)] mt-1">
+            Manage your preferences and configuration
+          </p>
         </div>
+        <div id="settings-title-actions" className="flex items-center gap-2" />
       </div>
+
+      <div className="border-b border-[var(--border)] mb-6" />
+
+      {activeTab === 'subaccounts' && <AccountsList listPath="/settings/subaccounts" detailBasePath="/settings/subaccounts" />}
+      {activeTab === 'subaccount' && <AccountSettingsTab />}
+      {activeTab === 'contact-fields' && hasAdminAccess && isAccount && <CustomFieldsTab />}
+      {activeTab === 'contact-field-blueprints' && hasAdminAccess && isAdmin && <CustomFieldBlueprintsTab />}
+      {activeTab === 'users' && <UsersTab />}
+      {activeTab === 'teams' && hasAdminAccess && <TeamsTab />}
+      {activeTab === 'knowledge' && hasAdminAccess && isAdmin && <KnowledgeBaseTab />}
+      {activeTab === 'industries' && isElevated && isAdmin && <IndustriesTab />}
+      {activeTab === 'markup' && isElevated && isAdmin && <DefaultMarkupTab />}
+      {activeTab === 'alerts' && isElevated && isAdmin && <AlertRulesTab />}
+      {activeTab === 'notifications' && <NotificationsTab />}
+      {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
 }

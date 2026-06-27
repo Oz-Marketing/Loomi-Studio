@@ -20,6 +20,7 @@ import { SidebarTooltip, SidebarPopout } from '@/components/sidebar-collapsed-ui
 import { SidebarFrame } from '@/components/sidebar-frame';
 import { AccountSwitcher } from '@/components/account-switcher';
 import { SurfaceSwitch } from '@/components/surface-switch';
+import { SettingsNav, isSettingsPath } from '@/components/settings/settings-nav';
 import { MetaBrandIcon, GoogleAdsBrandIcon } from '@/components/icons/platform-logos';
 import { LoomiWordmark } from './loomi-wordmark';
 
@@ -119,23 +120,29 @@ export function AppSidebar() {
         </>
       }
     >
-      {/* New ticket — primary CTA */}
-      <NewTicketButton collapsed={showCollapsed} />
+      {isSettingsPath(pathname) ? (
+        <SettingsNav backHref="/projects" backLabel="Back to App" collapsed={showCollapsed} />
+      ) : (
+        <>
+          {/* New ticket — primary CTA */}
+          <NewTicketButton collapsed={showCollapsed} />
 
-      <div className="mt-4 space-y-px">
-        {NAV.map((entry) =>
-          isGroup(entry) ? (
-            <GroupNav key={entry.key} group={entry} collapsed={showCollapsed} pathname={pathname} />
-          ) : (
-            <LeafNav
-              key={entry.key}
-              item={entry}
-              collapsed={showCollapsed}
-              active={itemActive(entry, pathname)}
-            />
-          ),
-        )}
-      </div>
+          <div className="mt-4 space-y-px">
+            {NAV.map((entry) =>
+              isGroup(entry) ? (
+                <GroupNav key={entry.key} group={entry} collapsed={showCollapsed} pathname={pathname} />
+              ) : (
+                <LeafNav
+                  key={entry.key}
+                  item={entry}
+                  collapsed={showCollapsed}
+                  active={itemActive(entry, pathname)}
+                />
+              ),
+            )}
+          </div>
+        </>
+      )}
     </SidebarFrame>
   );
 }

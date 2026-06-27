@@ -36,6 +36,7 @@ import { appendThemeParam, getOtherSurfaceUrl } from '@/lib/cross-site';
 import { FlowIcon } from '@/components/icon-map';
 import { AccountSwitcher } from '@/components/account-switcher';
 import { SurfaceSwitch } from '@/components/surface-switch';
+import { SettingsNav, isSettingsPath } from '@/components/settings/settings-nav';
 import { AppLogo } from '@/components/app-logo';
 import { SidebarFrame } from '@/components/sidebar-frame';
 import { accountKeyToSlug, isSubaccountRoute, stripSubaccountPrefix } from '@/lib/account-slugs';
@@ -324,7 +325,10 @@ export function Sidebar() {
         </>
       }
     >
-        {resolvedNavItems.map((entry, i) => {
+      {isSettingsPath(normalizedPath) ? (
+        <SettingsNav backHref="/dashboard" backLabel="Back to Studio" collapsed={collapsed} />
+      ) : (
+        resolvedNavItems.map((entry, i) => {
           if ('divider' in entry) {
             if (collapsed) {
               return <div key={`sep-${i}`} className="mx-2 my-2 border-t border-[var(--sidebar-border)]" />;
@@ -439,7 +443,8 @@ export function Sidebar() {
               {leaf}
             </SidebarTooltip>
           ) : leaf;
-        })}
+        })
+      )}
     </SidebarFrame>
   );
 }
