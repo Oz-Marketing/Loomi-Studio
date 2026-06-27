@@ -16,6 +16,7 @@ import {
   formatShortDate,
 } from '@/lib/projects/ui';
 import { useProjectOptions } from './use-project-options';
+import { TaskExtraDetails } from './details-view';
 
 type Thread = NonNullable<Awaited<ReturnType<typeof getTaskWithThread>>>;
 
@@ -180,6 +181,10 @@ export function TaskDetail({ initial }: { initial: Thread }) {
           {task.description && (
             <p className="mt-4 whitespace-pre-wrap text-sm text-[var(--foreground)]">{task.description}</p>
           )}
+
+          <div className="mt-4">
+            <TaskExtraDetails kind={task.kind} details={task.details} />
+          </div>
 
           {launchable && (
             <div className="mt-4 rounded-xl border border-[var(--primary)]/30 bg-[var(--primary)]/5 p-3">

@@ -98,7 +98,10 @@ export function BoardView() {
         onDragEnd={onDragEnd}
         onDragCancel={() => setActiveId(null)}
       >
-        <div className="flex flex-1 gap-3 overflow-x-auto pb-4">
+        {/* Full-bleed to the surface card's edges (cancel its px-6/md:px-8
+            gutter) with a soft fade so cards scroll off to the page edge
+            instead of clipping inside the padding. */}
+        <div className="flex flex-1 gap-3 overflow-x-auto pb-4 -mx-6 px-6 md:-mx-8 md:px-8 [mask-image:linear-gradient(to_right,transparent,#000_1rem,#000_calc(100%-1rem),transparent)]">
           {STATUSES.map((s) => (
             <Column key={s.key} status={s.key} label={s.label} dot={s.dot} count={byStatus[s.key]?.length ?? 0}>
               {(byStatus[s.key] ?? []).map((t) => (

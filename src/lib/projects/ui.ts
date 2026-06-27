@@ -3,7 +3,7 @@
  * the board, table, my-work, calendar, and detail views. No server imports.
  */
 
-export type StatusKey = 'todo' | 'in_progress' | 'in_review' | 'blocked' | 'done';
+export type StatusKey = 'todo' | 'in_progress' | 'in_review' | 'blocked' | 'done' | 'canceled';
 
 export const STATUSES: { key: StatusKey; label: string; dot: string }[] = [
   { key: 'todo', label: 'To do', dot: '#94a3b8' },
@@ -11,6 +11,7 @@ export const STATUSES: { key: StatusKey; label: string; dot: string }[] = [
   { key: 'in_review', label: 'In review', dot: '#a855f7' },
   { key: 'blocked', label: 'Blocked', dot: '#ef4444' },
   { key: 'done', label: 'Done', dot: '#22c55e' },
+  { key: 'canceled', label: 'Canceled', dot: '#64748b' },
 ];
 
 export const STATUS_LABEL: Record<string, string> = Object.fromEntries(
@@ -226,7 +227,10 @@ export const BILLING_FIELDS: FieldDef[] = [
 /** "Jun 24", "Jun 24 2027" if not the current year. Date-only ISO-safe. */
 export function formatShortDate(iso: string | null): string {
   if (!iso) return '';
-  const d = new Date(iso);
+  // Parse 'YYYY-MM-DD' as a LOCAL date; `new Date('YYYY-MM-DD')` would treat it
+  // as UTC midnight and render a day early in negative-offset timezones.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const now = new Date();
   const opts: Intl.DateTimeFormatOptions =

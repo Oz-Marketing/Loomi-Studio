@@ -87,7 +87,7 @@ export function TableView() {
         subtitle="Every task, sortable and filterable."
       />
       <div className="overflow-x-auto rounded-2xl border border-[var(--border)]">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-max text-sm whitespace-nowrap">
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)]">
               <Th label="Task" onClick={() => toggleSort('title')} active={sort === 'title'} />

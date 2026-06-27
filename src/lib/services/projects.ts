@@ -54,6 +54,7 @@ type TaskRow = {
   completedAt: Date | null;
   linkedAssetType: string | null;
   linkedAssetId: string | null;
+  details: unknown;
   createdAt: Date;
   updatedAt: Date;
   account?: { dealer: string } | null;
@@ -86,6 +87,7 @@ export function serializeTask(t: TaskRow) {
     completedAt: t.completedAt ? t.completedAt.toISOString() : null,
     linkedAssetType: t.linkedAssetType,
     linkedAssetId: t.linkedAssetId,
+    details: (t.details as Record<string, unknown> | null) ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   };
@@ -175,6 +177,7 @@ type InitiativeRow = {
   priority: string;
   dueDate: Date | null;
   ownerUserId: string | null;
+  details: unknown;
   account?: { dealer: string } | null;
   owner?: { id: string; name: string; email: string; avatarUrl: string | null } | null;
 };
@@ -190,6 +193,7 @@ export function serializeInitiative(i: InitiativeRow) {
     priority: i.priority,
     dueDate: i.dueDate ? i.dueDate.toISOString() : null,
     ownerUserId: i.ownerUserId,
+    details: (i.details as Record<string, unknown> | null) ?? null,
     owner: i.owner ?? null,
   };
 }
@@ -219,6 +223,16 @@ export async function updateInitiative(
   if (patch.ownerUserId !== undefined) data.ownerUserId = patch.ownerUserId;
   if (patch.dueDate !== undefined) data.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
   const row = await prisma.initiative.update({ where: { id }, data, include: INITIATIVE_INCLUDE });
+
+  // Canceling an initiative cancels every task under it (terminal state). Skip
+  // tasks already canceled/done so we don't churn them.
+  if (patch.status === 'canceled') {
+    await prisma.task.updateMany({
+      where: { initiativeId: id, status: { notIn: ['canceled'] } },
+      data: { status: 'canceled', completedAt: null },
+    });
+  }
+
   return serializeInitiative(row);
 }
 

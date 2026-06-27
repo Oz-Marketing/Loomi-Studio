@@ -6,6 +6,7 @@ import { getInitiative, listTasks, canAccess, serializeInitiative } from '@/lib/
 import { STATUSES } from '@/lib/projects/ui';
 import { TaskCard } from '../../_components/task-card';
 import { InitiativeHeader } from '../../_components/initiative-header';
+import { InitiativeExtraDetails } from '../../_components/details-view';
 
 export default async function InitiativeDetailPage({
   params,
@@ -22,6 +23,7 @@ export default async function InitiativeDetailPage({
   const tasks = await listTasks({ scope, initiativeId: id });
   const byStatus = STATUSES.map((s) => ({ ...s, tasks: tasks.filter((t) => t.status === s.key) }));
   const done = tasks.filter((t) => t.status === 'done').length;
+  const dto = serializeInitiative(initiative);
 
   return (
     <div className="py-6">
@@ -44,10 +46,14 @@ export default async function InitiativeDetailPage({
 
       <div className="mt-4">
         <InitiativeHeader
-          initiative={serializeInitiative(initiative)}
+          initiative={dto}
           taskCount={tasks.length}
           doneCount={done}
         />
+      </div>
+
+      <div className="mt-4">
+        <InitiativeExtraDetails details={dto.details} />
       </div>
 
       <div className="mt-6 flex gap-3 overflow-x-auto pb-4">
