@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { getTeamNotifyTargets } from '@/lib/services/teams';
 import { getCampaignWithAssets } from '@/lib/services/campaigns';
 import {
@@ -6,6 +7,7 @@ import {
   notifyTicketFiled,
   notifyTaskComment,
 } from '@/lib/notifications/projects';
+import { isCreativeKind } from '@/lib/projects/ui';
 
 /**
  * Projects service — initiatives (per-account bodies of work), tasks (the
@@ -619,93 +621,176 @@ export async function addComment(input: {
 
 export async function createTicket(
   input: {
-    accountKey: string;
+    // One or more accounts this ticket is for. Multiple = a joint effort across
+    // those accounts (e.g. neighboring locations running a shared promotion).
+    accountKeys: string[];
     initiativeId?: string | null;
     initiativeName?: string | null;
+    // Explicit "wrap these tasks in a new Initiative". A ticket otherwise stays
+    // a standalone Task unless it earns a container (see the rule below).
+    createInitiative?: boolean;
     templateKey?: string | null;
-    teamKeys: string[];
+    // One entry per involved department, each with its own task Type + the
+    // per-type field values (FieldDef.key → value) captured at intake. Empty =
+    // a single team-less generic task.
+    departments: { teamKey: string; kind: string; details?: Record<string, unknown> }[];
+    // Multi-account creative handling: 'shared' makes ONE creative task reused
+    // across all accounts; 'unique' (default) makes one per account.
+    creativeMode?: 'shared' | 'unique';
     title: string;
     description?: string | null;
     priority?: string;
-    kind?: string;
     dueDate?: string | null;
     assigneeUserId?: string | null;
+    // Ticket-level metadata (timing) + minimal billing. Stored on the initiative
+    // when one is created, else on the task(s).
+    meta?: Record<string, unknown> | null;
+    billing?: Record<string, unknown> | null;
   },
   requesterUserId: string | null,
 ) {
-  const account = await prisma.account.findUnique({
-    where: { key: input.accountKey },
-    select: { dealer: true },
+  const accountKeys = input.accountKeys.filter(Boolean);
+  if (accountKeys.length === 0) {
+    throw new Error('createTicket requires at least one accountKey');
+  }
+  const primaryKey = accountKeys[0]!;
+  const accounts = await prisma.account.findMany({
+    where: { key: { in: accountKeys } },
+    select: { key: true, dealer: true },
   });
-  const accountDealer = account?.dealer ?? null;
+  // `dealer` is the Account's display-name column (industry-agnostic — it's
+  // just the account name, not automotive-specific).
+  const accountNameByKey = new Map(accounts.map((a) => [a.key, a.dealer]));
+  const accountNames = accountKeys.map((k) => accountNameByKey.get(k) ?? k);
 
-  // Resolve or create the initiative the tasks live under.
+  // Departments → tasks. No departments selected = one generic team-less task.
+  const departments: { teamKey: string | null; kind: string; details?: Record<string, unknown> }[] =
+    input.departments.length
+      ? input.departments.map((d) => ({
+          teamKey: d.teamKey || null,
+          kind: d.kind || 'generic',
+          details: d.details,
+        }))
+      : [{ teamKey: null, kind: 'generic' }];
+
+  // Ticket-level details (timing + billing) — stored once, on the initiative if
+  // grouped, else stashed on the task(s).
+  const billing = input.billing && Object.keys(input.billing).length ? input.billing : null;
+  const meta = input.meta ?? null;
+  const hasMeta = !!meta && Object.values(meta).some((v) => v !== null && v !== '' && v !== false);
+  const ticketDetails =
+    hasMeta || billing ? { ...(meta ?? {}), ...(billing ? { billing } : {}) } : null;
+
+  const multiAccount = accountKeys.length > 1;
+  const multiDept = new Set(departments.filter((d) => d.teamKey).map((d) => d.teamKey)).size > 1;
+  const creativeShared = input.creativeMode === 'shared' && multiAccount;
+
+  // Standalone by default. A ticket earns an Initiative wrapper only when it's
+  // genuinely a body of work: an existing one was chosen, a new one requested,
+  // it came from a template, or it fans out across multiple departments OR
+  // multiple accounts (both need coordination). A single account / single dept
+  // one-off stays a flat Task.
   let initiativeId = input.initiativeId ?? null;
   if (!initiativeId) {
-    const initiative = await createInitiative({
-      accountKey: input.accountKey,
-      name: input.initiativeName?.trim() || input.title.trim(),
-      description: input.description ?? null,
-      priority: input.priority,
-      dueDate: input.dueDate ?? null,
-      ownerUserId: requesterUserId,
-      templateKey: input.templateKey ?? null,
-      createdByUserId: requesterUserId,
-    });
-    initiativeId = initiative.id;
+    const earnsInitiative =
+      input.createInitiative === true ||
+      !!input.templateKey ||
+      multiDept ||
+      multiAccount ||
+      !!billing; // a billed ticket is a real project → give it a home
+    if (earnsInitiative) {
+      const initiative = await createInitiative({
+        accountKey: primaryKey,
+        name: input.initiativeName?.trim() || input.title.trim(),
+        description: input.description ?? null,
+        priority: input.priority,
+        dueDate: input.dueDate ?? null,
+        ownerUserId: requesterUserId,
+        templateKey: input.templateKey ?? null,
+        createdByUserId: requesterUserId,
+      });
+      initiativeId = initiative.id;
+    }
   }
 
-  // One task per selected team (or a single team-less task).
-  const teamKeys = input.teamKeys.length ? input.teamKeys : [null];
   const tasks: TaskDTO[] = [];
-  for (const teamKey of teamKeys) {
-    const row = await prisma.task.create({
-      data: {
-        accountKey: input.accountKey,
-        initiativeId,
-        teamKey: teamKey ?? null,
-        title: input.title.trim(),
-        description: input.description ?? null,
-        kind: input.kind ?? 'generic',
-        status: 'todo',
-        priority: input.priority ?? 'medium',
-        assigneeUserId: input.assigneeUserId ?? null,
-        requesterUserId,
-        createdByUserId: requesterUserId,
-        dueDate: input.dueDate ? new Date(input.dueDate) : null,
-        position: Date.now(),
-      },
-      include: TASK_INCLUDE,
-    });
-    await writeTaskActivity({
-      taskId: row.id,
-      action: 'created',
-      summary: 'Ticket filed',
-      authorUserId: requesterUserId,
-    });
+  for (const dept of departments) {
+    // A shared creative collapses to a single task (owned by the primary
+    // account, brief notes all accounts); everything else fans out per account.
+    const shared = creativeShared && dept.teamKey != null && isCreativeKind(dept.kind);
+    const targetKeys = shared ? [primaryKey] : accountKeys;
 
-    if (row.assigneeUserId) {
-      await notifyTaskAssigned({
-        assigneeUserId: row.assigneeUserId,
-        byUserId: requesterUserId,
-        taskId: row.id,
-        taskTitle: row.title,
-        accountDealer,
+    // Per-type field values for this department's task(s). When the ticket isn't
+    // grouped, ticket-level meta/billing rides along on the task under `_ticket`.
+    const baseDetails: Record<string, unknown> = { ...(dept.details ?? {}) };
+    if (!initiativeId && ticketDetails) baseDetails._ticket = ticketDetails;
+    const taskDetails = Object.keys(baseDetails).length
+      ? (baseDetails as Prisma.InputJsonValue)
+      : undefined;
+
+    for (const acctKey of targetKeys) {
+      const description = shared
+        ? `${input.description ?? ''}\n\nShared creative for: ${accountNames.join(', ')}`.trim()
+        : (input.description ?? null);
+
+      const row = await prisma.task.create({
+        data: {
+          accountKey: acctKey,
+          initiativeId,
+          teamKey: dept.teamKey,
+          title: input.title.trim(),
+          description,
+          details: taskDetails,
+          kind: dept.kind,
+          status: 'todo',
+          priority: input.priority ?? 'medium',
+          assigneeUserId: input.assigneeUserId ?? null,
+          requesterUserId,
+          createdByUserId: requesterUserId,
+          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          position: Date.now(),
+        },
+        include: TASK_INCLUDE,
       });
-    } else if (teamKey) {
-      const targets = await getTeamNotifyTargets(teamKey);
-      if (targets) {
-        await notifyTicketFiled({
-          recipientUserIds: targets.userIds,
+      await writeTaskActivity({
+        taskId: row.id,
+        action: 'created',
+        summary: 'Ticket filed',
+        authorUserId: requesterUserId,
+      });
+
+      const accountDealer = accountNameByKey.get(acctKey) ?? null;
+      if (row.assigneeUserId) {
+        await notifyTaskAssigned({
+          assigneeUserId: row.assigneeUserId,
           byUserId: requesterUserId,
-          teamName: targets.name,
           taskId: row.id,
           taskTitle: row.title,
           accountDealer,
         });
+      } else if (dept.teamKey) {
+        const targets = await getTeamNotifyTargets(dept.teamKey);
+        if (targets) {
+          await notifyTicketFiled({
+            recipientUserIds: targets.userIds,
+            byUserId: requesterUserId,
+            teamName: targets.name,
+            taskId: row.id,
+            taskTitle: row.title,
+            accountDealer,
+          });
+        }
       }
+      tasks.push(serializeTask(row));
     }
-    tasks.push(serializeTask(row));
+  }
+
+  // Ticket-level meta/billing lives on the initiative when there is one.
+  if (initiativeId && ticketDetails) {
+    await prisma.initiative.update({
+      where: { id: initiativeId },
+      data: { details: ticketDetails as Prisma.InputJsonValue },
+    });
   }
 
   return { initiativeId, tasks };

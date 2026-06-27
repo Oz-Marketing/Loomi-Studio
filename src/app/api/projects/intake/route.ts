@@ -15,28 +15,56 @@ export async function POST(req: NextRequest) {
   const scope = getAccountScope(session!);
   const body = await req.json().catch(() => ({}));
 
-  const accountKey = typeof body.accountKey === 'string' ? body.accountKey : '';
+  const accountKeys: string[] = Array.isArray(body.accountKeys)
+    ? body.accountKeys.map(String).filter(Boolean)
+    : [];
   const title = typeof body.title === 'string' ? body.title.trim() : '';
-  const teamKeys = Array.isArray(body.teamKeys) ? body.teamKeys.map(String) : [];
+  // Per-department type entries: [{ teamKey, kind, details }].
+  const departments: { teamKey: string; kind: string; details?: Record<string, unknown> }[] =
+    Array.isArray(body.departments)
+      ? body.departments
+          .filter((d: unknown): d is { teamKey: string; kind?: string; details?: unknown } =>
+            !!d && typeof (d as { teamKey?: unknown }).teamKey === 'string',
+          )
+          .map((d: { teamKey: string; kind?: string; details?: unknown }) => ({
+            teamKey: d.teamKey,
+            kind: typeof d.kind === 'string' ? d.kind : 'generic',
+            details:
+              d.details && typeof d.details === 'object'
+                ? (d.details as Record<string, unknown>)
+                : undefined,
+          }))
+      : [];
 
-  if (!accountKey || !title) {
-    return NextResponse.json({ error: 'accountKey and title are required' }, { status: 400 });
+  const meta =
+    body.meta && typeof body.meta === 'object' ? (body.meta as Record<string, unknown>) : null;
+  const billing =
+    body.billing && typeof body.billing === 'object'
+      ? (body.billing as Record<string, unknown>)
+      : null;
+
+  if (accountKeys.length === 0 || !title) {
+    return NextResponse.json({ error: 'accountKeys and title are required' }, { status: 400 });
   }
-  if (!projects.canAccess(scope, accountKey)) return forbidden();
+  // Caller must be able to access every selected dealer.
+  if (!accountKeys.every((k) => projects.canAccess(scope, k))) return forbidden();
 
   const result = await projects.createTicket(
     {
-      accountKey,
+      accountKeys,
       initiativeId: body.initiativeId ?? null,
       initiativeName: body.initiativeName ?? null,
+      createInitiative: body.createInitiative === true,
       templateKey: body.templateKey ?? null,
-      teamKeys,
+      departments,
+      creativeMode: body.creativeMode === 'shared' ? 'shared' : 'unique',
       title,
       description: typeof body.description === 'string' ? body.description : null,
       priority: typeof body.priority === 'string' ? body.priority : undefined,
-      kind: typeof body.kind === 'string' ? body.kind : undefined,
       dueDate: body.dueDate ?? null,
       assigneeUserId: body.assigneeUserId ?? null,
+      meta,
+      billing,
     },
     session!.user.id,
   );

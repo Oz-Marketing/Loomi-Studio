@@ -40,7 +40,7 @@ export default async function ProjectsHomePage() {
           <RectangleStackIcon className="h-10 w-10 text-[var(--muted-foreground)]" />
           <p className="mt-3 text-sm font-medium text-[var(--foreground)]">No initiatives yet</p>
           <p className="mt-1 max-w-sm text-sm text-[var(--muted-foreground)]">
-            File a ticket to spin up work across the team. Initiatives group all the
+            Submit a ticket to spin up work across the team. Initiatives group all the
             tasks for an account&apos;s onboarding, launch, or campaign.
           </p>
         </div>

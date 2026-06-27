@@ -22,8 +22,26 @@ export async function GET() {
     listInternalUsers(),
   ]);
 
-  const accounts = accountsRaw.map((a) => ({ key: a.key, dealer: a.dealer, slug: a.slug }));
+  const accounts = accountsRaw.map((a) => ({
+    key: a.key,
+    dealer: a.dealer,
+    slug: a.slug,
+    // Parsed { light, dark, white?, black? } so the pickers can show the
+    // account's logo via AccountAvatar (mirrors the studio account switcher).
+    logos: parseLogos(a.logos),
+  }));
   const teamsOut = teams.map((t) => ({ key: t.key, name: t.name, color: t.color }));
 
   return NextResponse.json({ accounts, teams: teamsOut, users });
+}
+
+function parseLogos(
+  raw: string | null,
+): { light?: string; dark?: string; white?: string; black?: string } | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }

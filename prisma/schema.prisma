@@ -2149,6 +2149,9 @@ model Initiative {
   account     Account   @relation(fields: [accountKey], references: [key], onDelete: Cascade)
   name        String
   description String?   @db.Text
+  // Ticket-level metadata captured at intake — billing (costs, billing months,
+  // retainer) and any project-wide fields. JSON for flexibility.
+  details     Json?
   status      String    @default("active") // active | on_hold | completed | archived
   priority    String    @default("medium") // low | medium | high | urgent
   startDate   DateTime?
@@ -2192,9 +2195,13 @@ model Task {
 
   title       String
   description String? @db.Text
+  // Per-type intake fields (budgets, dates, audience, etc.), keyed by FieldDef
+  // key from TYPE_FIELDS (src/lib/projects/ui.ts). Flexible by design so field
+  // sets can change without a migration.
+  details     Json?
   // What kind of work — drives the "Build it" launch action in Phase 2:
   // generic | email | sms | landing_page | form | flow | ads | design |
-  // video | pr | dev | social
+  // print | video | media_buy | pr | dev | social
   kind        String  @default("generic")
   status      String  @default("todo") // todo | in_progress | in_review | blocked | done
   priority    String  @default("medium") // low | medium | high | urgent
