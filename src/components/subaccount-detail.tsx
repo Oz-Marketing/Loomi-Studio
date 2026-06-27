@@ -109,6 +109,36 @@ const SETTINGS_TABS: TabDef[] = [
   { key: 'appearance', label: 'Appearance', icon: SwatchIcon },
 ];
 
+// Settings mode lives at two URL shapes:
+//   • Studio scoped:  /subaccount/<slug>/settings/<tab>            (section in path)
+//   • Admin browse:   [<surface>/]settings/subaccounts/<key>?tab=  (section in query —
+//     keeps the single [key] route, no per-tab route files needed)
+// These read/write the active section for whichever shape we're on.
+function isStudioSettingsScheme(pathname: string): boolean {
+  return pathname.split('/').filter(Boolean)[0] === 'subaccount';
+}
+function readSettingsSectionTab(
+  pathname: string,
+  search?: { get(name: string): string | null } | null,
+): string | undefined {
+  if (isStudioSettingsScheme(pathname)) {
+    const segments = pathname.split('/').filter(Boolean);
+    const i = segments.indexOf('settings');
+    return i >= 0 ? segments[i + 1] : undefined;
+  }
+  return search?.get('tab') ?? undefined;
+}
+function buildSettingsSectionPath(pathname: string, key: string, tab: string): string {
+  if (isStudioSettingsScheme(pathname)) {
+    const slug = pathname.split('/').filter(Boolean)[1];
+    return `/subaccount/${slug}/settings/${tab}`;
+  }
+  // Preserve any surface prefix (e.g. /reporting) that sits before /settings.
+  const i = pathname.indexOf('/settings/subaccounts');
+  const prefix = i > 0 ? pathname.slice(0, i) : '';
+  return `${prefix}/settings/subaccounts/${key}?tab=${tab}`;
+}
+
 interface SubAccountDetailPageProps {
   /** Base path for navigation, e.g. '/subaccounts' or '/settings/subaccounts' */
   basePath: string;
@@ -355,19 +385,16 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
   // ── Settings mode: resolve tab from URL path ──
   const settingsUrlTab = useMemo(() => {
     if (!settingsMode) return undefined;
-    const segments = pathname.split('/').filter(Boolean);
-    const settingsIdx = segments.indexOf('settings');
-    return settingsIdx >= 0 ? segments[settingsIdx + 1] : undefined;
-  }, [settingsMode, pathname]);
+    return readSettingsSectionTab(pathname, searchParams);
+  }, [settingsMode, pathname, searchParams]);
 
   // Settings mode: sync activeTab from URL on initial load and popstate
   useEffect(() => {
     if (!settingsMode) return;
     const allTabKeys = SETTINGS_TABS.map(t => t.key);
     const syncFromUrl = () => {
-      const segments = window.location.pathname.split('/').filter(Boolean);
-      const settingsIdx = segments.indexOf('settings');
-      const tab = settingsIdx >= 0 ? segments[settingsIdx + 1] : 'company';
+      const url = new URL(window.location.href);
+      const tab = readSettingsSectionTab(url.pathname, url.searchParams) ?? 'company';
       if (allTabKeys.includes(tab as DetailTab)) {
         setActiveTab(tab as DetailTab);
       }
@@ -376,10 +403,8 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
     if (settingsUrlTab && allTabKeys.includes(settingsUrlTab as DetailTab)) {
       setActiveTab(settingsUrlTab as DetailTab);
     } else if (!settingsUrlTab) {
-      // No tab segment — add /company to URL
-      const segments = pathname.split('/').filter(Boolean);
-      const slug = segments[1];
-      window.history.replaceState({}, '', `/subaccount/${slug}/settings/company`);
+      // No tab segment — add /company to URL (scheme-aware)
+      window.history.replaceState({}, '', buildSettingsSectionPath(pathname, key, 'company'));
     }
     // Sync on browser back/forward
     window.addEventListener('popstate', syncFromUrl);
@@ -661,10 +686,7 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
   // ── Settings mode: tab click navigates via pushState (no full route transition) ──
   const handleTabClick = (tabKey: DetailTab) => {
     if (settingsMode) {
-      const segments = pathname.split('/').filter(Boolean);
-      const slug = segments[1]; // /subaccount/[slug]/settings/...
-      const newUrl = `/subaccount/${slug}/settings/${tabKey}`;
-      window.history.pushState({}, '', newUrl);
+      window.history.pushState({}, '', buildSettingsSectionPath(pathname, key, tabKey));
       setActiveTab(tabKey);
     } else {
       setActiveTab(tabKey);

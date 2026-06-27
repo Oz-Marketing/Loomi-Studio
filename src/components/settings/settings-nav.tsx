@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
   ArrowLeftIcon,
   BuildingStorefrontIcon,
@@ -53,23 +53,38 @@ export function SettingsNav({
   collapsed?: boolean;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const genericTabs = useSettingsTabs();
 
-  // Sub-account settings (`/subaccount/<slug>/settings/<section>`) → that
-  // sub-account's sections; the inner page rail is dropped in this mode.
+  // Sub-account settings show that sub-account's sections (the inner page rail is
+  // dropped in this mode). Two URL shapes:
+  //   • Studio scoped:  /subaccount/<slug>/settings/<section>
+  //   • Admin browse:   [<surface>/]settings/subaccounts/<key>/<section>
   const sub = pathname.match(/^\/subaccount\/([^/]+)\/settings/);
-  const items = sub
-    ? SUBACCOUNT_SETTINGS_SECTIONS.map((s) => ({ key: s.key, label: s.label, icon: s.icon, href: `/subaccount/${sub[1]}/settings/${s.key}` }))
-    : genericTabs.map((t) => {
-        const idx = pathname.indexOf('/settings');
-        const base = idx >= 0 ? pathname.slice(0, idx + '/settings'.length) : '/settings';
-        return { key: t.key, label: t.label, icon: t.icon, href: `${base}/${t.key}` };
-      });
+  const subAdmin = pathname.match(/^(.*)\/settings\/subaccounts\/([^/]+)/);
 
-  // Active key = the path segment right after `/settings`.
-  const settingsIdx = pathname.indexOf('/settings');
-  const after = settingsIdx >= 0 ? pathname.slice(settingsIdx + '/settings'.length) : '';
-  const activeKey = after.split('/').filter(Boolean)[0];
+  let items: { key: string; label: string; icon: React.ComponentType<{ className?: string }>; href: string }[];
+  let activeKey: string | undefined;
+  if (sub) {
+    items = SUBACCOUNT_SETTINGS_SECTIONS.map((s) => ({ key: s.key, label: s.label, icon: s.icon, href: `/subaccount/${sub[1]}/settings/${s.key}` }));
+    const settingsIdx = pathname.indexOf('/settings');
+    activeKey = pathname.slice(settingsIdx + '/settings'.length).split('/').filter(Boolean)[0];
+  } else if (subAdmin) {
+    const prefix = subAdmin[1]; // surface prefix (e.g. '' or '/reporting')
+    const key = subAdmin[2];
+    // Section lives in ?tab= (single [key] route, no per-tab route files).
+    items = SUBACCOUNT_SETTINGS_SECTIONS.map((s) => ({ key: s.key, label: s.label, icon: s.icon, href: `${prefix}/settings/subaccounts/${key}?tab=${s.key}` }));
+    activeKey = searchParams.get('tab') ?? 'company';
+  } else {
+    items = genericTabs.map((t) => {
+      const idx = pathname.indexOf('/settings');
+      const base = idx >= 0 ? pathname.slice(0, idx + '/settings'.length) : '/settings';
+      return { key: t.key, label: t.label, icon: t.icon, href: `${base}/${t.key}` };
+    });
+    const settingsIdx = pathname.indexOf('/settings');
+    const after = settingsIdx >= 0 ? pathname.slice(settingsIdx + '/settings'.length) : '';
+    activeKey = after.split('/').filter(Boolean)[0];
+  }
 
   const backBtn = (
     <Link

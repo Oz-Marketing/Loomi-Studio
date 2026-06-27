@@ -429,9 +429,9 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
             </tr>
           </thead>
           <tbody>
-            {ads.map((ad) => (
+            {ads.map((ad, i) => (
               <CampaignRow
-                key={ad.id}
+                key={ad.id ?? `new-${i}`}
                 ad={ad}
                 view={view}
                 tz={tz}
