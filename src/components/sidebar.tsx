@@ -17,7 +17,6 @@ import {
   SunIcon,
   MoonIcon,
   Cog6ToothIcon,
-  MegaphoneIcon,
   ArrowTopRightOnSquareIcon,
   ChartBarSquareIcon,
   ChevronDownIcon,
@@ -36,7 +35,6 @@ import { useSidebarCollapse } from '@/contexts/sidebar-collapse-context';
 import { SidebarTooltip, SidebarPopout } from '@/components/sidebar-collapsed-ui';
 import { appendThemeParam, getOtherSurfaceUrl } from '@/lib/cross-site';
 import { FlowIcon } from '@/components/icon-map';
-import { MetaBrandIcon, GoogleAdsBrandIcon } from '@/components/icons/platform-logos';
 import { AccountSwitcher } from '@/components/account-switcher';
 import { AppLogo } from '@/components/app-logo';
 import { SidebarFrame } from '@/components/sidebar-frame';
@@ -68,42 +66,9 @@ type NavDivider = { divider: true; label?: string };
 type NavCrosslink = { crosslink: 'reporting'; label: string; icon: IconComponent };
 type NavEntry = NavItem | NavDivider | NavCrosslink;
 
-const toolsNavItem: NavItem = {
-  href: '/tools',
-  label: 'Ad Planning & Pacing',
-  icon: MegaphoneIcon,
-  absolute: true,
-  children: [
-    {
-      // Planner + Pacer consolidated into one page with an in-page
-      // Plan/Pace toggle — a single leaf instead of a Planner/Pacer pair.
-      href: '/tools/meta',
-      label: 'Meta',
-      icon: MetaBrandIcon,
-      badge: true,
-      absolute: true,
-    },
-    {
-      href: '/tools/google',
-      label: 'Google',
-      icon: GoogleAdsBrandIcon,
-      absolute: true,
-      comingSoon: true,
-      children: [
-        {
-          href: '/tools/google/ad-planner',
-          label: 'Ad Planner',
-          absolute: true,
-        },
-        {
-          href: '/tools/google/ad-pacer',
-          label: 'Ad Pacer',
-          absolute: true,
-        },
-      ],
-    },
-  ],
-};
+// Ad Planning & Pacing (Meta/Google) moved to the App surface (app.loomilm.com).
+// Studio `/tools/*` now redirects there via the proxy; the nav entry lives in
+// the App sidebar.
 
 // Campaigns — the AI Campaign Builder: multi-channel campaigns generated
 // (or built manually) and reviewed as one. Distinct from the per-channel
@@ -192,8 +157,6 @@ const adminNavItems: NavEntry[] = [
   flowsNavItem,
   adGeneratorNav,
   mediaNav,
-  { divider: true, label: 'Tools' },
-  toolsNavItem,
 ];
 
 // Admin viewing a sub-account uses the same structure (routes get prefixed at

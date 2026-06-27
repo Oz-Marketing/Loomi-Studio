@@ -77,15 +77,15 @@ import {
   type DatePreset,
 } from '@/components/ui/date-picker';
 import { DEFAULT_TIME_ZONE } from '@/lib/timezone';
-import { CARRYOVER_THRESHOLD } from '../_lib/constants';
+import { CARRYOVER_THRESHOLD } from '@/lib/ad-pacer/constants';
 import {
   buildAdCalc,
   buildPacerCalc,
   isLifetimeInProgress,
   effectiveActual,
   effectiveTarget,
-} from '../_lib/pacer-calc';
-import { effectiveSpendTarget } from '../_lib/markup';
+} from '@/lib/ad-pacer/pacer-calc';
+import { effectiveSpendTarget } from '@/lib/ad-pacer/markup';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const AD_STATUSES = [
@@ -549,22 +549,21 @@ const calcDays = (start: string | null, end: string | null): number => {
 };
 // ─── Run-dates bar (Monday-style) ───────────────────────────────────────────
 // A status-colored progress bar behind the flight window: the elapsed share of
-// the run is filled in, the rest is a neutral track. Green = on track (Live /
-// Scheduled / Live - Changes Required / Ready- Pending Approval), gray = In
-// Draft, red = anything else (needs attention).
-const RUN_DATE_GREEN_STATUSES = new Set([
+// the run is filled in, the rest is a neutral track. Blue = live/on track (Live /
+// Scheduled / Live - Changes Required / Ready- Pending Approval), green = a
+// finished run (Completed Run), gray = In Draft / Off, red = needs attention.
+const RUN_DATE_LIVE_STATUSES = new Set([
   'Live',
   'Scheduled',
   'Live - Changes Required',
   'Ready- Pending Approval',
 ]);
 function runDateColor(status: string): string {
-  // A finished or paused flight is not an error: Completed Run reads as done
-  // (blue), Off as inactive (gray). Only genuinely-attention-worthy statuses
-  // get the red track.
-  if (status === 'Completed Run') return COLORS.daily; // blue
+  // Completed reads as done (green); live/on-track reads as in-flight (blue);
+  // Off/In Draft as inactive (gray); only attention-worthy statuses get red.
+  if (status === 'Completed Run') return COLORS.success; // green
   if (status === 'Off' || status === 'In Draft') return '#9ca3af'; // gray
-  return RUN_DATE_GREEN_STATUSES.has(status) ? COLORS.success : COLORS.error;
+  return RUN_DATE_LIVE_STATUSES.has(status) ? COLORS.daily : COLORS.error;
 }
 // Share (0–100) of the flight window that has elapsed as of today.
 function flightElapsedPct(

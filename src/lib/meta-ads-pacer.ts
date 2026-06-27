@@ -7,13 +7,13 @@ import { resolveAccountTimeZone, zonedTodayIso } from '@/lib/timezone';
 import {
   CARRYOVER_THRESHOLD,
   ACTIVE_STATUSES,
-} from '@/app/tools/meta/_lib/constants';
+} from '@/lib/ad-pacer/constants';
 // §0.1: the ONE markup resolution + spend-target formula (no hardcoded
 // literal); the agency default comes from admin settings (DB-backed).
 import {
   accountMarginSetting,
   effectiveSpendTarget,
-} from '@/app/tools/meta/_lib/markup';
+} from '@/lib/ad-pacer/markup';
 import { getGlobalDefaultMarkup } from '@/lib/services/markup';
 // §3: the ONE "lifetime ad still running" predicate, shared with the client so
 // the over/under base excludes the same ads everywhere.
@@ -21,7 +21,7 @@ import {
   isLifetimeInProgress,
   effectiveActual,
   classifyAdVariance,
-} from '@/app/tools/meta/_lib/pacer-calc';
+} from '@/lib/ad-pacer/pacer-calc';
 import { writeAudit } from '@/lib/meta-ads-audit';
 
 function attachUrl<T extends { attachmentKey: string | null }>(entry: T): T & { attachmentUrl: string | null } {

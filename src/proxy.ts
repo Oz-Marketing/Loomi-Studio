@@ -85,6 +85,18 @@ function isAppHost(host: string): boolean {
   return false;
 }
 
+/**
+ * The App-surface host that corresponds to the current Studio/base host.
+ * Mirrors the client `getAppUrl` host logic so the Ad Pacer redirect lands on
+ * the right host in every environment (prod sibling subdomain + dev localhost).
+ */
+function appHostForBaseHost(host: string): string {
+  const lower = host.toLowerCase();
+  if (lower.startsWith('studio.')) return `app.${lower.slice('studio.'.length)}`;
+  if (lower === 'localhost' || lower.startsWith('localhost:')) return `app.${lower}`;
+  return resolveAppHost();
+}
+
 function isBaseHost(host: string): boolean {
   const lower = host.toLowerCase();
   const base = resolveBaseHost();
@@ -135,6 +147,15 @@ export async function proxy(request: NextRequest) {
   const host = request.headers.get('host');
 
   // ── Host-aware routing ─────────────────────────────────────────────
+
+  // Ad Pacer/Planner relocated from Studio to the App surface. Redirect any
+  // lingering Studio `/tools/*` hits (bookmarks, old email/notification links,
+  // dashboard links) to the App host so nothing 404s after the move.
+  if (host && isBaseHost(host) && (pathname === '/tools' || pathname.startsWith('/tools/'))) {
+    const target = request.nextUrl.clone();
+    target.host = appHostForBaseHost(host);
+    return NextResponse.redirect(target);
+  }
 
   if (host && isAppHost(host)) {
     // Rewrite non-global app paths into the /app tree. Already-canonical
