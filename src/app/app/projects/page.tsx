@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { PlusIcon, RectangleStackIcon } from '@heroicons/react/24/outline';
-import { getAuthSession, getAccountScope } from '@/lib/api-auth';
+import { getAuthSession, getAccountScope, canAccessAccount } from '@/lib/api-auth';
 import { listInitiatives } from '@/lib/services/projects';
+import { ACTIVE_ACCOUNT_COOKIE, ADMIN_VALUE } from '@/lib/active-account';
 import { PRIORITY_META, formatShortDate, type PriorityKey } from '@/lib/projects/ui';
 
 const STATUS_BADGE: Record<string, string> = {
@@ -15,7 +17,16 @@ const STATUS_BADGE: Record<string, string> = {
 export default async function ProjectsHomePage() {
   const session = await getAuthSession();
   const scope = session ? getAccountScope(session) : [];
-  const initiatives = await listInitiatives({ scope });
+
+  // Scope to the active sub-account (shared cookie) when one is selected and
+  // the user may access it; Admin / unset shows everything in scope.
+  const activeRaw = (await cookies()).get(ACTIVE_ACCOUNT_COOKIE)?.value ?? null;
+  const accountKey =
+    activeRaw && activeRaw !== ADMIN_VALUE && canAccessAccount(scope, activeRaw)
+      ? activeRaw
+      : undefined;
+
+  const initiatives = await listInitiatives({ scope, accountKey });
 
   return (
     <div className="py-6">

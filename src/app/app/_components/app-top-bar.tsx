@@ -18,6 +18,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useTheme } from '@/contexts/theme-context';
+import { useAccount } from '@/contexts/account-context';
 import { UserAvatar } from '@/components/user-avatar';
 import { ChangelogPanel } from '@/components/changelog-panel';
 import { NotificationsPanel } from '@/components/notifications-panel';
@@ -66,6 +67,7 @@ export function AppTopBar({
 }) {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
+  const { accountKey } = useAccount();
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -76,9 +78,15 @@ export function AppTopBar({
   const [studioUrl, setStudioUrl] = useState<string | null>(null);
   useEffect(() => {
     let url = getStudioUrl();
-    if (url) url = appendThemeParam(url, theme);
+    if (url) {
+      url = appendThemeParam(url, theme);
+      // Hand the active sub-account to Studio so it lands in the same account.
+      // (In prod the shared parent-domain cookie already covers this; the param
+      // keeps it working in dev where the cookie is host-only.)
+      if (accountKey) url += `&account=${encodeURIComponent(accountKey)}`;
+    }
     setStudioUrl(url);
-  }, [theme]);
+  }, [theme, accountKey]);
 
   // Notifications
   const [showNotifications, setShowNotifications] = useState(false);

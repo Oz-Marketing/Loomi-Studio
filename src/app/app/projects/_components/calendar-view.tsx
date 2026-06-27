@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import type { TaskDTO } from '@/lib/services/projects';
+import { useAccount } from '@/contexts/account-context';
 import { jsonFetcher } from './fetcher';
 import { useProjectOptions } from './use-project-options';
-import { ProjectsFilterBar, matchesFilters } from './filter-bar';
+import { ProjectsFilterBar, matchesFilters, type TaskFilters } from './filter-bar';
 import { FetchError } from './fetch-states';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -19,23 +20,37 @@ function ymd(d: Date): string {
 export function CalendarView() {
   const router = useRouter();
   const options = useProjectOptions();
-  const [accountKey, setAccountKey] = useState('');
-  const [teamKey, setTeamKey] = useState('');
-  const [assigneeUserId, setAssigneeUserId] = useState('');
-  const [priority, setPriority] = useState('');
+  const [accountKeys, setAccountKeys] = useState<string[]>([]);
+  const [teamKeys, setTeamKeys] = useState<string[]>([]);
+  const [assigneeUserIds, setAssigneeUserIds] = useState<string[]>([]);
+  const [priorities, setPriorities] = useState<string[]>([]);
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
 
-  const qs = new URLSearchParams();
-  if (accountKey) qs.set('accountKey', accountKey);
-  if (teamKey) qs.set('teamKey', teamKey);
-  const swrKey = `/api/projects/tasks${qs.toString() ? `?${qs}` : ''}`;
+  const { accountKey: globalAccountKey, isAdmin } = useAccount();
+
+  // Fetch scoped server-side only by the global account; per-view multi-selects
+  // refine client-side.
+  const serverAccount = isAdmin ? '' : globalAccountKey ?? '';
+  const swrKey = `/api/projects/tasks${serverAccount ? `?accountKey=${encodeURIComponent(serverAccount)}` : ''}`;
   const { data, error, mutate } = useSWR<{ tasks: TaskDTO[] }>(swrKey, jsonFetcher, {
     revalidateOnFocus: false,
   });
   const tasks = data?.tasks ?? [];
+
+  const filters: TaskFilters = useMemo(
+    () => ({
+      accountKeys: isAdmin ? accountKeys : [],
+      teamKeys,
+      assigneeUserIds,
+      priorities,
+      statuses: [],
+      search: '',
+    }),
+    [isAdmin, accountKeys, teamKeys, assigneeUserIds, priorities],
+  );
 
   const { weeks, monthLabel, month } = useMemo(() => {
     const year = cursor.getFullYear();
@@ -58,14 +73,14 @@ export function CalendarView() {
     const map: Record<string, TaskDTO[]> = {};
     for (const t of tasks) {
       if (!t.dueDate) continue;
-      if (!matchesFilters(t, { assigneeUserId, priority })) continue;
+      if (!matchesFilters(t, filters)) continue;
       // dueDate is already a local 'YYYY-MM-DD' — bucket by it directly; routing
       // through new Date() parses it as UTC and shifts a day west of UTC.
       const key = t.dueDate.slice(0, 10);
       (map[key] ??= []).push(t);
     }
     return map;
-  }, [tasks, assigneeUserId, priority]);
+  }, [tasks, filters]);
 
   const todayKey = ymd(new Date());
 
@@ -73,14 +88,15 @@ export function CalendarView() {
     <div className="pb-6">
       <ProjectsFilterBar
         options={options}
-        accountKey={accountKey}
-        teamKey={teamKey}
-        onAccountKey={setAccountKey}
-        onTeamKey={setTeamKey}
-        assigneeUserId={assigneeUserId}
-        onAssigneeUserId={setAssigneeUserId}
-        priority={priority}
-        onPriority={setPriority}
+        accountKeys={accountKeys}
+        teamKeys={teamKeys}
+        onAccountKeys={setAccountKeys}
+        onTeamKeys={setTeamKeys}
+        assigneeUserIds={assigneeUserIds}
+        onAssigneeUserIds={setAssigneeUserIds}
+        priorities={priorities}
+        onPriorities={setPriorities}
+        showAccountSelect={isAdmin}
         title="Calendar"
         subtitle="Tasks plotted by due date."
       />

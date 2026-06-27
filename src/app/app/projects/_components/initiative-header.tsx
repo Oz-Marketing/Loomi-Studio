@@ -79,7 +79,6 @@ export function InitiativeHeader({
   }
 
   const status = INIT_STATUS[it.status] ?? INIT_STATUS.active;
-  const owner = options?.users.find((u) => u.id === it.ownerUserId) ?? null;
 
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">

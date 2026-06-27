@@ -1,5 +1,6 @@
-import { BoardView } from '../_components/board-view';
+import { redirect } from 'next/navigation';
 
+/** Board folded into the unified Tasks page. Keep the old URL working. */
 export default function BoardPage() {
-  return <BoardView />;
+  redirect('/projects/tasks');
 }

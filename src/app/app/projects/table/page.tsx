@@ -1,5 +1,6 @@
-import { TableView } from '../_components/table-view';
+import { redirect } from 'next/navigation';
 
+/** Table folded into the unified Tasks page. Keep the old URL working. */
 export default function TablePage() {
-  return <TableView />;
+  redirect('/projects/tasks?view=table');
 }

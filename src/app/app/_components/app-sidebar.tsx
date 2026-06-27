@@ -7,7 +7,6 @@ import {
   CogIcon,
   PlusIcon,
   RectangleStackIcon,
-  TableCellsIcon,
   UserCircleIcon,
   UsersIcon,
   ViewColumnsIcon,
@@ -15,6 +14,8 @@ import {
 import { useSidebarCollapse } from '@/contexts/sidebar-collapse-context';
 import { SidebarTooltip } from '@/components/sidebar-collapsed-ui';
 import { SidebarFrame } from '@/components/sidebar-frame';
+import { AccountSwitcher } from '@/components/account-switcher';
+import { LoomiWordmark } from './loomi-wordmark';
 
 /**
  * App-surface sidebar (Projects). Branding + nav only — user identity, theme
@@ -24,8 +25,10 @@ import { SidebarFrame } from '@/components/sidebar-frame';
  * `/projects/*` → `/app/projects/*`, and `usePathname()` returns the browser
  * URL, so active-state comparison uses the un-rewritten path.
  *
- * No account switcher: Projects is cross-account (My Work and the board span
- * every account the user can see), so account filtering is a per-view control.
+ * Account switcher under the logo (shared with studio/reporting via the
+ * active-account cookie): picking a sub-account scopes Initiatives, Board,
+ * Table, and Calendar to it; Admin shows everything. My Work stays personal
+ * (your assigned tasks across every account) regardless of the selection.
  */
 
 type NavItem = {
@@ -38,8 +41,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { key: 'initiatives', label: 'Initiatives', href: '/projects', icon: RectangleStackIcon, matchExact: true },
-  { key: 'board', label: 'Board', href: '/projects/board', icon: ViewColumnsIcon },
-  { key: 'table', label: 'Table', href: '/projects/table', icon: TableCellsIcon },
+  { key: 'tasks', label: 'Tasks', href: '/projects/tasks', icon: ViewColumnsIcon },
   { key: 'my-work', label: 'My Work', href: '/projects/my-work', icon: UserCircleIcon },
   { key: 'calendar', label: 'Calendar', href: '/projects/calendar', icon: CalendarIcon },
 ];
@@ -55,12 +57,11 @@ export function AppSidebar() {
   return (
     <SidebarFrame
       brand={
-        <Link href="/projects" className="block">
-          <div className="text-base font-semibold tracking-tight">
-            loomi
-          </div>
+        <Link href="/projects" className="block text-[var(--sidebar-foreground)]">
+          <LoomiWordmark className="h-8 w-auto" />
         </Link>
       }
+      account={collapsed ? <AccountSwitcher compact /> : <AccountSwitcher />}
       bottom={
         <div className={collapsed ? 'p-2' : 'px-2 py-2'}>
           <BottomLink
@@ -76,7 +77,7 @@ export function AppSidebar() {
       {/* New ticket — primary CTA */}
       <NewTicketButton collapsed={collapsed} />
 
-      <div className="mt-1 space-y-px">
+      <div className="mt-4 space-y-px">
         {NAV.map((item) => (
           <LeafNav key={item.key} item={item} collapsed={collapsed} active={isActive(item)} />
         ))}
@@ -114,7 +115,7 @@ function LeafNav({
       href={item.href}
       className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} rounded-xl py-2 text-sm font-normal transition-all duration-200 ${
         active
-          ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
+          ? 'bg-[var(--primary)]/10 text-[var(--primary)] font-medium'
           : 'text-[var(--sidebar-muted-foreground)] hover:bg-[var(--sidebar-muted)] hover:text-[var(--sidebar-foreground)]'
       }`}
     >
@@ -143,7 +144,7 @@ function BottomLink({
       href={href}
       className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-3 px-3'} rounded-xl py-2 text-sm font-normal transition-all duration-200 ${
         active
-          ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
+          ? 'bg-[var(--primary)]/10 text-[var(--primary)] font-medium'
           : 'text-[var(--sidebar-muted-foreground)] hover:bg-[var(--sidebar-muted)] hover:text-[var(--sidebar-foreground)]'
       }`}
     >
