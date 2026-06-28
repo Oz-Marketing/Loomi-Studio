@@ -35,6 +35,7 @@ import {
   AdEditorModal,
   Field,
   SummaryPanel,
+  ComparePanel,
 } from '@/app/app/tools/_shared';
 
 // ── Reference data ──
@@ -146,7 +147,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   const { confirm } = useLoomiDialog();
   const { data: session } = useSession();
   const currentUserId = session?.user?.id ?? null;
-  const [view, setView] = useState<'plan' | 'pace' | 'summary'>(
+  const [view, setView] = useState<'plan' | 'pace' | 'summary' | 'overunder'>(
     mode === 'planner' ? 'plan' : 'pace',
   );
   const [period, setPeriod] = useState(currentPeriod);
@@ -488,7 +489,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
         </div>
       )}
 
-      {plan && view !== 'summary' && (
+      {plan && (view === 'plan' || view === 'pace') && (
         <div className="mt-5">
           <TotalAllocationHeader plan={plan} />
           <div className="mt-4 flex flex-wrap items-start gap-4">
@@ -513,7 +514,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
       )}
 
       {/* Action row above the table (mirrors Meta's Ad Plan header + CTAs). */}
-      {view !== 'summary' && (
+      {(view === 'plan' || view === 'pace') && (
       <div className="mt-8 mb-3 flex flex-wrap items-center justify-between gap-3">
         <span className="text-sm font-bold tracking-tight text-[var(--foreground)]">
           Campaigns · {periodLabel(period)}{' '}
@@ -565,6 +566,10 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
       {view === 'summary' ? (
         plan ? (
           <SummaryPanel plan={plan} />
+        ) : null
+      ) : view === 'overunder' ? (
+        accountKey ? (
+          <ComparePanel accountKey={accountKey} period={period} platform="google" />
         ) : null
       ) : !isLoading && ads.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-12 text-center text-sm text-[var(--muted-foreground)]">
@@ -689,8 +694,8 @@ function Header({
   period,
   onShiftPeriod,
 }: {
-  mode: 'plan' | 'pace' | 'summary';
-  onMode: (m: 'plan' | 'pace' | 'summary') => void;
+  mode: 'plan' | 'pace' | 'summary' | 'overunder';
+  onMode: (m: 'plan' | 'pace' | 'summary' | 'overunder') => void;
   dealer: string | null;
   accountKey: string | null;
   logos: PacerLogos;
@@ -722,7 +727,9 @@ function Header({
                 ? 'Plan & allocate Google campaign budgets'
                 : mode === 'summary'
                   ? 'Per-campaign summary across the month'
-                  : 'Track Google spend pacing across the month'}
+                  : mode === 'overunder'
+                    ? 'Per-campaign over/under vs target this month'
+                    : 'Track Google spend pacing across the month'}
             </p>
           </div>
         </div>
@@ -730,19 +737,26 @@ function Header({
         {/* Center: Plan / Pace switch */}
         <div className="flex justify-center">
           <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-0.5">
-            {(['plan', 'pace', 'summary'] as const).map((m) => (
+            {(
+              [
+                ['plan', 'Plan'],
+                ['pace', 'Pace'],
+                ['summary', 'Summary'],
+                ['overunder', 'Over/Under'],
+              ] as const
+            ).map(([m, label]) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => onMode(m)}
                 aria-pressed={mode === m}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   mode === m
                     ? 'bg-[var(--primary)] text-white'
                     : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                 }`}
               >
-                {m}
+                {label}
               </button>
             ))}
           </div>

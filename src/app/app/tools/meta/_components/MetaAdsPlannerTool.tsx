@@ -81,10 +81,10 @@ import {
 } from '@/app/app/tools/_shared';
 import {
   ReconciliationPanel,
-  ComparePanel,
   OverviewView,
   type OverviewAccount,
 } from './ReconciliationViews';
+import { ComparePanel } from '@/app/app/tools/_shared';
 import { AccountNotesDrawer, type AccountNote } from './AccountNotesDrawer';
 import { BudgetLogDrawer, ChangeLogDrawer, type AdSnapshot } from './BudgetLogDrawer';
 import { ImportFromMetaModal } from './ImportFromMetaModal';
