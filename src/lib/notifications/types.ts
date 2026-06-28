@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import type { NotificationCategory } from './surfaces';
 
 export type NotificationType =
   | 'ad_due_soon'
@@ -26,7 +27,7 @@ export interface NotificationTypeMeta {
   type: NotificationType;
   label: string;
   description: string;
-  category: 'Meta Ads Planner' | 'Projects';
+  category: NotificationCategory;
   channel: 'digest' | 'immediate';
   defaultEnabled: boolean;
 }

@@ -15,6 +15,7 @@ import {
   PuzzlePieceIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
+import { useCurrentSurface } from '@/lib/hooks/use-current-surface';
 
 export type SettingsTabKey =
   | 'subaccounts'
@@ -44,6 +45,8 @@ export type SettingsTab = {
  */
 export function useSettingsTabs(): SettingsTab[] {
   const { isAdmin, isAccount, userRole } = useAccount();
+  const surface = useCurrentSurface();
+  const isApp = surface === 'app';
   const hasAdminAccess = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
   // Elevated = developer / super_admin only (no plain admin).
   const isElevated = userRole === 'developer' || userRole === 'super_admin';
@@ -55,7 +58,8 @@ export function useSettingsTabs(): SettingsTab[] {
   if (hasAdminAccess) tabs.push({ key: 'users', label: 'Users', titleLabel: 'User Settings', icon: UsersIcon });
   if (hasAdminAccess) tabs.push({ key: 'teams', label: 'Teams', titleLabel: 'Teams', icon: UserGroupIcon });
   if (hasAdminAccess && isAccount) tabs.push({ key: 'integrations', label: 'Integrations', titleLabel: 'Integrations', icon: PuzzlePieceIcon });
-  if (hasAdminAccess && isAccount) tabs.push({ key: 'contact-fields', label: 'Custom Fields', titleLabel: 'Contact Custom Fields', icon: TagIcon });
+  // Custom Fields are a Studio concern — hidden on the App surface.
+  if (hasAdminAccess && isAccount && !isApp) tabs.push({ key: 'contact-fields', label: 'Custom Fields', titleLabel: 'Contact Custom Fields', icon: TagIcon });
   if (hasAdminAccess && isAdmin) tabs.push({ key: 'contact-field-blueprints', label: 'Field Blueprints', titleLabel: 'Contact Field Blueprints', icon: Squares2X2Icon });
   if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', titleLabel: 'Knowledge Base Settings', icon: SparklesIcon });
   if (isElevated && isAdmin) tabs.push({ key: 'industries', label: 'Industries', titleLabel: 'Industry Settings', icon: BriefcaseIcon });
