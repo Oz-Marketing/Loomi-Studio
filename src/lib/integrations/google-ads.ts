@@ -41,7 +41,10 @@ export function getGoogleAdsConfig(): GoogleAdsConfig | null {
     clientSecret,
     refreshToken,
     loginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.replace(/-/g, '').trim() || null,
-    apiVersion: process.env.GOOGLE_ADS_API_VERSION?.trim() || 'v20',
+    // Google sunsets the oldest of its ~3 live versions each release; keep this
+    // on a current one (override per-env with GOOGLE_ADS_API_VERSION). v20 was
+    // deprecated/blocked — v24 is current as of 2026-06.
+    apiVersion: process.env.GOOGLE_ADS_API_VERSION?.trim() || 'v24',
   };
 }
 
