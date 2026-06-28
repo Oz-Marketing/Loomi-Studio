@@ -387,7 +387,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
             auto-import campaigns and sync spend.
           </span>
           <Link
-            href={`/subaccounts/${encodeURIComponent(accountKey)}`}
+            href="/settings/integrations"
             className="flex-shrink-0 font-medium text-[var(--primary)] hover:opacity-80"
           >
             Connect
