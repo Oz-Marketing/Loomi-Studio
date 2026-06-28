@@ -25,8 +25,13 @@ export { getGoogleCustomer, isGoogleAdsConfigured, GoogleAdsError };
 export type { ImportedGoogleCampaign };
 
 // The §8 onboarding query: every non-removed campaign with its budget + channel.
+// NOTE: campaign.start_date / campaign.end_date are intentionally NOT selected —
+// newer Google Ads API versions reject them as "unrecognized fields", which 400s
+// the whole sync. Flight dates aren't essential to a spend sync (the planner sets
+// them, and channel/status/budget/spend all still import), so we omit them rather
+// than couple the sync to a churning field set.
 const IMPORT_QUERY = `SELECT campaign.id, campaign.name, campaign.status,
-       campaign.advertising_channel_type, campaign.start_date, campaign.end_date,
+       campaign.advertising_channel_type,
        campaign_budget.amount_micros, campaign_budget.total_amount_micros,
        campaign_budget.resource_name
 FROM campaign
