@@ -130,7 +130,13 @@ function IntegrationsTab() {
   if (!accountKey) {
     return <div className="text-[var(--muted-foreground)]">Select a sub-account to manage its integrations.</div>;
   }
-  return <ReportingIntegrationCards accountKey={accountKey} />;
+  // ReportingIntegrationCards renders bare card buttons (no wrapper) — give them
+  // a responsive grid so they don't flow inline and wrap unevenly.
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <ReportingIntegrationCards accountKey={accountKey} />
+    </div>
+  );
 }
 
 // ════════════════════════════════════════
