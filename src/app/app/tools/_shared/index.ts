@@ -21,6 +21,7 @@ export {
   SectionLabel,
   Divider,
   UpdatesIndicator,
+  AccountNotesButton,
 } from './metrics';
 export { PeriodSelector } from './PeriodSelector';
 export { StatusBattery } from './StatusBattery';

@@ -2,7 +2,40 @@
 
 import type { ReactNode } from 'react';
 import { ChatBubbleOvalLeftIcon, PaperClipIcon } from '@heroicons/react/24/outline';
+import { COLORS } from '@/lib/ad-pacer/constants';
 import { Tooltip } from './Tooltip';
+
+/** Header notes button — icon + unread/total count badge. */
+export function AccountNotesButton({
+  count,
+  onClick,
+  ariaLabel,
+}: {
+  count: number | null;
+  onClick: () => void;
+  ariaLabel: string;
+}) {
+  return (
+    <Tooltip label={ariaLabel}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className="relative inline-flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+    >
+      <ChatBubbleOvalLeftIcon className="w-6 h-6" />
+      {count != null && count > 0 && (
+        <span
+          className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold flex items-center justify-center"
+          style={{ background: COLORS.daily, color: '#0a0a0a' }}
+        >
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </button>
+    </Tooltip>
+  );
+}
 
 export function MetricBox({
   label,
