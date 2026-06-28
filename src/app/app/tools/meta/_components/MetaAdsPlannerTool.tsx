@@ -48,8 +48,6 @@ import {
   ScaleIcon,
   LockClosedIcon,
   BoltIcon,
-  CheckCircleIcon,
-  MinusCircleIcon,
 } from '@heroicons/react/24/outline';
 import { useSession } from 'next-auth/react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -61,7 +59,6 @@ import { UserAvatar } from '@/components/user-avatar';
 // form; the import modal wants the searchable one.
 import { UserPicker as PeopleSearchPicker } from '@/components/user-picker';
 import { MetaBrandIcon } from '@/components/icons/platform-logos';
-import { BellIcon, BellOffIcon } from '@/components/icons/bell';
 import { InvestmentIcon } from '@/components/icons/investment';
 import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
@@ -112,9 +109,6 @@ import {
   calcDays,
   makeAd,
   fmtBytes,
-  fmtDaysNum,
-  fmtDaysLeft,
-  fmtDaysBasisPhrase,
   fmtFullDate,
   fmtSyncedAgo,
   effMarkupOf,
@@ -171,6 +165,7 @@ import {
   AddPlanButton,
   useDragReorder,
   AdSummaryRow,
+  PacerRow,
 } from '@/app/app/tools/_shared';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -5064,1181 +5059,64 @@ function AdSetLinkPicker({
   );
 }
 
-function PacerRow({
-  ad,
-  index,
-  timeZone,
-  onActualChange,
-  onDailyBudgetChange,
-  expanded,
-  onToggleExpanded,
-  adSets,
-  adSetsLoading,
-  adSetsError,
-  onLoadAdSets,
-  onLinkChange,
-  onMuteToggle,
-  onMarkOff,
-  onPushDailyBudget,
-  onResolveCrossMonth,
-  siblings,
-}: {
-  ad: PacerAd;
-  index: number;
-  timeZone: string;
-  onActualChange: (v: string | null) => void;
-  onDailyBudgetChange: (v: string | null) => void;
-  expanded: boolean;
-  onToggleExpanded: () => void;
-  adSets: MetaAdSetOption[] | null;
-  adSetsLoading: boolean;
-  adSetsError: string | null;
-  onLoadAdSets: () => void;
-  onLinkChange: (adSetId: string | null) => void;
-  onMuteToggle: () => void;
-  onMarkOff: () => void;
-  /** Push the row's current daily budget to its linked Meta ad set. */
-  onPushDailyBudget: (value: string) => Promise<{ ok: boolean; text: string }>;
-  /** §2: resolve a cross-month straddler — count its full run in its own month
-   *  (apply_full_run), set a lifetime planned split, or clear. Persists server-side. */
-  onResolveCrossMonth: (
-    action: 'apply_full_run' | 'split' | 'clear',
-    splitMap?: Record<string, number>,
-  ) => void;
-  /** #58: this ad's same-title sibling rows across months (period →
-   *  {allocation, actual}), so the split reference shows each month's real plan
-   *  + spend. null when the ad has no same-name rows in other periods. */
-  siblings: Record<string, { allocation: number; actual: number }> | null;
-}) {
-  const isLifetime = ad.budgetType === 'Lifetime';
-  const typeColor = budgetTypeColor(ad.budgetType);
-  // Once a row is linked to Meta and has synced, Meta owns its actual spend
-  // (read-only here) and its daily budget is edited-then-pushed, not free-typed.
-  const syncedFromMeta = !!ad.metaObjectId && !!ad.pacerSyncedAt;
-  // Daily-budget editor state: collapsed (read-only + pencil) until the user
-  // opts in; once they change the value a "Push to Meta" action appears.
-  const [dailyEditing, setDailyEditing] = useState(false);
-  const [dailyStart, setDailyStart] = useState<string | null>(null);
-  const [pushing, setPushing] = useState(false);
-  const [pushMsg, setPushMsg] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
-  // Full-run spend is opt-in per ad: a multi-month lifetime ad often only
-  // needs its current-month figure, so we hide the full run behind a toggle and
-  // show it only when the user asks for that ad.
-  const dailyChanged =
-    dailyEditing && (ad.pacerDailyBudget ?? '') !== (dailyStart ?? '');
-  const beginDailyEdit = () => {
-    setDailyStart(ad.pacerDailyBudget ?? '');
-    setPushMsg(null);
-    setDailyEditing(true);
-  };
-  const pushDaily = async () => {
-    setPushing(true);
-    setPushMsg(null);
-    const res = await onPushDailyBudget(ad.pacerDailyBudget ?? '');
-    setPushMsg(res);
-    setPushing(false);
-    if (res.ok) setDailyStart(ad.pacerDailyBudget ?? '');
-  };
-  // Discard edits — restore the value captured when editing began so a changed
-  // mind (or an accidental clear) can't wipe the budget.
-  const cancelDailyEdit = () => {
-    onDailyBudgetChange(dailyStart);
-    setPushMsg(null);
-    setDailyEditing(false);
-  };
+// Meta-specific slots injected into the shared <PacerRow>. Kept here (not in
+// _shared) because they read Meta-only fields (metaStartDate/End,
+// metaEffectiveStatus) — the Google tool passes its own equivalents.
 
-  // "Now" = the current instant; the day boundary that bounds the recommended
-  // daily is resolved in the account's timezone inside buildPacerCalc. Captured
-  // per ad/timezone change so the row's numbers stay stable between renders.
-  const calc = useMemo(
-    () => buildPacerCalc(ad, Date.now(), timeZone),
-    [ad, timeZone],
-  );
-  // The date being paced TO — the Meta/planned end clamped to the pacing
-  // month (Change 4). Drives the "until …" labels and the completed banner.
-  const effectiveEnd = calc.effectiveEnd;
-  const readOnly = usePacerReadOnly();
-
-  const isPastRun = calc.endsBeforeToday;
-  const isMarkedCompleted = ad.adStatus === 'Completed Run';
-  const isMarkedOff = ad.adStatus === 'Off';
-  // Off / Completed Run freeze pacing math: spend is final, no further
-  // projection or daily-adjustment makes sense. Past-flight ads without an
-  // explicit status fall through to the "Mark as completed" prompt.
-  const showCompletedSummary = isMarkedCompleted || isMarkedOff;
-  // Live-pacing case = the projection grid + pacing insight + mute control show.
-  // When the run is completed/past, those are hidden, but the cross-month toggle
-  // stays available (the classification is still editable).
-  const showsProjection = !showCompletedSummary && !isPastRun;
-
-  // Color the recommended-vs-current daily comparison
-  const dailyDelta = calc.recDaily - calc.dailyBudget;
-  const isOnTrack = calc.budget > 0 && Math.abs(dailyDelta) < 0.5;
-  const recColor = isOnTrack
-    ? COLORS.success
-    : calc.recDaily > calc.dailyBudget
-      ? COLORS.warn
-      : COLORS.lifetime;
-
-  // Health-based accent colors the left stripe AND the compact pacing
-  // badge in the summary row, so both UI elements agree on the bucket.
-  const health = useMemo(() => classifyPacerHealth(ad, calc), [ad, calc]);
-
-  // Resolved = the user billed the ad's full run in its own month
-  // (fullRunAppliedToMonth). Cross-month accounting is a MANUAL choice via the
-  // dropdown on the input row — nothing is auto-detected.
-  const resolvedFullRun = ad.fullRunAppliedToMonth != null;
-
-  // ── Cross-month accounting (derived once) — the selector lives on the input
-  //    row; its Bill/Split detail renders just below the row. ──
-  const cmMonths: string[] = (() => {
-    const out: string[] = [];
-    const rawStart = ad.flightStart ?? ad.metaStartDate ?? ad.liveDate;
-    const rawEnd = ad.flightEnd ?? ad.metaEndDate;
-    if (rawStart && rawEnd) {
-      let y = Number(rawStart.slice(0, 4));
-      let mo = Number(rawStart.slice(5, 7));
-      const ey = Number(rawEnd.slice(0, 4));
-      const em = Number(rawEnd.slice(5, 7));
-      while ((y < ey || (y === ey && mo <= em)) && out.length < 25) {
-        out.push(`${y}-${String(mo).padStart(2, '0')}`);
-        mo += 1;
-        if (mo > 12) {
-          mo = 1;
-          y += 1;
-        }
-      }
-    }
-    return out;
-  })();
-  let cmSplit: Record<string, number> | null = null;
-  try {
-    cmSplit = ad.lifetimeMonthSplit
-      ? (JSON.parse(ad.lifetimeMonthSplit) as Record<string, number>)
-      : null;
-  } catch {
-    cmSplit = null;
+/** Run-window tooltip beside the link control; null when there's no Meta run. */
+function MetaSyncInfo({ ad, timeZone }: { ad: PacerAd; timeZone: string }) {
+  if (!ad.metaObjectId || (!ad.metaStartDate && !ad.metaEndDate)) return null;
+  const effectiveEnd = buildPacerCalc(ad, Date.now(), timeZone).effectiveEnd;
+  const parts: string[] = [
+    `Meta run: ${ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'} → ${ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}`,
+  ];
+  if (effectiveEnd && (!ad.metaEndDate || ad.metaEndDate > effectiveEnd)) {
+    parts.push(`Paced to ${fmtDate(effectiveEnd)} (month end)`);
   }
-  // Full run can't be below the in-month slice; fall back to the entered actual
-  // when Meta run-spend isn't synced so the verdict isn't $0.
-  const cmRun = Math.max(num(ad.pacerRunSpend) ?? 0, num(ad.pacerActual) ?? 0);
-  const cmTarget = num(ad.allocation) ?? 0;
-  const cmSiblingPeriods = siblings ? Object.keys(siblings).sort() : [];
-  // #58: same-title rows in 2+ months drive the real per-month split reference.
-  const cmHasSiblings = isLifetime && cmSiblingPeriods.length > 1;
-  // 3-state classifier: '' (no choice) · 'split' · 'bill'. Selecting a value
-  // persists it; the detail surfaces only once a real option is chosen.
-  const cmSelValue: '' | 'split' | 'bill' = resolvedFullRun
-    ? 'bill'
-    : ad.lifetimeMonthSplit != null
-      ? 'split'
-      : '';
-  // Cross-month accounting is opt-in per ad via a footer toggle — the dropdown
-  // (and its detail) only appear when on. Defaults on for ads already
-  // classified so an existing Bill/Split stays visible.
-  const [showCrossMonth, setShowCrossMonth] = useState(cmSelValue !== '');
-
-  // Meta connection controls, extracted so the synced card's connection header
-  // and the unsynced field row can each place them without duplicating markup.
-  const linkPicker = (
-    <AdSetLinkPicker
-      value={ad.metaObjectId}
-      options={adSets}
-      loading={adSetsLoading}
-      error={adSetsError}
-      onOpen={onLoadAdSets}
-      onChange={onLinkChange}
-      disabled={readOnly}
-    />
-  );
-  // Tooltip shows just the Meta run window for now (the sync recency is shown
-  // inline next to it). No run dates → no info icon.
-  const metaSyncInfo =
-    ad.metaObjectId && (ad.metaStartDate || ad.metaEndDate)
-      ? (() => {
-          const parts: string[] = [
-            `Meta run: ${ad.metaStartDate ? fmtDate(ad.metaStartDate) : '—'} → ${ad.metaEndDate ? fmtDate(ad.metaEndDate) : 'ongoing'}`,
-          ];
-          if (effectiveEnd && (!ad.metaEndDate || ad.metaEndDate > effectiveEnd)) {
-            parts.push(`Paced to ${fmtDate(effectiveEnd)} (month end)`);
-          }
-          return (
-            <Tooltip label={parts.join(' · ')} placement="top">
-              <span className="inline-flex flex-shrink-0 items-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
-                <InformationCircleIcon className="w-4 h-4" />
-              </span>
-            </Tooltip>
-          );
-        })()
-      : null;
-
-  // Status indicator color — pulled from the same map AdStatusPill uses
-  // so the dot matches the status the user sees on the planner page.
-  const statusColor = AD_STATUS_COLORS[ad.adStatus]?.[0] ?? 'var(--muted-foreground)';
-  // Health icon picks the right semantic affordance per bucket — keeps
-  // the loudest verdict (health pill) visually distinct from the
-  // quieter status dot + budget-type suffix.
-  const HealthIcon =
-    health.state === 'on-track'
-      ? CheckCircleIcon
-      : health.state === 'stopped' || health.state === 'no-data'
-        ? MinusCircleIcon
-        : ExclamationTriangleIcon;
-  const healthMuted = health.state === 'stopped' || health.state === 'no-data';
-
-  // Compact one-line summary row. Four visual languages, one per signal:
-  //   - identity:   colored ad-dot + name
-  //   - status:     colored dot + plain text (workflow lifecycle)
-  //   - values:     budget number + /day or total suffix (carries type)
-  //   - verdict:    loud health pill with leading icon (the answer)
-  const summaryRow = (
-    // A div (not a button) so the inline Mute toggle can be a real nested
-    // button. Row still expands on click / Enter / Space.
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onToggleExpanded}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onToggleExpanded();
-        }
-      }}
-      aria-expanded={expanded}
-      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--muted)]/30 transition-colors cursor-pointer"
-    >
-      {expanded ? (
-        <ChevronDownIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" />
-      ) : (
-        <ChevronRightIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" />
-      )}
-      {/* Identity zone — ad-dot + name + status all grouped on the left
-          so the status reads as adjacent context to the ad, not as a
-          separate column out near the metrics. */}
-      <div className="flex items-center gap-3 min-w-0 flex-1">
-        <div
-          className="w-2 h-2 rounded-sm flex-shrink-0"
-          style={{ background: AD_COLORS[index % AD_COLORS.length] }}
-        />
-        <span className="text-sm font-semibold text-[var(--foreground)] truncate min-w-0">
-          {ad.name || 'Untitled Ad'}
-        </span>
-        {/* Status: dot + plain text, no pill chrome (workflow state, not
-            a verdict — quieter than the health pill on the right). */}
-        <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)] whitespace-nowrap flex-shrink-0">
-          <span
-            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-            style={{ background: statusColor }}
-          />
-          {ad.adStatus || 'No status'}
-        </span>
-        {/* Cross-month treatment is indicated by a single pill inside the
-            expanded card's pill row (next to Daily/Lifetime + Base/Added),
-            not here in the collapsed header — keeps the row clean. */}
-      </div>
-      {/* Actual spend — labelled so the bare number isn't ambiguous. Fixed
-          width + right-aligned so it forms a consistent column down the list. */}
-      <span className="hidden sm:inline-flex items-baseline justify-end gap-1 text-[11px] tabular-nums whitespace-nowrap flex-shrink-0 w-[132px]">
-        <span className="text-[var(--muted-foreground)]">Actual</span>
-        <span className="text-[var(--foreground)] font-semibold">
-          {calc.spent > 0 ? fmt(calc.spent) : '—'}
-        </span>
-      </span>
-      {/* Budget — suffix `/day` or ` total` carries the lifetime/daily
-          mode so the LIFETIME / DAILY pill is no longer needed. Fixed width +
-          right-aligned to line up with the column above. */}
-      <span
-        className="hidden md:inline-flex items-baseline justify-end gap-1 text-[11px] tabular-nums whitespace-nowrap flex-shrink-0 font-semibold w-[108px]"
-        style={{ color: typeColor }}
-      >
-        {isLifetime ? (
-          calc.budget > 0 ? (
-            <>
-              {fmt(calc.budget)}
-              <span className="text-[10px] font-normal text-[var(--muted-foreground)]">
-                total
-              </span>
-            </>
-          ) : (
-            '—'
-          )
-        ) : calc.dailyBudget > 0 ? (
-          <>
-            {fmt(calc.dailyBudget)}
-            <span className="text-[10px] font-normal text-[var(--muted-foreground)]">
-              /day
-            </span>
-          </>
-        ) : (
-          '—'
-        )}
-      </span>
-      {/* Verdict pill — the loudest signal in the row. Solid colored
-          background + leading icon so the eye lands here first. */}
-      <span
-        className="inline-flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md flex-shrink-0 min-w-[92px]"
-        style={{
-          background: healthMuted ? 'rgba(255,255,255,0.06)' : `${health.color}26`,
-          color: healthMuted ? 'var(--muted-foreground)' : health.color,
-          border: `1px solid ${healthMuted ? 'transparent' : `${health.color}55`}`,
-        }}
-      >
-        <HealthIcon className="w-3 h-3 flex-shrink-0" />
-        {health.short}
-      </span>
-    </div>
-  );
-
   return (
-    <div className="glass-section-card pacer-ad-card relative rounded-xl mb-2.5 overflow-hidden">
-      {/* Left-edge accent stripe colored by pacing health — visible on
-          both summary and expanded states. */}
-      <div
-        className="absolute top-0 bottom-0 left-0 w-1"
-        style={{ background: health.color }}
-      />
-      {summaryRow}
-      {!expanded ? null : (
-        <div className="border-t border-[var(--border)] px-5 py-4 pl-6">
-
-      {/* Header row inside the expanded view — Target Spend (value +
-          type + source/split breakdown) on the left, Flight window on
-          the right. Replaces the old 5-column inputs grid Target Spend
-          field so all of the read-only context lives together up top,
-          and the inputs row below can focus on the two values reps
-          actually edit. */}
-      <div className="flex items-start justify-between gap-4 mb-5 flex-wrap">
-        <div className="flex-shrink-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-            Target Spend
-          </div>
-          {/* Value + source tag on one line — the source sits to the RIGHT of
-              the target spend. Split ads also surface the Base / Added
-              breakdown so the bucket allocation is visible right where the
-              budget lives. */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-baseline gap-1.5">
-              <span
-                className="text-base font-bold tabular-nums"
-                style={{ color: typeColor }}
-              >
-                {calc.budget > 0 ? fmt(calc.budget) : '—'}
-              </span>
-              <span className="text-[11px] text-[var(--muted-foreground)]">
-                {isLifetime ? 'total' : '/day target'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-[10px]">
-              {/* Budget type — Daily (blue) vs Lifetime (purple), matching the
-                  table-view tag — so the daily-rate vs fixed-total distinction
-                  is explicit, not just implied by the "/day" vs "total" suffix. */}
-              <span
-                className="font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-                style={{
-                  background: budgetTypeTint(ad.budgetType),
-                  color: typeColor,
-                }}
-              >
-                {ad.budgetType}
-              </span>
-              <span
-                className="font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-                style={{
-                  background: sourceTint(ad.budgetSource),
-                  color: sourceColor(ad.budgetSource),
-                }}
-              >
-                {sourceLabel(ad.budgetSource)}
-              </span>
-              {(resolvedFullRun || ad.lifetimeMonthSplit != null) && (
-                <Tooltip
-                  label={
-                    resolvedFullRun
-                      ? "Cross-month: the full run is billed in this ad's month — the over/under compares the full run to the full target."
-                      : 'Cross-month: lifetime ad with a planned per-month split (reference only — the variance books once on completion).'
-                  }
-                >
-                <span
-                  className="font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-                  style={{ background: 'rgba(249,115,22,0.18)', color: '#f97316' }}
-                >
-                  Cross-month
-                </span>
-                </Tooltip>
-              )}
-              {ad.budgetSource === 'split' && (() => {
-                const baseAmt = num(ad.splitBaseAmount) ?? 0;
-                const addedAmt = Math.max(0, calc.budget - baseAmt);
-                return (
-                  <span className="text-[var(--muted-foreground)]">
-                    Base {fmt(baseAmt)} / Added {fmt(addedAmt)}
-                  </span>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-        {/* Mute alerts lives in the expanded-card footer (bottom-right),
-            so the header just carries the Flight window. */}
-        {ad.flightStart && ad.flightEnd && (
-          <div className="text-right flex-shrink-0">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-              Flight
-            </div>
-            <div className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
-              {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
-            </div>
-            <div className="text-[10px] text-[var(--muted-foreground)]">
-              {calcDays(ad.flightStart, ad.flightEnd)} days
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Editable inputs row — just the two values reps actually edit.
-          Today's date always uses the current date and end date uses
-          the immutable flight end, so neither needs an input. */}
-      <div className="mb-3.5 flex items-start justify-between gap-4 flex-wrap">
-        {/* Actual + Daily + Link. When the ad is connected to a Meta ad set,
-            these are contained in a card with a "from Meta" badge (Meta owns the
-            spend); otherwise they sit plainly. */}
-        <div
-          className={`${
-            syncedFromMeta
-              ? 'w-full md:w-[calc(50%_-_4px)] rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 py-3'
-              : 'w-fit'
-          }`}
-        >
-          <div
-            className={
-              syncedFromMeta
-                ? 'grid grid-cols-2 gap-2 [&>*]:px-3 [&_label]:mb-1'
-                : 'grid grid-cols-1 md:grid-cols-[minmax(0,150px)_minmax(0,150px)_minmax(0,max-content)] gap-4'
-            }
-          >
-        <Field label="Actual Spend">
-          {syncedFromMeta ? (
-            // Meta owns the spend once synced — plain read-only value. The card's
-            // "from Meta" badge labels the source, so no per-field tag here.
-            <div className="flex items-center">
-              <span className="text-xl font-bold tabular-nums text-[var(--foreground)]">
-                {fmt(num(ad.pacerActual) ?? 0)}
-              </span>
-            </div>
-          ) : (
-            <DollarInput
-              value={ad.pacerActual}
-              onChange={onActualChange}
-              placeholder="0.00"
-            />
-          )}
-        </Field>
-        <Field label="Daily Budget">
-          {isLifetime ? (
-            <Tooltip
-              label="Lifetime ads use a fixed total budget, not a daily rate"
-              className="w-full"
-            >
-            <div
-              className={`${readonlyClass} italic`}
-            >
-              N/A — lifetime
-            </div>
-            </Tooltip>
-          ) : !syncedFromMeta ? (
-            // Manual / unlinked — free-typed as before.
-            <DollarInput
-              value={ad.pacerDailyBudget}
-              onChange={onDailyBudgetChange}
-              placeholder="0.00"
-            />
-          ) : !dailyEditing ? (
-            // Synced — plain read-only value with a pencil to reveal the input.
-            // Not a box that looks editable until you click the pencil.
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tabular-nums text-[var(--foreground)]">
-                {ad.pacerDailyBudget != null && ad.pacerDailyBudget !== ''
-                  ? fmt(num(ad.pacerDailyBudget) ?? 0)
-                  : '—'}
-              </span>
-              <Tooltip label="Edit daily budget">
-              <button
-                type="button"
-                onClick={beginDailyEdit}
-                disabled={readOnly}
-                aria-label="Edit daily budget"
-                className="inline-flex items-center justify-center rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <PencilSquareIcon className="w-3.5 h-3.5" />
-              </button>
-              </Tooltip>
-            </div>
-          ) : (
-            // Editing — the input, a full-width Push action shown only once the
-            // value changes, and a tidy right-aligned Cancel / Done row.
-            <div className="space-y-2">
-              <DollarInput
-                value={ad.pacerDailyBudget}
-                onChange={onDailyBudgetChange}
-                placeholder="0.00"
-              />
-              {dailyChanged && (
-                <button
-                  type="button"
-                  onClick={pushDaily}
-                  disabled={pushing || readOnly}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--primary)] px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <MetaBrandIcon className="w-3.5 h-3.5" />
-                  {pushing ? 'Pushing…' : 'Push to Meta'}
-                </button>
-              )}
-              <div className="flex items-center justify-end gap-4 text-[11px]">
-                {/* Cancel restores the original value; Done keeps the edit. */}
-                <button
-                  type="button"
-                  onClick={cancelDailyEdit}
-                  disabled={pushing}
-                  className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDailyEditing(false);
-                    setPushMsg(null);
-                  }}
-                  disabled={pushing}
-                  className="font-semibold text-[var(--primary)] hover:opacity-80 disabled:opacity-50"
-                >
-                  Done
-                </button>
-              </div>
-              {pushMsg && (
-                <div
-                  className={`text-[10px] ${pushMsg.ok ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}
-                >
-                  {pushMsg.text}
-                </div>
-              )}
-            </div>
-          )}
-        </Field>
-        {!syncedFromMeta && (
-          // Unsynced/manual: the link control is the third field. Once linked +
-          // synced, the connection header above replaces this.
-          <div>
-            <span className={labelClass} aria-hidden="true">&nbsp;</span>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {linkPicker}
-              {metaSyncInfo}
-            </div>
-          </div>
-        )}
-          </div>
-          {syncedFromMeta && (
-            // Connection footer — ad-set link + sync status below the spend
-            // metrics, instead of crammed in as a third field.
-            <div className="mt-3 flex items-center justify-between gap-4 border-t border-[var(--border)] px-3 pt-2.5">
-              {linkPicker}
-              <div className="flex flex-shrink-0 items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
-                {ad.pacerSyncedAt && (
-                  <span className="whitespace-nowrap">
-                    Synced {fmtSyncedAgo(ad.pacerSyncedAt)}
-                  </span>
-                )}
-                {metaSyncInfo}
-              </div>
-            </div>
-          )}
-          {adSetsError && (
-            <div className="mt-2 text-[10px] text-[#ef4444]">{adSetsError}</div>
-          )}
-        </div>
-        {/* Cross-month accounting — dropdown + its detail banner stacked into one
-            tidy column to the right of the spend fields, so the banner reads as
-            part of the chosen option. Shown only when the footer toggle is on. */}
-        {showCrossMonth && (
-          <div className="flex w-full flex-col gap-2 sm:w-[260px] flex-shrink-0">
-            <select
-              id={`cm-${ad.id}`}
-              value={cmSelValue}
-              disabled={readOnly}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === 'bill') {
-                  onResolveCrossMonth('apply_full_run');
-                } else if (v === 'split') {
-                  // Seed an even-split map so the single-row reference has values;
-                  // sibling rows override it when the ad spans months (#58).
-                  const per =
-                    cmMonths.length > 0
-                      ? Math.round((cmTarget / cmMonths.length) * 100) / 100
-                      : 0;
-                  const map: Record<string, number> = {};
-                  cmMonths.forEach((mm) => {
-                    map[mm] = per;
-                  });
-                  onResolveCrossMonth('split', map);
-                }
-              }}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--input)] focus:outline-none focus:border-[var(--primary)] text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="" disabled>
-                Cross-Month Accounting
-              </option>
-              <option value="split">Split across months</option>
-              <option value="bill">Bill in one month</option>
-            </select>
-            {cmSelValue === 'bill' && (
-              <div
-                className="rounded-md border px-2.5 py-2 text-[11px] leading-relaxed text-[var(--foreground)]"
-                style={{ borderColor: 'rgba(249,115,22,0.3)', background: 'rgba(249,115,22,0.08)' }}
-              >
-                Full run <span className="font-semibold">{fmt(cmRun)}</span> vs target{' '}
-                <span className="font-semibold">{fmt(cmTarget)}</span>
-                {cmTarget > 0 &&
-                  (() => {
-                    // The full-run pacing verdict — the whole run can pace
-                    // correctly even though the month's actual is just the slice.
-                    const d = cmRun / cmTarget - 1;
-                    const verdict =
-                      Math.abs(d) <= 0.1
-                        ? { t: '✓ on target', c: COLORS.success }
-                        : d > 0
-                          ? { t: `+${(d * 100).toFixed(0)}% over`, c: COLORS.error }
-                          : { t: `${(d * 100).toFixed(0)}% under`, c: COLORS.warn };
-                    return (
-                      <>
-                        {' — '}
-                        <span className="font-semibold" style={{ color: verdict.c }}>
-                          {verdict.t}
-                        </span>
-                      </>
-                    );
-                  })()}
-                {' · counts in '}
-                <span className="font-semibold" style={{ color: '#f97316' }}>
-                  {fmtPeriodLong(ad.fullRunAppliedToMonth ?? ad.period)}
-                </span>
-                .
-              </div>
-            )}
-            {cmSelValue === 'split' && (
-              <div className="rounded-md border border-[var(--border)] bg-[var(--muted)]/30 px-2.5 py-2 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-                {isLifetime
-                  ? 'Each month keeps its own spend; the full variance settles when the run completes.'
-                  : "Each month keeps its own spend (the over/under uses this month's slice)."}
-                {cmHasSiblings && (
-                  <div className="mt-2 space-y-1.5 border-t border-[var(--border)] pt-2">
-                    <div className="font-semibold" style={{ color: COLORS.lifetime }}>
-                      Planned split (per month)
-                    </div>
-                    {cmSiblingPeriods.map((mm) => {
-                      const s = siblings![mm];
-                      const here = mm === ad.period;
-                      // The current month's line reads the live (possibly unsaved)
-                      // row values; other months come from the sibling rows.
-                      const planned = here ? (num(ad.allocation) ?? 0) : s.allocation;
-                      const actual = here ? (num(ad.pacerActual) ?? 0) : s.actual;
-                      return (
-                        <div key={mm} className="flex flex-col leading-tight">
-                          <span className="text-[var(--foreground)]">
-                            {fmtPeriodLong(mm)}
-                            {here && (
-                              <span className="text-[var(--muted-foreground)]">
-                                {' · this month'}
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-[var(--muted-foreground)]">
-                            planned {fmt(planned)} · actual {fmt(actual)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {!cmHasSiblings && isLifetime && cmMonths.length > 1 && cmSplit != null && (
-                  <div className="mt-2 space-y-1.5 border-t border-[var(--border)] pt-2">
-                    <div className="font-semibold" style={{ color: COLORS.lifetime }}>
-                      Planned split (reference only)
-                    </div>
-                    {cmMonths.map((mm) => (
-                      <div key={mm} className="flex flex-col leading-tight">
-                        <span className="text-[var(--foreground)]">
-                          {fmtPeriodLong(mm)}
-                        </span>
-                        <span className="text-[var(--muted-foreground)]">
-                          {mm === ad.period
-                            ? `actual ${fmt(num(ad.pacerActual) ?? 0)} · `
-                            : ''}
-                          planned {fmt(cmSplit?.[mm] ?? 0)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-
-      {/* Meta status mismatch (Change 11): full-width below the inputs so the
-          warning + one-click confirm aren't cramped in the link column. Meta
-          reports the ad not delivering while the planner still says Live mid-
-          flight; don't auto-flip (Meta "paused" can be a daily cap / billing
-          hold) — surface a one-click confirm. */}
-      {(() => {
-        const meta = ad.metaEffectiveStatus;
-        const plannerLive =
-          ad.adStatus === 'Live' || ad.adStatus === 'Live - Changes Required';
-        if (!meta || !plannerLive || meta.toUpperCase() === 'ACTIVE') return null;
-        const through = ad.metaEndDate ?? ad.flightEnd;
-        return (
-          <div
-            className="mb-3.5 rounded-md border px-2.5 py-2 text-[10px]"
-            style={{ borderColor: `${COLORS.warn}66`, background: 'rgba(245,158,11,0.08)' }}
-          >
-            <div className="text-[var(--foreground)] leading-snug">
-              Meta shows <span className="font-semibold">{meta}</span>
-              {through ? <> — but scheduled through {fmtDate(through)}</> : null}.
-            </div>
-            <button
-              type="button"
-              onClick={onMarkOff}
-              disabled={readOnly}
-              className="mt-1 inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Mark Off in planner
-            </button>
-          </div>
-        );
-      })()}
-
-
-
-      {/* Stopped / past-due states replace the projection grid. Off or
-          Completed Run freezes the math at the entered actuals; past-flight
-          ads without an explicit status get a banner prompting the user to
-          mark the status. */}
-      {showCompletedSummary ? (
-        <PacerCompletedSummary
-          ad={ad}
-          calc={calc}
-          isLifetime={isLifetime}
-          effectiveEnd={effectiveEnd}
-          variant={isMarkedOff ? 'off' : 'completed'}
-        />
-      ) : isPastRun ? (
-        <div
-          className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-4 py-4 flex items-center justify-between gap-3 flex-wrap"
-          style={{ borderColor: COLORS.success }}
-        >
-          <div>
-            <div
-              className="text-[10px] font-bold uppercase tracking-wider"
-              style={{ color: COLORS.success }}
-            >
-              Completed run
-            </div>
-            <div className="text-base font-bold text-[var(--foreground)] mt-0.5">
-              Spent {fmt(calc.spent)}
-              {calc.budget > 0 && (
-                <span className="text-xs text-[var(--muted-foreground)] font-normal ml-2">
-                  of {fmt(calc.budget)} target
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="text-[10px] text-[var(--muted-foreground)] max-w-[260px] text-right">
-            Mark this ad as <span className="font-semibold">Completed Run</span>{' '}
-            in the planner to lock in a final summary.
-          </div>
-        </div>
-      ) : (
-        <>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {isLifetime ? (
-          (() => {
-            const pct = calc.lifetimePacingPct;
-            const onTrack = pct != null && pct >= 95 && pct <= 105;
-            const overpacing = pct != null && pct > 105;
-            const underpacing = pct != null && pct < 95;
-            const color = onTrack
-              ? COLORS.success
-              : overpacing
-                ? COLORS.warn
-                : underpacing
-                  ? COLORS.error
-                  : undefined;
-            return (
-              <MetricBox
-                label="Pacing"
-                value={pct != null ? `${pct.toFixed(1)}%` : '—'}
-                sub={
-                  pct == null
-                    ? 'set flight start, end, and target'
-                    : onTrack
-                      ? 'on track'
-                      : overpacing
-                        ? 'spending faster than scheduled'
-                        : 'spending slower than scheduled'
-                }
-                color={color}
-              />
-            );
-          })()
-        ) : (
-          <MetricBox
-            label="Projected Spend"
-            value={
-              calc.hasDates && !calc.endsBeforeToday
-                ? fmt(calc.projected)
-                : '—'
-            }
-            sub={
-              !calc.hasDates
-                ? 'set today + end dates'
-                : calc.endsBeforeToday
-                  ? 'end is before today'
-                  : `spend + ${fmt(calc.dailyBudget)}/d × ${fmtDaysNum(calc.daysLeft)}d`
-            }
-          />
-        )}
-        <MetricBox
-          label="Days Remaining"
-          value={
-            calc.hasDates && !calc.endsBeforeToday
-              ? fmtDaysLeft(calc.daysLeft)
-              : '—'
-          }
-          sub={
-            calc.endsBeforeToday
-              ? 'window already closed'
-              : calc.hasDates
-                ? `until ${fmtDate(effectiveEnd)}`
-                : 'set today + end dates'
-          }
-        />
-        <MetricBox
-          label="Remaining Budget"
-          value={calc.budget > 0 ? fmt(calc.remaining) : '—'}
-          sub={
-            calc.budget > 0
-              ? calc.spent > calc.budget
-                ? `over by ${fmt(calc.spent - calc.budget)}`
-                : `${fmt(calc.spent)} of ${fmt(calc.budget)} spent`
-              : 'set Target Spend'
-          }
-          color={
-            calc.budget > 0
-              ? calc.spent > calc.budget
-                ? COLORS.error
-                : COLORS.success
-              : undefined
-          }
-        />
-        <MetricBox
-          label="Rec. Daily Adjustment"
-          value={
-            calc.budget > 0 && calc.daysLeft > 0
-              ? fmt(calc.recDaily)
-              : '—'
-          }
-          // First line: the formula — remaining budget ÷ remaining days — since
-          // that's exactly what the recommendation is (recDaily = remaining /
-          // max(daysLeft, 1)). The divisor floors at 1 on the final day so the
-          // tail can't blow up, labeled so the "1 day" is understood.
-          sub={
-            calc.budget <= 0
-              ? 'set Target Spend'
-              : calc.daysLeft <= 0
-                ? 'no days remaining'
-                : calc.daysLeft >= 1
-                  ? `${fmt(calc.remaining)} remaining ÷ ${fmtDaysBasisPhrase(calc.daysLeft)} left`
-                  : `${fmt(calc.remaining)} remaining ÷ 1 day (final day)`
-          }
-          // Second line (below the formula): the plain-language action — how
-          // much to add to / cut from the current daily budget to hit the rec.
-          detail={
-            calc.budget > 0 && calc.daysLeft > 0
-              ? isOnTrack
-                ? 'On track — no change needed'
-                : dailyDelta > 0
-                  ? `Add ${fmt(Math.abs(dailyDelta))} to current Daily Budget`
-                  : `Reduce current Daily Budget by ${fmt(Math.abs(dailyDelta))}`
-              : undefined
-          }
-          color={recColor}
-        />
-      </div>
-        </>
-      )}
-
-      {/* Footer — the cross-month toggle stays available even on completed /
-          past runs (its classification is still editable); the pacing insight
-          and mute control show only while the ad is actively pacing. */}
-      <div className="mt-3 pt-3 border-t border-[var(--border)] flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0 flex-1">
-          {showsProjection &&
-            (() => {
-        if (calc.budget <= 0) return null;
-        if (!calc.hasDates) return null;
-        if (calc.spent >= calc.budget) {
-          return (
-            <p
-              className="m-0 text-[11px] leading-relaxed"
-              style={{ color: COLORS.error }}
-            >
-              Budget already fully spent
-              {calc.spent > calc.budget
-                ? ` (over by ${fmt(calc.spent - calc.budget)})`
-                : ''}
-              . Consider pausing the ad or increasing the target spend.
-            </p>
-          );
-        }
-        if (isLifetime) {
-          return (
-            <p className="m-0 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-              {fmt(calc.remaining)} of the lifetime budget left across{' '}
-              {fmtDaysLeft(calc.daysLeft)}. To finish on time, average ~
-              {fmt(calc.recDaily)}/day.
-            </p>
-          );
-        }
-        const overspendThreshold = calc.budget * 1.05;
-        const underspendThreshold = calc.budget * 0.95;
-        if (calc.projected > overspendThreshold) {
-          return (
-            <p
-              className="m-0 text-[11px] leading-relaxed"
-              style={{ color: COLORS.warn }}
-            >
-              At your current rate of {fmt(calc.dailyBudget)}/day you&apos;re
-              projected to overspend by{' '}
-              {fmt(calc.projected - calc.budget)} by{' '}
-              {fmtDate(effectiveEnd)}. Lower the daily budget to{' '}
-              {fmt(calc.recDaily)} to stay on target.
-            </p>
-          );
-        }
-        if (calc.projected < underspendThreshold) {
-          return (
-            <p
-              className="m-0 text-[11px] leading-relaxed"
-              style={{ color: COLORS.lifetime }}
-            >
-              At your current rate you&apos;ll underspend by{' '}
-              {fmt(calc.budget - calc.projected)} — bumping the daily budget
-              to {fmt(calc.recDaily)} will use the full target by{' '}
-              {fmtDate(effectiveEnd)}.
-            </p>
-          );
-        }
-        return (
-          <p
-            className="m-0 text-[11px] leading-relaxed"
-            style={{ color: COLORS.success }}
-          >
-            Pacing well — a small adjustment keeps you on track for{' '}
-            {fmtDate(effectiveEnd)}.
-          </p>
-        );
-      })()}
-        </div>
-        {/* Footer controls — cross-month toggle + icon-only mute. */}
-        <div className="flex flex-shrink-0 items-center gap-3">
-          {/* Cross-month accounting toggle — reveals the dropdown on the input
-              row; turning it off clears any Bill/Split classification. Orange =
-              on (matches the cross-month theme). */}
-          <Tooltip label="Cross-month accounting for this ad">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showCrossMonth}
-            onClick={() => {
-              if (showCrossMonth) {
-                setShowCrossMonth(false);
-                if (cmSelValue !== '') onResolveCrossMonth('clear');
-              } else {
-                setShowCrossMonth(true);
-              }
-            }}
-            disabled={readOnly}
-            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <span
-              className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors"
-              style={{ background: showCrossMonth ? '#f97316' : 'var(--border)' }}
-            >
-              <span
-                className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                  showCrossMonth ? 'translate-x-3.5' : 'translate-x-0.5'
-                }`}
-              />
-            </span>
-            Cross-month
-          </button>
-          </Tooltip>
-          {/* Mute alerts — icon only; hidden on completed / past runs (pacing
-              alerts no longer apply there). */}
-          {showsProjection && (
-            <Tooltip
-              label={
-                ad.alertsMuted
-                  ? 'Alerts muted for this ad — click to unmute'
-                  : 'Mute pacing / dark / flight alerts for this ad'
-              }
-              className="flex-shrink-0"
-            >
-            <button
-              type="button"
-              onClick={onMuteToggle}
-              disabled={readOnly}
-              aria-label={
-                ad.alertsMuted
-                  ? 'Alerts muted for this ad — click to unmute'
-                  : 'Mute pacing / dark / flight alerts for this ad'
-              }
-              className={`inline-flex items-center justify-center rounded-md border p-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                ad.alertsMuted
-                  ? 'border-[rgba(245,158,11,0.45)] bg-[rgba(245,158,11,0.12)] text-[#f59e0b]'
-                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              {ad.alertsMuted ? (
-                <BellOffIcon className="w-3.5 h-3.5" />
-              ) : (
-                <BellIcon className="w-3.5 h-3.5" />
-              )}
-            </button>
-            </Tooltip>
-          )}
-        </div>
-      </div>
-        </div>
-      )}
-    </div>
+    <Tooltip label={parts.join(' · ')} placement="top">
+      <span className="inline-flex flex-shrink-0 items-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+        <InformationCircleIcon className="w-4 h-4" />
+      </span>
+    </Tooltip>
   );
 }
 
 /**
- * Read-only completion summary for ads marked `Completed Run` whose end date
- * is behind the effective today cursor. Mirrors the live pacer metric grid
- * but locks the values to what was spent vs. what was targeted.
+ * Meta status mismatch (Change 11): Meta reports the ad not delivering while the
+ * planner still says Live mid-flight; don't auto-flip (Meta "paused" can be a
+ * daily cap / billing hold) — surface a one-click confirm. null when in sync.
  */
-function PacerCompletedSummary({
+function MetaStatusMismatch({
   ad,
-  calc,
-  isLifetime,
-  effectiveEnd,
-  variant = 'completed',
+  onMarkOff,
 }: {
   ad: PacerAd;
-  calc: ReturnType<typeof buildPacerCalc>;
-  isLifetime: boolean;
-  effectiveEnd: string | null;
-  variant?: 'completed' | 'off';
+  onMarkOff: () => void;
 }) {
-  const variance = calc.budget > 0 ? calc.spent - calc.budget : null;
-  const variancePct =
-    calc.budget > 0 ? ((calc.spent - calc.budget) / calc.budget) * 100 : null;
-  const start = ad.liveDate || ad.flightStart;
-  const daysRun = start && effectiveEnd ? calcDays(start, effectiveEnd) : 0;
-  const varianceColor =
-    variance == null
-      ? undefined
-      : Math.abs(variance) < 0.005
-        ? COLORS.success
-        : variance > 0
-          ? COLORS.error
-          : COLORS.warn;
-  const isOff = variant === 'off';
-  const headerColor = isOff ? COLORS.warn : COLORS.success;
-  const headerBg = isOff ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)';
-  const headerLabel = isOff ? 'Ad turned off' : 'Run complete';
-  const dateLabel = isOff
-    ? effectiveEnd
-      ? `Was scheduled through ${fmtDate(effectiveEnd)}`
-      : null
-    : effectiveEnd
-      ? `Ran through ${fmtDate(effectiveEnd)}`
-      : null;
+  const readOnly = usePacerReadOnly();
+  const meta = ad.metaEffectiveStatus;
+  const plannerLive =
+    ad.adStatus === 'Live' || ad.adStatus === 'Live - Changes Required';
+  if (!meta || !plannerLive || meta.toUpperCase() === 'ACTIVE') return null;
+  const through = ad.metaEndDate ?? ad.flightEnd;
   return (
-    <div>
-      <div
-        className="rounded-lg border px-4 py-3 mb-3 flex items-center justify-between gap-3 flex-wrap"
-        style={{ borderColor: headerColor, background: headerBg }}
+    <div
+      className="mb-3.5 rounded-md border px-2.5 py-2 text-[10px]"
+      style={{ borderColor: `${COLORS.warn}66`, background: 'rgba(245,158,11,0.08)' }}
+    >
+      <div className="text-[var(--foreground)] leading-snug">
+        Meta shows <span className="font-semibold">{meta}</span>
+        {through ? <> — but scheduled through {fmtDate(through)}</> : null}.
+      </div>
+      <button
+        type="button"
+        onClick={onMarkOff}
+        disabled={readOnly}
+        className="mt-1 inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <div>
-          <div
-            className="text-[10px] font-bold uppercase tracking-wider"
-            style={{ color: headerColor }}
-          >
-            {headerLabel}
-          </div>
-          <div className="text-base font-bold text-[var(--foreground)] mt-0.5">
-            Final spend {fmt(calc.spent)}
-          </div>
-        </div>
-        {dateLabel && (
-          <div className="text-[10px] text-[var(--muted-foreground)] text-right">
-            {dateLabel}
-          </div>
-        )}
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <MetricBox
-          label="Actual Spend"
-          value={fmt(calc.spent)}
-          sub="entered in pacer"
-        />
-        <MetricBox
-          label="Target Spend"
-          value={calc.budget > 0 ? fmt(calc.budget) : '—'}
-          sub={calc.budget > 0 ? 'allocation' : 'no allocation set'}
-        />
-        <MetricBox
-          label={isLifetime ? 'Implied Daily' : 'Daily Budget'}
-          value={
-            isLifetime
-              ? daysRun > 0
-                ? fmt(calc.spent / daysRun)
-                : '—'
-              : calc.dailyBudget > 0
-                ? fmt(calc.dailyBudget)
-                : '—'
-          }
-          sub={
-            isLifetime
-              ? daysRun > 0
-                ? `over ${daysRun} day${daysRun === 1 ? '' : 's'}`
-                : 'set start + end'
-              : 'as last entered'
-          }
-        />
-        <MetricBox
-          label="Variance"
-          value={
-            variance != null
-              ? `${variance >= 0 ? '+' : '-'}${fmt(Math.abs(variance))}`
-              : '—'
-          }
-          sub={
-            variancePct != null
-              ? `${variancePct >= 0 ? '+' : ''}${variancePct.toFixed(1)}% vs target`
-              : 'set Target Spend'
-          }
-          color={varianceColor}
-        />
-      </div>
+        Mark Off in planner
+      </button>
     </div>
   );
 }
@@ -6372,6 +5250,8 @@ function BudgetPacerPanel({
   accountKey: string;
   headerActions?: React.ReactNode;
 }) {
+  // Frozen-month lock — passed to the shared PacerRow's injected link picker.
+  const readOnly = usePacerReadOnly();
   // Per-ad expand state. Auto-seeded on first render (and on plan
   // changes) so rows that need attention are open by default; rep can
   // still toggle each manually.
@@ -6647,26 +5527,42 @@ function BudgetPacerPanel({
             onDailyBudgetChange={(v) => updateAd({ ...ad, pacerDailyBudget: v })}
             expanded={expandedIds.has(ad.id)}
             onToggleExpanded={() => toggleExpanded(ad.id)}
-            adSets={metaAdSets}
-            adSetsLoading={adSetsLoading}
-            adSetsError={adSetsError}
-            onLoadAdSets={loadMetaAdSets}
-            onLinkChange={(adSetId) =>
-              updateAd({
-                ...ad,
-                metaObjectId: adSetId,
-                metaObjectType: adSetId ? 'adset' : null,
-              })
-            }
             onMuteToggle={() =>
               updateAd({ ...ad, alertsMuted: !ad.alertsMuted })
             }
-            onMarkOff={() => updateAd({ ...ad, adStatus: 'Off' })}
             onPushDailyBudget={(value) => pushDailyBudget(ad.id, value)}
             onResolveCrossMonth={(action, splitMap) =>
               resolveCrossMonth(ad.id, action, splitMap)
             }
             siblings={plan.siblingsByName?.[ad.name] ?? null}
+            synced={!!ad.metaObjectId && !!ad.pacerSyncedAt}
+            linkError={adSetsError}
+            pushLabel="Push to Meta"
+            pushIcon={<MetaBrandIcon className="w-3.5 h-3.5" />}
+            linkPicker={
+              <AdSetLinkPicker
+                value={ad.metaObjectId}
+                options={metaAdSets}
+                loading={adSetsLoading}
+                error={adSetsError}
+                onOpen={loadMetaAdSets}
+                onChange={(adSetId) =>
+                  updateAd({
+                    ...ad,
+                    metaObjectId: adSetId,
+                    metaObjectType: adSetId ? 'adset' : null,
+                  })
+                }
+                disabled={readOnly}
+              />
+            }
+            syncInfo={<MetaSyncInfo ad={ad} timeZone={plan.timeZone} />}
+            statusMismatch={
+              <MetaStatusMismatch
+                ad={ad}
+                onMarkOff={() => updateAd({ ...ad, adStatus: 'Off' })}
+              />
+            }
           />
         ))
       )}
