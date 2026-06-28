@@ -109,6 +109,15 @@ import type {
   SaveStatus,
 } from '@/lib/ad-pacer/types';
 import { effectiveSpendTarget } from '@/lib/ad-pacer/markup';
+import { fmt, fmtDate, calcDays, makeAd, fmtBytes } from '@/lib/ad-pacer/helpers';
+import {
+  currentPeriod,
+  isValidPeriod,
+  shiftPeriod,
+  fmtPeriodLong,
+  fmtPeriodShort,
+  flightDatePresets,
+} from '@/lib/ad-pacer/period';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 // Status/option lists + color maps now live in @/lib/ad-pacer/constants (imported above).
@@ -353,34 +362,12 @@ function budgetTypeTint(t: string): string {
 
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-const fmt = (val: number | string | null | undefined): string => {
-  const n = Number(val ?? 0);
-  if (isNaN(n)) return '$0.00';
-  return `$${n.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-};
-const fmtDate = (d: string | null | undefined): string => {
-  if (!d) return '—';
-  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-};
 /** Reformat a YYYY-MM-DD ISO date into the user-facing MM-DD-YYYY layout. */
 const fmtFullDate = (d: string | null | undefined): string => {
   if (!d) return '—';
   const [y, m, day] = d.split('-');
   if (!y || !m || !day) return d;
   return `${m}-${day}-${y}`;
-};
-const calcDays = (start: string | null, end: string | null): number => {
-  if (!start || !end) return 0;
-  return Math.max(
-    0,
-    Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1,
-  );
 };
 // ─── Run-dates bar (Monday-style) ───────────────────────────────────────────
 // A status-colored progress bar behind the flight window: the elapsed share of
@@ -446,123 +433,6 @@ const newAdId = () =>
     ? crypto.randomUUID()
     : `tmp_${Math.random().toString(36).slice(2)}`;
 
-function makeAd(position: number, period: string): PacerAd {
-  return {
-    id: newAdId(),
-    position,
-    name: '',
-    period,
-    ownerUserId: null,
-    designerUserId: null,
-    accountRepUserId: null,
-    actionNeeded: null,
-    recurring: 'No',
-    coop: 'No',
-    budgetType: 'Daily',
-    budgetSource: 'base',
-    splitBaseAmount: null,
-    flightStart: null,
-    flightEnd: null,
-    liveDate: null,
-    creativeDueDate: null,
-    dueDate: null,
-    dateCompleted: null,
-    adStatus: 'Working on it',
-    designStatus: 'Not Started',
-    internalApproval: 'Pending Approval',
-    clientApproval: 'Pending Approval',
-    allocation: null,
-    pacerActual: null,
-    pacerDailyBudget: null,
-    pacerTodayDate: null,
-    pacerEndDate: null,
-    creativeLink: null,
-    clientName: null,
-    digitalDetails: null,
-    metaObjectType: null,
-    metaObjectId: null,
-    metaEffectiveStatus: null,
-    pacerSyncedAt: null,
-    pacerRunSpend: null,
-    fullRunAppliedToMonth: null,
-    lifetimeMonthSplit: null,
-    metaStartDate: null,
-    metaEndDate: null,
-    alertsMuted: false,
-    designNotes: [],
-    activityLog: [],
-  };
-}
-
-function fmtBytes(n: number | null | undefined): string {
-  if (n == null || isNaN(n)) return '';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-// ─── Period helpers ────────────────────────────────────────────────────────
-function currentPeriod(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-function isValidPeriod(p: string): boolean {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(p);
-}
-function shiftPeriod(period: string, delta: number): string {
-  const [y, m] = period.split('-').map(Number);
-  if (!y || !m) return period;
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-function fmtPeriodLong(period: string): string {
-  if (!isValidPeriod(period)) return period;
-  const [y, m] = period.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
-}
-function fmtPeriodShort(period: string): string {
-  if (!isValidPeriod(period)) return period;
-  const [y, m] = period.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', {
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-/**
- * Flight-date presets scoped to the ad's planning period (YYYY-MM).
- * Lets the user one-click "fill the whole month" instead of clicking through
- * the calendar — the original feature request that motivated the picker.
- */
-function flightDatePresets(period: string): DatePreset[] {
-  if (!isValidPeriod(period)) return [];
-  const [y, m] = period.split('-').map(Number);
-  const lastDay = new Date(y, m, 0).getDate();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const firstIso = `${y}-${pad(m)}-01`;
-  const lastIso = `${y}-${pad(m)}-${pad(lastDay)}`;
-  const midIso = `${y}-${pad(m)}-${pad(Math.min(14, lastDay))}`;
-  return [
-    {
-      label: 'Full month',
-      range: () => ({ start: firstIso, end: lastIso }),
-    },
-    {
-      label: 'First half',
-      range: () => ({ start: firstIso, end: midIso }),
-    },
-    {
-      label: 'Second half',
-      range: () => ({
-        start: `${y}-${pad(m)}-${pad(Math.min(15, lastDay))}`,
-        end: lastIso,
-      }),
-    },
-  ];
-}
 
 const TODAY_PRESET: DatePreset = {
   label: 'Today',
