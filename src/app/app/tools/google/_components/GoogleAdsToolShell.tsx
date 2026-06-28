@@ -12,6 +12,9 @@ import {
   CheckIcon,
   XMarkIcon,
   InformationCircleIcon,
+  TableCellsIcon,
+  AdjustmentsHorizontalIcon,
+  ScaleIcon,
 } from '@heroicons/react/24/outline';
 import { useSession } from 'next-auth/react';
 import { useAccount } from '@/contexts/account-context';
@@ -36,12 +39,11 @@ import {
   Field,
   SummaryPanel,
   ComparePanel,
+  StatusBattery,
 } from '@/app/app/tools/_shared';
 
 // ── Reference data ──
 const CHANNELS = ['Search', 'Display', 'Video', 'Shopping', 'PMax'] as const;
-
-type PacerLogos = { light?: string; dark?: string; white?: string; black?: string } | null;
 
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -147,9 +149,10 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   const { confirm } = useLoomiDialog();
   const { data: session } = useSession();
   const currentUserId = session?.user?.id ?? null;
-  const [view, setView] = useState<'plan' | 'pace' | 'summary' | 'overunder'>(
-    mode === 'planner' ? 'plan' : 'pace',
-  );
+  // Two-level tab model mirroring Meta: a top-level Plan / Pace switch, plus
+  // sub-tabs under Pace (Summary · Pacer · Over/Under Spend).
+  const [view, setView] = useState<'plan' | 'pace'>(mode === 'planner' ? 'plan' : 'pace');
+  const [paceTab, setPaceTab] = useState<'pacer' | 'summary' | 'overunder'>('pacer');
   const [period, setPeriod] = useState(currentPeriod);
   const [editing, setEditing] = useState<PacerAd | 'new' | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -452,7 +455,13 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   if (!accountKey) {
     return (
       <div className="pt-6">
-        <Header mode={view} onMode={setView} dealer={null} accountKey={null} logos={null} />
+        <Header
+          mode={view}
+          onMode={setView}
+          paceTab={paceTab}
+          onPaceTab={setPaceTab}
+          accountKey={null}
+        />
         <div className="glass-section-card mt-4 rounded-xl p-6 text-sm text-[var(--muted-foreground)]">
           Select a sub-account from the switcher to {view === 'plan' ? 'plan' : 'pace'} its Google
           campaigns.
@@ -467,12 +476,30 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
       <Header
         mode={view}
         onMode={setView}
-        dealer={accountData?.dealer ?? accountKey}
+        paceTab={paceTab}
+        onPaceTab={setPaceTab}
         accountKey={accountKey}
-        logos={accountData?.logos ?? null}
         period={period}
         onShiftPeriod={(d) => setPeriod((p) => shiftPeriod(p, d))}
       />
+
+      {/* Scope row — sub-account avatar + name + status battery, mirroring
+          Meta. Keeps the tool name in the header and the account identity here. */}
+      <div className="mb-6 flex items-center gap-3 min-w-0">
+        <AccountAvatar
+          name={accountData?.dealer ?? accountKey}
+          accountKey={accountKey}
+          logos={accountData?.logos ?? undefined}
+          size={56}
+          className="flex-shrink-0 rounded-xl border border-[var(--border)] bg-[var(--muted)]"
+        />
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <span className="truncate text-2xl font-bold leading-tight text-[var(--foreground)]">
+            {accountData?.dealer ?? accountKey}
+          </span>
+          {plan && plan.ads.length > 0 && <StatusBattery ads={plan.ads} />}
+        </div>
+      </div>
 
       {!connected && (
         <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 px-4 py-2.5 text-xs text-[var(--muted-foreground)]">
@@ -489,7 +516,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
         </div>
       )}
 
-      {plan && (view === 'plan' || view === 'pace') && (
+      {plan && (view === 'plan' || (view === 'pace' && paceTab === 'pacer')) && (
         <div className="mt-5">
           <TotalAllocationHeader plan={plan} />
           <div className="mt-4 flex flex-wrap items-start gap-4">
@@ -514,7 +541,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
       )}
 
       {/* Action row above the table (mirrors Meta's Ad Plan header + CTAs). */}
-      {(view === 'plan' || view === 'pace') && (
+      {(view === 'plan' || (view === 'pace' && paceTab === 'pacer')) && (
       <div className="mt-8 mb-3 flex flex-wrap items-center justify-between gap-3">
         <span className="text-sm font-bold tracking-tight text-[var(--foreground)]">
           Campaigns · {periodLabel(period)}{' '}
@@ -563,11 +590,11 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
       </div>
       )}
 
-      {view === 'summary' ? (
+      {view === 'pace' && paceTab === 'summary' ? (
         plan ? (
           <SummaryPanel plan={plan} />
         ) : null
-      ) : view === 'overunder' ? (
+      ) : view === 'pace' && paceTab === 'overunder' ? (
         accountKey ? (
           <ComparePanel accountKey={accountKey} period={period} platform="google" />
         ) : null
@@ -688,48 +715,32 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
 function Header({
   mode,
   onMode,
-  dealer,
+  paceTab,
+  onPaceTab,
   accountKey,
-  logos,
   period,
   onShiftPeriod,
 }: {
-  mode: 'plan' | 'pace' | 'summary' | 'overunder';
-  onMode: (m: 'plan' | 'pace' | 'summary' | 'overunder') => void;
-  dealer: string | null;
+  mode: 'plan' | 'pace';
+  onMode: (m: 'plan' | 'pace') => void;
+  paceTab: 'pacer' | 'summary' | 'overunder';
+  onPaceTab: (t: 'pacer' | 'summary' | 'overunder') => void;
   accountKey: string | null;
-  logos: PacerLogos;
   period?: string;
   onShiftPeriod?: (delta: number) => void;
 }) {
   return (
-    <div className="page-sticky-header mb-6">
+    <div className={`page-sticky-header ${mode === 'pace' ? 'mb-8' : 'mb-6'}`}>
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
         {/* Left: title */}
         <div className="flex min-w-0 items-center gap-3">
-          {accountKey && dealer ? (
-            <AccountAvatar
-              name={dealer}
-              accountKey={accountKey}
-              logos={logos ?? undefined}
-              size={40}
-              className="flex-shrink-0 rounded-xl border border-[var(--border)]"
-            />
-          ) : (
-            <GoogleAdsBrandIcon className="h-8 w-8 flex-shrink-0" />
-          )}
+          <GoogleAdsBrandIcon className="h-8 w-8 flex-shrink-0" />
           <div className="min-w-0">
-            <h2 className="truncate text-2xl font-bold text-[var(--foreground)]">
-              {dealer ?? 'Google Ads'}
-            </h2>
+            <h2 className="truncate text-2xl font-bold text-[var(--foreground)]">Google Ads</h2>
             <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">
               {mode === 'plan'
-                ? 'Plan & allocate Google campaign budgets'
-                : mode === 'summary'
-                  ? 'Per-campaign summary across the month'
-                  : mode === 'overunder'
-                    ? 'Per-campaign over/under vs target this month'
-                    : 'Track Google spend pacing across the month'}
+                ? 'Plan & allocate your monthly Google ad budgets'
+                : 'Track spend pacing across the active period'}
             </p>
           </div>
         </div>
@@ -741,8 +752,6 @@ function Header({
               [
                 ['plan', 'Plan'],
                 ['pace', 'Pace'],
-                ['summary', 'Summary'],
-                ['overunder', 'Over/Under'],
               ] as const
             ).map(([m, label]) => (
               <button
@@ -789,6 +798,50 @@ function Header({
           )}
         </div>
       </div>
+
+      {/* Pace sub-tabs — Summary · Pacer · Over/Under Spend, pinned inside the
+          sticky header so they don't scroll away (mirrors Meta). Google has no
+          Reconciliation, so Plan mode shows no sub-tab row. */}
+      {mode === 'pace' && accountKey && (
+        <div className="mt-4 flex items-center gap-1 border-b border-[var(--border)]">
+          <button
+            type="button"
+            onClick={() => onPaceTab('summary')}
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              paceTab === 'summary'
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            <TableCellsIcon className="h-3.5 w-3.5" />
+            Summary
+          </button>
+          <button
+            type="button"
+            onClick={() => onPaceTab('pacer')}
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              paceTab === 'pacer'
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            <AdjustmentsHorizontalIcon className="h-3.5 w-3.5" />
+            Pacer
+          </button>
+          <button
+            type="button"
+            onClick={() => onPaceTab('overunder')}
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              paceTab === 'overunder'
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            <ScaleIcon className="h-3.5 w-3.5" />
+            Over/Under Spend
+          </button>
+        </div>
+      )}
     </div>
   );
 }
