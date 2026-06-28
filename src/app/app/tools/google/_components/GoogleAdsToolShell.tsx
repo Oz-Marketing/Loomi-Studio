@@ -12,17 +12,20 @@ import {
   CheckIcon,
   XMarkIcon,
   InformationCircleIcon,
+  TableCellsIcon,
+  AdjustmentsHorizontalIcon,
+  ScaleIcon,
 } from '@heroicons/react/24/outline';
+import { useSession } from 'next-auth/react';
 import { useAccount } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
 import { GoogleAdsBrandIcon } from '@/components/icons/platform-logos';
 import { SearchableSelect } from '@/components/flows/builder/SearchableSelect';
-import { DatePicker } from '@/components/ui/date-picker';
 import { UserPicker, type UserPickerUser } from '@/components/user-picker';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { toast } from '@/lib/toast';
 import { buildPacerCalc } from '@/lib/ad-pacer/pacer-calc';
-import type { PacerAd, PacerPlan } from '@/lib/ad-pacer/types';
+import type { PacerAd, PacerPlan, DirectoryUser } from '@/lib/ad-pacer/types';
 import { makeAd, fmtDate } from '@/lib/ad-pacer/helpers';
 import { COLORS as SHARED_COLORS } from '@/lib/ad-pacer/constants';
 import {
@@ -32,14 +35,15 @@ import {
   AdSummaryRow,
   PacerRow,
   Tooltip,
+  AdEditorModal,
+  Field,
+  SummaryPanel,
+  ComparePanel,
+  StatusBattery,
 } from '@/app/app/tools/_shared';
 
 // ── Reference data ──
 const CHANNELS = ['Search', 'Display', 'Video', 'Shopping', 'PMax'] as const;
-const STATUSES = ['Live', 'Scheduled', 'Completed Run', 'Off', 'In Draft'] as const;
-const BUDGET_TYPES = ['Daily', 'Lifetime'] as const;
-
-type PacerLogos = { light?: string; dark?: string; white?: string; black?: string } | null;
 
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -143,7 +147,12 @@ function GoogleLinkBadge({ ad }: { ad: PacerAd }) {
 export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   const { accountKey, accountData } = useAccount();
   const { confirm } = useLoomiDialog();
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id ?? null;
+  // Two-level tab model mirroring Meta: a top-level Plan / Pace switch, plus
+  // sub-tabs under Pace (Summary · Pacer · Over/Under Spend).
   const [view, setView] = useState<'plan' | 'pace'>(mode === 'planner' ? 'plan' : 'pace');
+  const [paceTab, setPaceTab] = useState<'pacer' | 'summary' | 'overunder'>('pacer');
   const [period, setPeriod] = useState(currentPeriod);
   const [editing, setEditing] = useState<PacerAd | 'new' | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -243,7 +252,15 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
 
   // Directory for the import modal's Owner/Designer/Rep pickers.
   const { data: usersData } = useSWR<
-    Array<{ id: string; name: string; title?: string | null; email: string; avatarUrl?: string | null }>
+    Array<{
+      id: string;
+      name: string;
+      title?: string | null;
+      email: string;
+      avatarUrl?: string | null;
+      role?: string | null;
+      department?: string | null;
+    }>
   >(accountKey ? '/api/users' : null, fetcher);
   const users: UserPickerUser[] = useMemo(
     () =>
@@ -253,6 +270,20 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
         title: u.title,
         email: u.email,
         avatarUrl: u.avatarUrl,
+      })),
+    [usersData],
+  );
+  // Full directory shape for the shared editor's role pickers.
+  const directoryUsers: DirectoryUser[] = useMemo(
+    () =>
+      (usersData ?? []).map((u) => ({
+        id: u.id,
+        name: u.name,
+        title: u.title ?? null,
+        email: u.email,
+        avatarUrl: u.avatarUrl ?? null,
+        role: u.role ?? '',
+        department: u.department ?? null,
       })),
     [usersData],
   );
@@ -319,6 +350,76 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
     else updateAd({ ...ad, fullRunAppliedToMonth: null, lifetimeMonthSplit: null });
   };
 
+  // Activity log — the per-ad endpoints are keyed by accountKey + adId on the
+  // shared MetaAdsPacerAd table, so Google rows reuse them. Refetch after each
+  // change so the editor's live log updates.
+  const onAddActivity = async (adId: string, text: string, file: File | null) => {
+    if (!accountKey) return;
+    const url = `/api/meta-ads-pacer/${encodeURIComponent(accountKey)}/ads/${adId}/activity`;
+    let res: Response;
+    if (file) {
+      const fd = new FormData();
+      fd.append('text', text);
+      fd.append('file', file);
+      res = await fetch(url, { method: 'POST', body: fd });
+    } else {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+    }
+    if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+    mutate();
+  };
+  const onEditActivity = async (adId: string, entryId: string, text: string) => {
+    if (!accountKey) return;
+    const res = await fetch(
+      `/api/meta-ads-pacer/${encodeURIComponent(accountKey)}/ads/${adId}/activity/${entryId}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      },
+    );
+    if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+    mutate();
+  };
+  const onDeleteActivity = async (adId: string, entryId: string) => {
+    if (!accountKey) return;
+    const res = await fetch(
+      `/api/meta-ads-pacer/${encodeURIComponent(accountKey)}/ads/${adId}/activity/${entryId}`,
+      { method: 'DELETE' },
+    );
+    if (res.ok) mutate();
+  };
+
+  // Push a row's daily budget to its linked Google campaign budget.
+  const pushDailyBudget = async (
+    adId: string,
+    value: string,
+  ): Promise<{ ok: boolean; text: string }> => {
+    if (!accountKey) return { ok: false, text: 'No account selected' };
+    try {
+      const res = await fetch(
+        `/api/google-ads-pacer/${encodeURIComponent(accountKey)}/push-budget?period=${period}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ adId, dailyBudget: value }),
+        },
+      );
+      const data = await readJsonSafe(res);
+      if (!res.ok) {
+        return { ok: false, text: (data?.error as string) || `Push failed (${res.status})` };
+      }
+      mutate();
+      return { ok: true, text: 'Pushed to Google' };
+    } catch (e) {
+      return { ok: false, text: e instanceof Error ? e.message : 'Push failed' };
+    }
+  };
+
   // The import modal returns the refreshed plan view (rows born linked + synced);
   // drop it straight into state, like the Meta importer's handleImported.
   function handleImported(data: PacerPlan & { import?: { imported: number; skipped: number } }) {
@@ -354,7 +455,13 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   if (!accountKey) {
     return (
       <div className="pt-6">
-        <Header mode={view} onMode={setView} dealer={null} accountKey={null} logos={null} />
+        <Header
+          mode={view}
+          onMode={setView}
+          paceTab={paceTab}
+          onPaceTab={setPaceTab}
+          accountKey={null}
+        />
         <div className="glass-section-card mt-4 rounded-xl p-6 text-sm text-[var(--muted-foreground)]">
           Select a sub-account from the switcher to {view === 'plan' ? 'plan' : 'pace'} its Google
           campaigns.
@@ -369,12 +476,30 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
       <Header
         mode={view}
         onMode={setView}
-        dealer={accountData?.dealer ?? accountKey}
+        paceTab={paceTab}
+        onPaceTab={setPaceTab}
         accountKey={accountKey}
-        logos={accountData?.logos ?? null}
         period={period}
         onShiftPeriod={(d) => setPeriod((p) => shiftPeriod(p, d))}
       />
+
+      {/* Scope row — sub-account avatar + name + status battery, mirroring
+          Meta. Keeps the tool name in the header and the account identity here. */}
+      <div className="mb-6 flex items-center gap-3 min-w-0">
+        <AccountAvatar
+          name={accountData?.dealer ?? accountKey}
+          accountKey={accountKey}
+          logos={accountData?.logos ?? undefined}
+          size={56}
+          className="flex-shrink-0 rounded-xl border border-[var(--border)] bg-[var(--muted)]"
+        />
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <span className="truncate text-2xl font-bold leading-tight text-[var(--foreground)]">
+            {accountData?.dealer ?? accountKey}
+          </span>
+          {plan && plan.ads.length > 0 && <StatusBattery ads={plan.ads} />}
+        </div>
+      </div>
 
       {!connected && (
         <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 px-4 py-2.5 text-xs text-[var(--muted-foreground)]">
@@ -391,7 +516,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
         </div>
       )}
 
-      {plan && (
+      {plan && (view === 'plan' || (view === 'pace' && paceTab === 'pacer')) && (
         <div className="mt-5">
           <TotalAllocationHeader plan={plan} />
           <div className="mt-4 flex flex-wrap items-start gap-4">
@@ -416,6 +541,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
       )}
 
       {/* Action row above the table (mirrors Meta's Ad Plan header + CTAs). */}
+      {(view === 'plan' || (view === 'pace' && paceTab === 'pacer')) && (
       <div className="mt-8 mb-3 flex flex-wrap items-center justify-between gap-3">
         <span className="text-sm font-bold tracking-tight text-[var(--foreground)]">
           Campaigns · {periodLabel(period)}{' '}
@@ -462,8 +588,17 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
           )}
         </div>
       </div>
+      )}
 
-      {!isLoading && ads.length === 0 ? (
+      {view === 'pace' && paceTab === 'summary' ? (
+        plan ? (
+          <SummaryPanel plan={plan} />
+        ) : null
+      ) : view === 'pace' && paceTab === 'overunder' ? (
+        accountKey ? (
+          <ComparePanel accountKey={accountKey} period={period} platform="google" />
+        ) : null
+      ) : !isLoading && ads.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-12 text-center text-sm text-[var(--muted-foreground)]">
           No Google campaigns for {periodLabel(period)} yet.
           {!frozen && ' Add one, or sync from Google.'}
@@ -482,10 +617,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
               onActualChange={(v) => updateAd({ ...ad, pacerActual: v })}
               onDailyBudgetChange={(v) => updateAd({ ...ad, pacerDailyBudget: v })}
               onMuteToggle={() => updateAd({ ...ad, alertsMuted: !ad.alertsMuted })}
-              onPushDailyBudget={async () => ({
-                ok: false,
-                text: 'Push to Google Ads isn’t available yet.',
-              })}
+              onPushDailyBudget={(value) => pushDailyBudget(ad.id, value)}
               onResolveCrossMonth={(action, splitMap) =>
                 resolveCrossMonth(ad, action, splitMap)
               }
@@ -505,7 +637,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
             <thead className="sticky top-0 z-10">
               <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
                 <th className="w-9 pl-3 pr-1 py-2" />
-                {['Ad', '', 'Status', 'Due Date', 'Budget', 'Allocation', 'Flight Dates', 'Design', 'Approvals'].map((h, i) => (
+                {['Ad', '', 'Status', 'Due Date', 'Budget', 'Allocation', 'Flight Dates'].map((h, i) => (
                   <th
                     key={i}
                     className={`text-left px-3 py-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)] ${h === '' ? 'w-10 px-2' : ''}`}
@@ -527,6 +659,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
                   onClone={() => cloneCampaign(ad.id)}
                   isSelected={false}
                   onSelectToggle={() => {}}
+                  showCreativeWorkflow={false}
                 />
               ))}
             </tbody>
@@ -535,11 +668,32 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
       )}
 
       {editing && (
-        <CampaignModal
-          campaign={editing === 'new' ? null : editing}
-          period={period}
-          onClose={() => setEditing(null)}
+        <AdEditorModal
+          initialAd={editing === 'new' ? makeAd(ads.length, period) : editing}
+          markup={data?.markup ?? null}
+          liveActivityLog={
+            editing === 'new'
+              ? []
+              : ads.find((a) => a.id === editing.id)?.activityLog ?? editing.activityLog
+          }
+          mode={editing === 'new' ? 'create' : 'edit'}
+          users={directoryUsers}
+          currentUserId={currentUserId}
           onSave={saveCampaign}
+          onCancel={() => setEditing(null)}
+          onAddActivity={onAddActivity}
+          onEditActivity={onEditActivity}
+          onDeleteActivity={onDeleteActivity}
+          platform="google"
+          editorExtraFields={(ad, onUpdate) => (
+            <Field label="Channel">
+              <SearchableSelect
+                value={ad.googleChannelType ?? 'Search'}
+                onChange={(v) => onUpdate({ ...ad, googleChannelType: v })}
+                options={CHANNELS.map((c) => ({ value: c, label: c }))}
+              />
+            </Field>
+          )}
         />
       )}
 
@@ -561,44 +715,32 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
 function Header({
   mode,
   onMode,
-  dealer,
+  paceTab,
+  onPaceTab,
   accountKey,
-  logos,
   period,
   onShiftPeriod,
 }: {
   mode: 'plan' | 'pace';
   onMode: (m: 'plan' | 'pace') => void;
-  dealer: string | null;
+  paceTab: 'pacer' | 'summary' | 'overunder';
+  onPaceTab: (t: 'pacer' | 'summary' | 'overunder') => void;
   accountKey: string | null;
-  logos: PacerLogos;
   period?: string;
   onShiftPeriod?: (delta: number) => void;
 }) {
   return (
-    <div className="page-sticky-header mb-6">
+    <div className={`page-sticky-header ${mode === 'pace' ? 'mb-8' : 'mb-6'}`}>
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
         {/* Left: title */}
         <div className="flex min-w-0 items-center gap-3">
-          {accountKey && dealer ? (
-            <AccountAvatar
-              name={dealer}
-              accountKey={accountKey}
-              logos={logos ?? undefined}
-              size={40}
-              className="flex-shrink-0 rounded-xl border border-[var(--border)]"
-            />
-          ) : (
-            <GoogleAdsBrandIcon className="h-8 w-8 flex-shrink-0" />
-          )}
+          <GoogleAdsBrandIcon className="h-8 w-8 flex-shrink-0" />
           <div className="min-w-0">
-            <h2 className="truncate text-2xl font-bold text-[var(--foreground)]">
-              {dealer ?? 'Google Ads'}
-            </h2>
+            <h2 className="truncate text-2xl font-bold text-[var(--foreground)]">Google Ads</h2>
             <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">
               {mode === 'plan'
-                ? 'Plan & allocate Google campaign budgets'
-                : 'Track Google spend pacing across the month'}
+                ? 'Plan & allocate your monthly Google ad budgets'
+                : 'Track spend pacing across the active period'}
             </p>
           </div>
         </div>
@@ -606,7 +748,12 @@ function Header({
         {/* Center: Plan / Pace switch */}
         <div className="flex justify-center">
           <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-0.5">
-            {(['plan', 'pace'] as const).map((m) => (
+            {(
+              [
+                ['plan', 'Plan'],
+                ['pace', 'Pace'],
+              ] as const
+            ).map(([m, label]) => (
               <button
                 key={m}
                 type="button"
@@ -618,7 +765,7 @@ function Header({
                     : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                 }`}
               >
-                {m === 'plan' ? 'Plan' : 'Pace'}
+                {label}
               </button>
             ))}
           </div>
@@ -651,161 +798,55 @@ function Header({
           )}
         </div>
       </div>
+
+      {/* Pace sub-tabs — Summary · Pacer · Over/Under Spend, pinned inside the
+          sticky header so they don't scroll away (mirrors Meta). Google has no
+          Reconciliation, so Plan mode shows no sub-tab row. */}
+      {mode === 'pace' && accountKey && (
+        <div className="mt-4 flex items-center gap-1 border-b border-[var(--border)]">
+          <button
+            type="button"
+            onClick={() => onPaceTab('summary')}
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              paceTab === 'summary'
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            <TableCellsIcon className="h-3.5 w-3.5" />
+            Summary
+          </button>
+          <button
+            type="button"
+            onClick={() => onPaceTab('pacer')}
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              paceTab === 'pacer'
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            <AdjustmentsHorizontalIcon className="h-3.5 w-3.5" />
+            Pacer
+          </button>
+          <button
+            type="button"
+            onClick={() => onPaceTab('overunder')}
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              paceTab === 'overunder'
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            <ScaleIcon className="h-3.5 w-3.5" />
+            Over/Under Spend
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 
-function CampaignModal({
-  campaign,
-  period,
-  onClose,
-  onSave,
-}: {
-  campaign: PacerAd | null;
-  period: string;
-  onClose: () => void;
-  onSave: (c: PacerAd) => void;
-}) {
-  const [name, setName] = useState(campaign?.name ?? '');
-  const [channel, setChannel] = useState(campaign?.googleChannelType ?? 'Search');
-  const [status, setStatus] = useState(campaign?.adStatus ?? 'Live');
-  const [budgetType, setBudgetType] = useState<string>(campaign?.budgetType ?? 'Daily');
-  const [budgetSource, setBudgetSource] = useState<string>(campaign?.budgetSource ?? 'base');
-  const [allocation, setAllocation] = useState(campaign?.allocation ?? '');
-  const [dailyBudget, setDailyBudget] = useState(campaign?.pacerDailyBudget ?? '');
-  const [flightStart, setFlightStart] = useState<string | null>(campaign?.flightStart ?? null);
-  const [flightEnd, setFlightEnd] = useState<string | null>(campaign?.flightEnd ?? null);
-
-  function submit() {
-    if (!name.trim()) {
-      toast.error('Campaign name is required');
-      return;
-    }
-    // Seed a full PacerAd for new rows so the shared components have every
-    // field; existing rows keep their server-managed fields via the spread.
-    const base = campaign ?? makeAd(0, period);
-    onSave({
-      ...base,
-      platform: 'google',
-      name: name.trim(),
-      googleChannelType: channel,
-      adStatus: status,
-      budgetType: budgetType === 'Lifetime' ? 'Lifetime' : 'Daily',
-      budgetSource: budgetSource === 'added' ? 'added' : budgetSource === 'split' ? 'split' : 'base',
-      allocation: allocation || null,
-      pacerDailyBudget: dailyBudget || null,
-      flightStart,
-      flightEnd,
-    });
-  }
-
-  const fieldCls =
-    'w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]';
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="glass-modal w-full max-w-lg rounded-xl p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-4 text-lg font-semibold text-[var(--foreground)]">
-          {campaign ? 'Edit campaign' : 'Add Google campaign'}
-        </h2>
-        <div className="space-y-3">
-          <Field label="Campaign name">
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={fieldCls}
-              placeholder="e.g. Summer Search — Brand"
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Channel">
-              <SearchableSelect
-                value={channel ?? 'Search'}
-                onChange={setChannel}
-                options={CHANNELS.map((c) => ({ value: c, label: c }))}
-              />
-            </Field>
-            <Field label="Status">
-              <SearchableSelect
-                value={status}
-                onChange={setStatus}
-                options={STATUSES.map((s) => ({ value: s, label: s }))}
-              />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Budget type">
-              <SearchableSelect
-                value={budgetType}
-                onChange={setBudgetType}
-                options={BUDGET_TYPES.map((b) => ({ value: b, label: b }))}
-              />
-            </Field>
-            <Field label="Funding">
-              <SearchableSelect
-                value={budgetSource}
-                onChange={setBudgetSource}
-                options={[
-                  { value: 'base', label: 'Base' },
-                  { value: 'added', label: 'Added' },
-                ]}
-              />
-            </Field>
-          </div>
-          <Field label={budgetType === 'Lifetime' ? 'Total budget ($)' : 'Monthly budget ($)'}>
-            <input
-              inputMode="decimal"
-              value={allocation}
-              onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && setAllocation(e.target.value)}
-              className={fieldCls}
-              placeholder="0"
-            />
-          </Field>
-          {budgetType !== 'Lifetime' && (
-            <Field label="Planned daily ($)">
-              <input
-                inputMode="decimal"
-                value={dailyBudget}
-                onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && setDailyBudget(e.target.value)}
-                className={fieldCls}
-                placeholder="0"
-              />
-            </Field>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Flight start">
-              <DatePicker mode="single" value={flightStart} onChange={(v) => setFlightStart(v ?? null)} placeholder="Start" />
-            </Field>
-            <Field label="Flight end">
-              <DatePicker mode="single" value={flightEnd} onChange={(v) => setFlightEnd(v ?? null)} placeholder="End" />
-            </Field>
-          </div>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-3.5 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            className="rounded-lg bg-[var(--primary)] px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
-          >
-            {campaign ? 'Save' : 'Add campaign'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 type DiscoveredGoogleCampaign = {
   id: string;
@@ -1130,11 +1171,3 @@ function ImportFromGoogleModal({
 /** Account-level allocation summary above the budget cards (mirrors Meta's
  *  TotalAllocationHeader): total spend budget, total allocated, % + a combined
  *  Base/Added bar with legend. */
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <span className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]">{label}</span>
-      {children}
-    </div>
-  );
-}
