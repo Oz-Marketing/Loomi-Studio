@@ -387,6 +387,32 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
     if (res.ok) mutate();
   };
 
+  // Push a row's daily budget to its linked Google campaign budget.
+  const pushDailyBudget = async (
+    adId: string,
+    value: string,
+  ): Promise<{ ok: boolean; text: string }> => {
+    if (!accountKey) return { ok: false, text: 'No account selected' };
+    try {
+      const res = await fetch(
+        `/api/google-ads-pacer/${encodeURIComponent(accountKey)}/push-budget?period=${period}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ adId, dailyBudget: value }),
+        },
+      );
+      const data = await readJsonSafe(res);
+      if (!res.ok) {
+        return { ok: false, text: (data?.error as string) || `Push failed (${res.status})` };
+      }
+      mutate();
+      return { ok: true, text: 'Pushed to Google' };
+    } catch (e) {
+      return { ok: false, text: e instanceof Error ? e.message : 'Push failed' };
+    }
+  };
+
   // The import modal returns the refreshed plan view (rows born linked + synced);
   // drop it straight into state, like the Meta importer's handleImported.
   function handleImported(data: PacerPlan & { import?: { imported: number; skipped: number } }) {
@@ -550,10 +576,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
               onActualChange={(v) => updateAd({ ...ad, pacerActual: v })}
               onDailyBudgetChange={(v) => updateAd({ ...ad, pacerDailyBudget: v })}
               onMuteToggle={() => updateAd({ ...ad, alertsMuted: !ad.alertsMuted })}
-              onPushDailyBudget={async () => ({
-                ok: false,
-                text: 'Push to Google Ads isn’t available yet.',
-              })}
+              onPushDailyBudget={(value) => pushDailyBudget(ad.id, value)}
               onResolveCrossMonth={(action, splitMap) =>
                 resolveCrossMonth(ad, action, splitMap)
               }
