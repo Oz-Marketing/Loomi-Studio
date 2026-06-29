@@ -12,8 +12,6 @@ import {
   ArrowTopRightOnSquareIcon,
   EnvelopeIcon,
   DevicePhoneMobileIcon,
-  PhoneIcon,
-  MapPinIcon,
   TagIcon,
 } from '@heroicons/react/24/outline';
 import {
@@ -588,14 +586,90 @@ export default function ContactDetailPage() {
             {/* Contact info */}
             <section className="glass-card rounded-xl p-4 border border-[var(--border)]/70">
               <h3 className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] mb-3">Contact</h3>
-              <div className="grid gap-2.5 sm:grid-cols-2 text-sm">
-                <InfoPill icon={<EnvelopeIcon className="w-4 h-4" />} label="Email" value={contact.email} />
-                <InfoPill icon={<PhoneIcon className="w-4 h-4" />} label="Phone" value={contact.phone} />
-                <InfoPill
-                  icon={<MapPinIcon className="w-4 h-4" />}
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <InlineEditableField
+                  label="Email"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'email' }}
+                  displayValue={contact.email || '—'}
+                  rawValue={contact.email}
+                  onSave={(v) => patchContact({ kind: 'canonical', column: 'email', value: v })}
+                />
+                <InlineEditableField
+                  label="Phone"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'phone' }}
+                  displayValue={contact.phone || '—'}
+                  rawValue={contact.phone}
+                  onSave={(v) => patchContact({ kind: 'canonical', column: 'phone', value: v })}
+                />
+                <InlineEditableField
                   label="Address"
-                  value={[contact.address1, contact.city, contact.state, contact.postalCode].filter(Boolean).join(', ')}
-                  className="sm:col-span-2"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'address1' }}
+                  displayValue={contact.address1 || '—'}
+                  rawValue={contact.address1}
+                  onSave={(v) => patchContact({ kind: 'canonical', column: 'address1', value: v })}
+                />
+                <InlineEditableField
+                  label="City / State / Zip"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'city' }}
+                  displayValue={[contact.city, contact.state, contact.postalCode].filter(Boolean).join(', ') || '—'}
+                  rawValue={[contact.city, contact.state, contact.postalCode].filter(Boolean).join(', ')}
+                  onSave={async (v) => {
+                    const [city = '', state = '', postalCode = ''] = String(v ?? '').split(',').map((s) => s.trim());
+                    await Promise.all([
+                      patchContact({ kind: 'canonical', column: 'city', value: city }),
+                      patchContact({ kind: 'canonical', column: 'state', value: state }),
+                      patchContact({ kind: 'canonical', column: 'postalCode', value: postalCode }),
+                    ]);
+                  }}
+                />
+                <InlineEditableField
+                  label="Vehicle Make"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'vehicleMake' }}
+                  displayValue={contact.vehicleMake || '—'}
+                  rawValue={contact.vehicleMake}
+                  onSave={(v) => patchContact({ kind: 'canonical', column: 'vehicleMake', value: v })}
+                />
+                <InlineEditableField
+                  label="Vehicle Model"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'vehicleModel' }}
+                  displayValue={contact.vehicleModel || '—'}
+                  rawValue={contact.vehicleModel}
+                  onSave={(v) => patchContact({ kind: 'canonical', column: 'vehicleModel', value: v })}
+                />
+                <InlineEditableField
+                  label="Vehicle Year"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'vehicleYear' }}
+                  displayValue={contact.vehicleYear || '—'}
+                  rawValue={contact.vehicleYear}
+                  onSave={(v) => patchContact({ kind: 'canonical', column: 'vehicleYear', value: v })}
+                />
+                <InlineEditableField
+                  label="Source"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'source' }}
+                  displayValue={contact.source || '—'}
+                  rawValue={contact.source}
+                  onSave={(v) => patchContact({ kind: 'canonical', column: 'source', value: v })}
+                />
+                <InlineEditableField
+                  label="Tags"
+                  type="text"
+                  fieldRef={{ kind: 'canonical', column: 'tags' }}
+                  displayValue={contact.tags?.length ? contact.tags.join(', ') : '—'}
+                  rawValue={contact.tags?.join(', ') ?? ''}
+                  hint="Comma-separated"
+                  onSave={(v) => patchContact({
+                    kind: 'canonical',
+                    column: 'tags',
+                    value: [...new Set(String(v ?? '').split(',').map((t) => t.trim()).filter(Boolean))],
+                  })}
                 />
               </div>
             </section>
@@ -706,29 +780,6 @@ export default function ContactDetailPage() {
 }
 
 // ── Subcomponents ──
-
-function InfoPill({
-  icon,
-  label,
-  value,
-  className,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  className?: string;
-}) {
-  if (!value) return null;
-  return (
-    <div className={`rounded-lg border border-[var(--border)] bg-[var(--muted)]/25 px-3 py-2 ${className || ''}`}>
-      <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-1">{label}</p>
-      <div className="flex items-start gap-2 text-[var(--foreground)]">
-        <span className="text-[var(--muted-foreground)] mt-0.5">{icon}</span>
-        <span className="break-words">{value}</span>
-      </div>
-    </div>
-  );
-}
 
 function SuppressionTile({
   label,

@@ -26,8 +26,14 @@ export function AddContactModal({ accountKey, onClose, onCreated }: AddContactMo
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [source, setSource] = useState('');
+  const [vMake, setVMake] = useState('');
+  const [vModel, setVModel] = useState('');
+  const [vYear, setVYear] = useState('');
+  const [tags, setTags] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   // Declared custom fields for this account → rendered as type-aware
   // inputs at the bottom of the form. State lives in a single record
@@ -50,11 +56,33 @@ export function AddContactModal({ accountKey, onClose, onCreated }: AddContactMo
     return out;
   }, [customValues]);
 
-  const canSubmit = email.trim().length > 0 || phone.trim().length > 0;
+  function validateEmail(value: string): string | null {
+    if (!value.trim()) return null;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+      ? null
+      : 'Enter a valid email address.';
+  }
+
+  function validatePhone(value: string): string | null {
+    if (!value.trim()) return null;
+    return value.replace(/\D/g, '').length >= 10
+      ? null
+      : 'Phone must have at least 10 digits.';
+  }
+
+  const canSubmit =
+    (email.trim().length > 0 || phone.trim().length > 0) &&
+    !emailError &&
+    !phoneError;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!canSubmit) {
+    const eErr = validateEmail(email);
+    const pErr = validatePhone(phone);
+    setEmailError(eErr);
+    setPhoneError(pErr);
+    if (eErr || pErr) return;
+    if (!email.trim() && !phone.trim()) {
       setError('Provide at least an email or phone.');
       return;
     }
@@ -71,6 +99,11 @@ export function AddContactModal({ accountKey, onClose, onCreated }: AddContactMo
           email: email.trim() || null,
           phone: phone.trim() || null,
           source: source.trim() || null,
+          vehicleMake: vMake.trim() || null,
+          vehicleModel: vModel.trim() || null,
+          vehicleYear: vYear.trim() || null,
+          tags: tags.trim() ? [...new Set(tags.split(',').map((t) => t.trim()).filter(Boolean))] : null,
+          tag: tags.trim() || null,
           customFields:
             Object.keys(customFieldsPayload).length > 0 ? customFieldsPayload : null,
         }),
@@ -133,28 +166,71 @@ export function AddContactModal({ accountKey, onClose, onCreated }: AddContactMo
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => { setEmail(e.target.value); setEmailError(null); }}
+              onBlur={(e) => setEmailError(validateEmail(e.target.value))}
               placeholder="name@example.com"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)]"
+              className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)] bg-[var(--card)] ${emailError ? 'border-red-400' : 'border-[var(--border)]'}`}
             />
+            {emailError && <p className="text-xs text-red-400 mt-1">{emailError}</p>}
           </Field>
 
           <Field label="Phone">
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => { setPhone(e.target.value); setPhoneError(null); }}
+              onBlur={(e) => setPhoneError(validatePhone(e.target.value))}
               placeholder="(555) 123-4567"
+              className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)] bg-[var(--card)] ${phoneError ? 'border-red-400' : 'border-[var(--border)]'}`}
+            />
+            {phoneError && <p className="text-xs text-red-400 mt-1">{phoneError}</p>}
+          </Field>
+          <Field label="Vehicle Make">
+            <input
+              type="text"
+              value={vMake}
+              onChange={(e) => setVMake(e.target.value)}
+              placeholder="Ford"
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)]"
             />
           </Field>
-
+          <Field label="Vehicle Model">
+            <input
+              type="text"
+              value={vModel}
+              onChange={(e) => setVModel(e.target.value)}
+              placeholder="F-150"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)]"
+            />
+          </Field>
+          <Field label="Vehicle Year">
+            <input
+              type="text"
+              value={vYear}
+              onChange={(e) => setVYear(e.target.value)}
+              placeholder="2023"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)]"
+            />
+          </Field>
           <Field label="Source">
             <input
               type="text"
               value={source}
               onChange={(e) => setSource(e.target.value)}
               placeholder="Website, walk-in, referral, …"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)]"
+            />
+          </Field>
+          <Field label="Tags">
+            <input
+              type="text"
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              onBlur={() => {
+                const deduped = [...new Set(tags.split(',').map((t) => t.trim()).filter(Boolean))];
+                setTags(deduped.join(', '));
+              }}
+              placeholder="Spring Sale, VIP, …"
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--primary)]"
             />
           </Field>

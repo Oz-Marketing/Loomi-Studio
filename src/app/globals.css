@@ -1428,6 +1428,7 @@ button.glass-card:hover,
 /* ── Button Micro-interactions ── */
 button {
   transition: opacity 0.15s ease, transform 0.1s ease;
+  cursor:pointer
 }
 button:active:not(:disabled) {
   transform: scale(0.97);
@@ -1652,4 +1653,18 @@ input, select, textarea {
 }
 [data-sonner-toast][data-type='info'] [data-close-button] {
   color: #6366f1 !important;
+}
+[data-theme="dark"] select {
+  background-color: #090813!important;
+  color: #ffffff!important;
+}
+
+[data-theme="dark"] select option {
+  background-color: #090813!important;
+  color: #ffffff!important;
+}
+
+[data-theme="dark"] select optgroup {
+  background-color: #090813!important;
+  color: #a0a0a0!important;
 }

@@ -275,7 +275,7 @@ async function upsertContact(
   }
 
   const created = await prisma.contact.create({
-    data: { accountKey, ...writeData },
+    data: { accountKey, dateAdded: new Date(), ...writeData },
     select: { id: true },
   });
   return { action: 'created', id: created.id };
