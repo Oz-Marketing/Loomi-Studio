@@ -31,7 +31,6 @@ import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { DEFAULT_TIME_ZONE } from '@/lib/timezone';
 import {
-  CARRYOVER_THRESHOLD,
   COLORS,
 } from '@/lib/ad-pacer/constants';
 import {
@@ -59,7 +58,6 @@ import {
 import {
   currentPeriod,
   isValidPeriod,
-  shiftPeriod,
   fmtPeriodLong,
   fmtPeriodShort,
 } from '@/lib/ad-pacer/period';
@@ -208,9 +206,15 @@ export function MetaAdsPlannerTool({ mode: initialMode }: { mode: MetaToolMode }
   const [, setSaveStatus] = useState<SaveStatus>('idle');
   const [syncingMeta, setSyncingMeta] = useState(false);
   const [reopening, setReopening] = useState(false);
-  const [applyingCarryover, setApplyingCarryover] = useState(false);
-  const [carryoverBucket, setCarryoverBucket] = useState<'base' | 'added'>('base');
-  const [carryoverDismissed, setCarryoverDismissed] = useState(false);
+  // §5: the planner banner reads the SAME unreconciled-to-date figure the
+  // Reconciliation tab acts on (fetched from /reconciliation below), so it is
+  // purely informational and resolves automatically as the ledger changes —
+  // applying happens only on the Reconciliation tab, never here.
+  const [reconcileSummary, setReconcileSummary] = useState<{
+    ytdUnapplied: number;
+    recentMonth: string | null;
+    recentVariance: number;
+  } | null>(null);
   // Budget Log + Change Log now live in the account scope row (pacer), so
   // their open-state + drawers are lifted here and work on every pacer sub-tab.
   const [budgetLogOpen, setBudgetLogOpen] = useState(false);
@@ -353,8 +357,6 @@ export function MetaAdsPlannerTool({ mode: initialMode }: { mode: MetaToolMode }
     setLoaded(false);
     setLoadError(null);
     setFilters(EMPTY_FILTERS);
-    setCarryoverDismissed(false);
-    setCarryoverBucket('base');
 
     Promise.all([
       fetch(`/api/meta-ads-pacer/${activeKey}?period=${period}`).then(async (r) => {
@@ -403,6 +405,53 @@ export function MetaAdsPlannerTool({ mode: initialMode }: { mode: MetaToolMode }
         setLoadError(err instanceof Error ? err.message : 'Failed to load plan');
         setLoaded(true);
       });
+  }, [activeKey, period]);
+
+  // §5: pull the unreconciled-to-date ledger (same data the Reconciliation tab
+  // shows) so the planner banner reflects the live outstanding pool — most
+  // recent still-unreconciled closed month + the cumulative. Re-fetched on
+  // account/period change so it rolls forward and clears once nothing's
+  // outstanding. Best-effort: a failure just hides the banner.
+  useEffect(() => {
+    if (!activeKey) {
+      setReconcileSummary(null);
+      return;
+    }
+    const year = Number(period.slice(0, 4));
+    let cancelled = false;
+    fetch(`/api/meta-ads-pacer/${activeKey}/reconciliation?year=${year}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (
+          d: {
+            ytdUnapplied?: number;
+            unappliedMonths?: string[];
+            months?: { period: string; variance: number }[];
+          } | null,
+        ) => {
+          if (cancelled) return;
+          if (!d) {
+            setReconcileSummary(null);
+            return;
+          }
+          const recentMonth =
+            (d.unappliedMonths ?? []).slice().sort().pop() ?? null;
+          const recentVariance = recentMonth
+            ? (d.months ?? []).find((m) => m.period === recentMonth)?.variance ?? 0
+            : 0;
+          setReconcileSummary({
+            ytdUnapplied: d.ytdUnapplied ?? 0,
+            recentMonth,
+            recentVariance,
+          });
+        },
+      )
+      .catch(() => {
+        if (!cancelled) setReconcileSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activeKey, period]);
 
   // ── Debounced save (PUT) ──
@@ -706,60 +755,6 @@ export function MetaAdsPlannerTool({ mode: initialMode }: { mode: MetaToolMode }
     }
   };
 
-  // ── Apply / clear last month's carryover into this month (Change 7) ──
-  const handleApplyCarryover = async (
-    bucket: 'base' | 'added',
-    clear: boolean,
-  ) => {
-    if (!activeKey || applyingCarryover) return;
-    setApplyingCarryover(true);
-    try {
-      const res = await fetch(
-        `/api/meta-ads-pacer/${activeKey}/carryover?period=${period}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bucket, clear }),
-        },
-      );
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        toast.error(data?.error || 'Could not update carryover.');
-        return;
-      }
-      setPlan({
-        accountKey: data.accountKey ?? activeKey,
-        period: data.period ?? period,
-        baseBudgetGoal: data.baseBudgetGoal ?? null,
-        addedBudgetGoal: data.addedBudgetGoal ?? null,
-        markup:
-          typeof data.markup === 'number' && Number.isFinite(data.markup)
-            ? data.markup
-            : null,
-        timeZone:
-          typeof data.timeZone === 'string' && data.timeZone
-            ? data.timeZone
-            : DEFAULT_TIME_ZONE,
-        frozen: data.frozen === true,
-        frozenAt: data.frozenAt ?? null,
-        reopened: data.reopened === true,
-        baseCarryover: data.baseCarryover ?? null,
-        addedCarryover: data.addedCarryover ?? null,
-        priorOverUnder: data.priorOverUnder ?? null,
-        ads: Array.isArray(data.ads) ? data.ads : [],
-        siblingsByName: data.siblingsByName,
-      });
-      toast.success(
-        clear
-          ? 'Carryover removed.'
-          : `Carried last month's over/under into ${bucket === 'base' ? 'Base' : 'Added'}.`,
-      );
-    } catch {
-      toast.error('Could not update carryover.');
-    } finally {
-      setApplyingCarryover(false);
-    }
-  };
 
   // ── Copy from another period ──
   const handleCopyFrom = async (
@@ -1185,150 +1180,56 @@ export function MetaAdsPlannerTool({ mode: initialMode }: { mode: MetaToolMode }
 
   const hasTabs = !!activeKey;
 
-  // Carryover prompt (Change 7) — fold last month's settled over/under into
-  // this month's spend target, opt-in, per bucket. Never touches the client
-  // budget goal. Rendered up in the account scope row (planner only) so it
-  // doesn't add a dedicated row above the budget cards.
+  // §5: informational reconciliation banner — awareness only, no action. It
+  // reads the live unreconciled-to-date ledger (reconcileSummary, same data the
+  // Reconciliation tab acts on) so it can never nag about something already
+  // handled, and it resolves automatically once the pool is zero. Applying
+  // happens only on the Reconciliation tab, which makes double-application
+  // structurally impossible. Shown on the Planner tab when drift is outstanding.
   const carryoverNotice =
-    activeKey && plan && !plan.frozen && mode === 'planner' && plannerTab === 'planner'
+    activeKey &&
+    plan &&
+    !plan.frozen &&
+    mode === 'planner' &&
+    plannerTab === 'planner' &&
+    reconcileSummary &&
+    Math.abs(reconcileSummary.ytdUnapplied) >= 0.005
       ? (() => {
-          const prior = plan.priorOverUnder;
-          const appliedBase = num(plan.baseCarryover);
-          const appliedAdded = num(plan.addedCarryover);
-          const applied = appliedBase != null || appliedAdded != null;
-          // Always surface an unapplied prior over/under so you can decide
-          // whether to fold it in — even below the threshold. Only hide when
-          // there's nothing meaningful to show.
-          if (!applied && (!prior || Math.abs(prior.variance) < 0.005)) {
-            return null;
-          }
-          const fromLabel = fmtPeriodShort(shiftPeriod(period, -1));
-          if (applied) {
-            const amt = appliedBase != null ? appliedBase : appliedAdded ?? 0;
-            const bucket = appliedBase != null ? 'base' : 'added';
-            return (
-              <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 px-4 py-2.5">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <ArrowPathIcon className="w-4 h-4 flex-shrink-0 text-[var(--primary)]" />
-                  <span className="text-xs text-[var(--foreground)]">
-                    Carryover applied:{' '}
-                    <span className="font-semibold">
-                      {amt >= 0 ? '+' : '−'}
-                      {fmt(Math.abs(amt))}
-                    </span>{' '}
-                    to {bucket === 'base' ? 'Base' : 'Added'} (from {fromLabel}).
-                    The client budget is unchanged.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleApplyCarryover(bucket, true)}
-                  disabled={applyingCarryover}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Remove
-                </button>
-              </div>
-            );
-          }
-          const variance = prior!.variance;
-          const under = variance < 0;
-          const carry = prior!.carryover;
-          const prominent = prior!.exceedsThreshold && !carryoverDismissed;
-          if (!prominent) {
-            return (
-              <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-4 py-2">
-                <div className="flex items-center gap-2 min-w-0 text-xs text-[var(--muted-foreground)]">
-                  <ScaleIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span>
-                    <span className="font-semibold text-[var(--foreground)]">
-                      {fromLabel}
-                    </span>{' '}
-                    {under ? 'underspent' : 'overspent'} by{' '}
-                    <span className="font-semibold text-[var(--foreground)]">
-                      {fmt(Math.abs(variance))}
-                    </span>{' '}
-                    vs target.
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <select
-                    value={carryoverBucket}
-                    onChange={(e) =>
-                      setCarryoverBucket(e.target.value === 'added' ? 'added' : 'base')
-                    }
-                    className="px-2 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
-                    aria-label="Carryover bucket"
-                  >
-                    <option value="base">Base</option>
-                    <option value="added">Added</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => handleApplyCarryover(carryoverBucket, false)}
-                    disabled={applyingCarryover}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {applyingCarryover
-                      ? 'Applying…'
-                      : `Apply ${carry >= 0 ? '+' : '−'}${fmt(Math.abs(carry))}`}
-                  </button>
-                </div>
-              </div>
-            );
-          }
+          const { ytdUnapplied, recentMonth, recentVariance } = reconcileSummary;
+          const poolUnder = ytdUnapplied > 0; // positive pool = underspent to apply
+          const recentUnder = recentVariance < 0;
           return (
-            <div
-              className="flex items-center justify-between gap-3 flex-wrap rounded-xl border px-4 py-2.5"
-              style={{ borderColor: `${COLORS.warn}66`, background: 'rgba(245,158,11,0.06)' }}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <ScaleIcon className="w-4 h-4 flex-shrink-0" style={{ color: COLORS.warn }} />
-                <div className="min-w-0 text-xs text-[var(--foreground)]">
-                  <span className="font-semibold">{fromLabel}</span>{' '}
-                  {under ? 'underspent' : 'overspent'} by{' '}
-                  <span className="font-semibold" style={{ color: under ? COLORS.warn : COLORS.error }}>
-                    {fmt(Math.abs(variance))}
-                  </span>{' '}
-                  vs target — exceeds the {fmt(CARRYOVER_THRESHOLD)} threshold.
+            <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-4 py-2.5">
+              <div className="flex items-center gap-2.5 min-w-0 text-xs text-[var(--foreground)]">
+                <ScaleIcon className="w-4 h-4 flex-shrink-0 text-[var(--muted-foreground)]" />
+                <span className="min-w-0">
+                  {recentMonth && (
+                    <>
+                      <span className="font-semibold">
+                        {fmtPeriodShort(recentMonth)}
+                      </span>{' '}
+                      {recentUnder ? 'underspent' : 'overspent'} by{' '}
+                      <span className="font-semibold">
+                        {fmt(Math.abs(recentVariance))}
+                      </span>{' '}
+                      vs target.{' '}
+                    </>
+                  )}
                   <span className="text-[var(--muted-foreground)]">
-                    {' '}Apply{' '}
                     <span className="font-semibold text-[var(--foreground)]">
-                      {carry >= 0 ? '+' : '−'}
-                      {fmt(Math.abs(carry))}
+                      {fmt(Math.abs(ytdUnapplied))}
                     </span>{' '}
-                    to this month&apos;s spend target?
+                    {poolUnder ? 'underspent' : 'overspent'} unreconciled to date.
                   </span>
-                </div>
+                </span>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <select
-                  value={carryoverBucket}
-                  onChange={(e) =>
-                    setCarryoverBucket(e.target.value === 'added' ? 'added' : 'base')
-                  }
-                  className="px-2 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
-                  aria-label="Carryover bucket"
-                >
-                  <option value="base">Base</option>
-                  <option value="added">Added</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={() => handleApplyCarryover(carryoverBucket, false)}
-                  disabled={applyingCarryover}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--primary)] disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {applyingCarryover ? 'Applying…' : 'Apply'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCarryoverDismissed(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--muted)]"
-                >
-                  Leave as-is
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setTab('reconcile')}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--primary)] hover:underline flex-shrink-0"
+              >
+                Reconcile in the Reconciliation tab
+              </button>
             </div>
           );
         })()
