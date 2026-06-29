@@ -1588,6 +1588,10 @@ model MetaAdsPacerAuditEntry {
   planId       String
   plan         MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   period       String // YYYY-MM
+  // Platform the change belongs to, so Meta and Google keep separate change
+  // logs. null / anything ≠ "google" = Meta (legacy rows have null); "google"
+  // = Google. Resolved with adPlatformWhere() on read.
+  platform     String?
   adId         String? // null for period-level (budget goals) / account-level events
   adName       String? // denormalized so the trail survives ad deletion
   action       String // edit | created | deleted | carryover | freeze | reopen | sync
@@ -1647,6 +1651,11 @@ model MetaAdsPacerPeriodBudget {
   // record. Single-month: set once on approval, not auto-chained.
   baseCarryover    String?
   addedCarryover   String?
+  // Google's carryover pair — kept separate so a Google specialist's
+  // reconciliation never writes into Meta's carryover (and vice versa). The
+  // surface resolves its pair by platform, same as the budget goals above.
+  googleBaseCarryover  String?
+  googleAddedCarryover String?
   // Backfilled actual spend for a pre-pacer month (account-total from Meta,
   // combined — not bucket-split). Lets year reconciliation include months from
   // before the tool existed. Null for normally-tracked months (their actual is
@@ -1668,6 +1677,9 @@ model MetaAdsPacerCarryoverApplication {
   id              String           @id @default(cuid())
   planId          String
   plan            MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  // null = Meta (legacy); "google" = Google. Scopes the reconciliation ledger
+  // per platform so each specialist's applies stay independent.
+  platform        String?
   bucket          String // "base" | "added" — the target month bucket it lands in
   sourceMonth     String // YYYY-MM the over/under came from
   targetMonth     String // YYYY-MM it was applied into
@@ -1852,6 +1864,9 @@ model MetaAdsPacerAccountNote {
   // month, so May notes only show in May and June starts a fresh log. Nullable
   // for pre-existing account-wide notes (which won't surface in a month view).
   period       String?
+  // null = Meta (legacy); "google" = Google. Keeps each platform's account
+  // notes separate even though they share the account + period.
+  platform     String?
   text         String
   authorUserId String?
   author       User?    @relation("MetaPacerAccountNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
@@ -1869,6 +1884,8 @@ model MetaAdsPacerBudgetLog {
   accountKey   String
   account      Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
   period       String // YYYY-MM
+  // null = Meta (legacy); "google" = Google.
+  platform     String?
   // JSON-encoded AdSnapshot[] — per-ad numbers matching the Summary tab
   // columns (budgetType, budget, projected, actual, target, recDaily).
   // See BudgetLogDrawer for the exact shape.

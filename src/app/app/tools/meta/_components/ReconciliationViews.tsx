@@ -9,7 +9,9 @@ import {
   ChevronRightIcon,
   ClipboardDocumentListIcon,
   ExclamationTriangleIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { InvestmentIcon } from '@/components/icons/investment';
 import type { PacerAd, DirectoryUser } from '@/lib/ad-pacer/types';
 import { COLORS, AD_COLORS } from '@/lib/ad-pacer/constants';
@@ -97,6 +99,7 @@ interface ReconData {
  * the account's running annual variance.
  */
 export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
+  const { confirm } = useLoomiDialog();
   const [year, setYear] = useState<number>(() =>
     Number(currentPeriod().slice(0, 4)),
   );
@@ -106,6 +109,7 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [bucket, setBucket] = useState<'base' | 'added'>('base');
   const [backfilling, setBackfilling] = useState(false);
+  const [clearingBackfill, setClearingBackfill] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   // CM4: which month rows are expanded to their per-ad variance breakdown.
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
@@ -170,6 +174,34 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
       setActionError(err instanceof Error ? err.message : 'Backfill failed.');
     } finally {
       setBackfilling(false);
+    }
+  };
+
+  // Undo the backfill — clear the Meta-pulled actual spend for pre-tool months
+  // so it stops tainting variance. Scoped to the year on screen.
+  const clearBackfill = async () => {
+    const ok = await confirm({
+      title: `Remove backfilled spend for ${year}?`,
+      message:
+        'Clears the actual-spend amounts pulled from Meta for pre-tool months this year so they stop counting toward reconciliation variance. Your tracked months are untouched, and you can re-run Backfill later.',
+      confirmLabel: 'Remove backfill',
+      destructive: true,
+    });
+    if (!ok) return;
+    setClearingBackfill(true);
+    setActionError(null);
+    try {
+      const r = await fetch(
+        `/api/meta-ads-pacer/${accountKey}/backfill-history?year=${year}`,
+        { method: 'DELETE' },
+      );
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(json?.error || `HTTP ${r.status}`);
+      load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to clear backfill.');
+    } finally {
+      setClearingBackfill(false);
     }
   };
 
@@ -239,6 +271,19 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
             {backfilling ? 'Backfilling…' : 'Backfill historical spend'}
           </button>
           </Tooltip>
+          {data?.months.some((m) => m.isBackfilled) && (
+            <Tooltip label="Remove the Meta-pulled actual spend for pre-tool months this year (your tracked months stay untouched)">
+            <button
+              type="button"
+              onClick={clearBackfill}
+              disabled={clearingBackfill}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
+            >
+              <TrashIcon className="w-3.5 h-3.5" />
+              {clearingBackfill ? 'Removing…' : 'Remove backfill'}
+            </button>
+            </Tooltip>
+          )}
         </div>
       </div>
 

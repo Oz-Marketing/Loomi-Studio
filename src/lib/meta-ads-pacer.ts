@@ -76,6 +76,80 @@ export async function getOrCreatePlan(accountKey: string) {
 }
 
 /**
+ * Undo Meta history backfill for an account: clear the `historicalActual`
+ * pulled for pre-tool (untracked) months so it stops feeding reconciliation
+ * variance. Optionally scope to a single year. A row whose ONLY content was
+ * the backfill is deleted outright, returning that month to its true
+ * pre-backfill state (it drops off the Reconciliation tab); a row that also
+ * carries a typed budget goal or carryover keeps those and just loses the
+ * backfilled actual. Never touches a tracked month — those have no
+ * `historicalActual` to begin with. Returns the periods cleared. Re-runnable.
+ */
+export async function clearBackfillHistory(
+  accountKey: string,
+  opts: { year?: number; authorUserId?: string | null } = {},
+): Promise<{ cleared: string[] }> {
+  const plan = await getOrCreatePlan(accountKey);
+
+  // Tracked months get their actual from their ad rows, never from a backfill —
+  // belt-and-suspenders so we can't strip a real month even if one somehow has
+  // a stray historicalActual.
+  const trackedRows = await prisma.metaAdsPacerAd.findMany({
+    where: { planId: plan.id },
+    select: { period: true },
+    distinct: ['period'],
+  });
+  const tracked = new Set(trackedRows.map((r) => r.period));
+
+  const rows = await prisma.metaAdsPacerPeriodBudget.findMany({
+    where: {
+      planId: plan.id,
+      historicalActual: { not: null },
+      ...(opts.year ? { period: { startsWith: `${opts.year}-` } } : {}),
+    },
+  });
+
+  const cleared: string[] = [];
+  for (const row of rows) {
+    if (tracked.has(row.period)) continue;
+    const pureBackfill =
+      row.baseBudgetGoal == null &&
+      row.addedBudgetGoal == null &&
+      row.googleBaseBudgetGoal == null &&
+      row.googleAddedBudgetGoal == null &&
+      row.baseCarryover == null &&
+      row.addedCarryover == null &&
+      row.googleBaseCarryover == null &&
+      row.googleAddedCarryover == null;
+    if (pureBackfill) {
+      await prisma.metaAdsPacerPeriodBudget.delete({ where: { id: row.id } });
+    } else {
+      await prisma.metaAdsPacerPeriodBudget.update({
+        where: { id: row.id },
+        data: { historicalActual: null },
+      });
+    }
+    cleared.push(row.period);
+  }
+
+  if (cleared.length > 0) {
+    await writeAudit(
+      cleared.map((period) => ({
+        accountKey,
+        planId: plan.id,
+        period,
+        action: 'edit',
+        field: 'historicalActual',
+        summary: `Cleared backfilled actual spend for ${period}`,
+        authorUserId: opts.authorUserId ?? null,
+      })),
+    );
+  }
+
+  return { cleared: cleared.sort() };
+}
+
+/**
  * Pull the full plan with ads + nested children, ordered for the UI.
  */
 export async function fetchPlanWithRelations(planId: string) {
