@@ -1744,6 +1744,13 @@ model MetaAdsPacerAd {
   // surfaced for multi-month ads so the full date-range spend is visible; never
   // drives the month's pacing math.
   pacerRunSpend         String?
+  // The ad set's LIFETIME budget pulled from Meta (the true spend cap Meta
+  // distributes toward), in dollars. Synced from the Marketing API's
+  // lifetime_budget. This is the settlement baseline for a lifetime run:
+  // variance settles as Σ actual across the run − metaLifetimeBudget. Distinct
+  // from `allocation` (the team's per-month planned slice) and `pacerRunSpend`
+  // (actual full-run spend). Null for daily-budget ad sets / before first sync.
+  metaLifetimeBudget    String?
   // §2a: the YYYY-MM the ad's FULL run was counted in (single-month straddler
   // resolution). When set, the assigned month uses pacerRunSpend + allocation
   // (full scope) and the ad contributes 0 to any other month. Server-managed

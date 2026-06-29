@@ -78,6 +78,9 @@ export interface PacerAd {
   pacerSyncedAt: string | null;
   /** Full-run (all-time) spend across the ad set's whole flight; informational. */
   pacerRunSpend: string | null;
+  /** Meta's lifetime budget for the ad set (spend cap), synced — the settlement
+   *  baseline for a lifetime run (Σ run actual − this). Null for daily ads. */
+  metaLifetimeBudget: string | null;
   // §2a/§2b: server-persisted cross-month resolution (survives Meta re-sync).
   // fullRunAppliedToMonth = the YYYY-MM the full run is counted in (single-month
   // straddler). lifetimeMonthSplit = JSON planned per-month split (display-only).
