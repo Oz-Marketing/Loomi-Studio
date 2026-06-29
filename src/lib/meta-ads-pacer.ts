@@ -330,6 +330,7 @@ export async function reconcileCompletedRuns(
       adStatus: true,
       flightEnd: true,
       metaEndDate: true,
+      platform: true,
     },
   });
   const toComplete = ads.filter((a) => {
@@ -347,6 +348,7 @@ export async function reconcileCompletedRuns(
       accountKey,
       planId,
       period,
+      platform: a.platform === 'google' ? 'google' : null,
       adId: a.id,
       adName: a.name,
       action: 'edit',
