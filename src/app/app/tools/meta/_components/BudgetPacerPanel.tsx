@@ -15,6 +15,7 @@ import { type PlanFilters, EMPTY_FILTERS, applyFilters } from '@/lib/ad-pacer/fi
 import { COLORS } from '@/lib/ad-pacer/constants';
 import { fmt, fmtDate, classifyPacerHealth } from '@/lib/ad-pacer/helpers';
 import { buildPacerCalc } from '@/lib/ad-pacer/pacer-calc';
+import { shiftPeriod } from '@/lib/ad-pacer/period';
 import { PacerRow, Tooltip, usePacerReadOnly } from '@/app/app/tools/_shared';
 import { AdSetLinkPicker, type MetaAdSetOption } from './AdSetLinkPicker';
 import { FilterStatus } from './FilterSidebar';
@@ -217,6 +218,28 @@ export function BudgetPacerPanel({
   // Cross-month reassurance note is dismissible (X) — once closed it stays
   // hidden for this view.
   const [crossMonthNoteDismissed, setCrossMonthNoteDismissed] = useState(false);
+  // Prior-month ads for the manual cross-month link picker (unsynced split
+  // runs). One lightweight fetch of the previous period's plan; synced runs
+  // auto-chain by ad-set id and never read this.
+  const [prevMonthAds, setPrevMonthAds] = useState<
+    { id: string; name: string; period: string }[]
+  >([]);
+  useEffect(() => {
+    const prev = shiftPeriod(plan.period, -1);
+    let cancelled = false;
+    fetch(`/api/meta-ads-pacer/${accountKey}?period=${prev}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { ads?: { id: string; name: string; period: string }[] } | null) => {
+        if (cancelled || !d?.ads) return;
+        setPrevMonthAds(
+          d.ads.map((a) => ({ id: a.id, name: a.name, period: a.period })),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [accountKey, plan.period]);
 
   const updateAd = (u: PacerAd) =>
     onChange({ ...plan, ads: plan.ads.map((a) => (a.id === u.id ? u : a)) });
@@ -276,8 +299,9 @@ export function BudgetPacerPanel({
   const resolveCrossMonth = useCallback(
     async (
       adId: string,
-      action: 'apply_full_run' | 'split' | 'clear',
+      action: 'apply_full_run' | 'split' | 'clear' | 'link',
       splitMap?: Record<string, number>,
+      linkedPrevAdId?: string,
     ) => {
       // The CTA is disabled when frozen and the endpoint rejects a frozen
       // month (409), so no client-side readOnly guard is needed here.
@@ -288,10 +312,22 @@ export function BudgetPacerPanel({
           a.id === adId
             ? {
                 ...a,
+                // Mirror the server: bill / split / link are mutually exclusive;
+                // link seeds the split mark so the run is detected as split.
                 fullRunAppliedToMonth:
                   action === 'apply_full_run' ? plan.period : null,
                 lifetimeMonthSplit:
-                  action === 'split' ? JSON.stringify(splitMap ?? {}) : null,
+                  action === 'split'
+                    ? JSON.stringify(splitMap ?? {})
+                    : action === 'link'
+                      ? a.lifetimeMonthSplit ?? '{}'
+                      : null,
+                linkedPrevAdId:
+                  action === 'link'
+                    ? linkedPrevAdId ?? null
+                    : action === 'split'
+                      ? a.linkedPrevAdId
+                      : null,
               }
             : a,
         ),
@@ -306,6 +342,7 @@ export function BudgetPacerPanel({
               adId,
               action,
               ...(action === 'split' ? { splitMap } : {}),
+              ...(action === 'link' ? { linkedPrevAdId } : {}),
             }),
           },
         );
@@ -488,9 +525,10 @@ export function BudgetPacerPanel({
               updateAd({ ...ad, alertsMuted: !ad.alertsMuted })
             }
             onPushDailyBudget={(value) => pushDailyBudget(ad.id, value)}
-            onResolveCrossMonth={(action, splitMap) =>
-              resolveCrossMonth(ad.id, action, splitMap)
+            onResolveCrossMonth={(action, splitMap, linkedPrevAdId) =>
+              resolveCrossMonth(ad.id, action, splitMap, linkedPrevAdId)
             }
+            prevMonthAds={prevMonthAds}
             siblings={plan.siblingsByName?.[ad.name] ?? null}
             synced={!!ad.metaObjectId && !!ad.pacerSyncedAt}
             linkError={adSetsError}

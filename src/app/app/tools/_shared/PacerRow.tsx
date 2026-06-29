@@ -30,6 +30,7 @@ import {
 } from '@/lib/ad-pacer/helpers';
 import { fmtPeriodLong } from '@/lib/ad-pacer/period';
 import { buildPacerCalc } from '@/lib/ad-pacer/pacer-calc';
+import { SearchableSelect } from '@/components/flows/builder/SearchableSelect';
 import { usePacerReadOnly } from './pacer-read-only';
 import { Tooltip } from './Tooltip';
 import { DollarInput, Field, readonlyClass, labelClass } from './inputs';
@@ -47,6 +48,7 @@ export function PacerRow({
   onMuteToggle,
   onPushDailyBudget,
   onResolveCrossMonth,
+  prevMonthAds,
   siblings,
   synced,
   linkPicker,
@@ -67,11 +69,17 @@ export function PacerRow({
   /** Push the row's current daily budget to its linked platform object. */
   onPushDailyBudget: (value: string) => Promise<{ ok: boolean; text: string }>;
   /** §2: resolve a cross-month straddler — count its full run in its own month
-   *  (apply_full_run), set a lifetime planned split, or clear. Persists server-side. */
+   *  (apply_full_run), set a lifetime planned split, link to a prior-month run
+   *  (link), or clear. Persists server-side. */
   onResolveCrossMonth: (
-    action: 'apply_full_run' | 'split' | 'clear',
+    action: 'apply_full_run' | 'split' | 'clear' | 'link',
     splitMap?: Record<string, number>,
+    linkedPrevAdId?: string,
   ) => void;
+  /** Prior-period ads for the manual "continues a prior-month run" picker, each
+   *  { id, name, period }. Shown only for an unsynced split run (synced runs
+   *  auto-chain by ad-set id). Empty/undefined hides the picker. */
+  prevMonthAds?: { id: string; name: string; period: string }[];
   /** #58: this ad's same-title sibling rows across months (period →
    *  {allocation, actual}), so the split reference shows each month's real plan
    *  + spend. null when the ad has no same-name rows in other periods. */
@@ -470,7 +478,17 @@ export function PacerRow({
                 : 'grid grid-cols-1 md:grid-cols-[minmax(0,150px)_minmax(0,150px)_minmax(0,max-content)] gap-4'
             }
           >
-        <Field label="Actual Spend">
+        <Field
+          label={
+            // Prompt 3: when the full run is billed in one month, this input is
+            // just THIS month's delivery slice (the full run shows in the
+            // cross-month banner + the over/under). Relabel so it's never
+            // mistaken for the figure variance is computed against.
+            ad.fullRunAppliedToMonth
+              ? `${fmtPeriodLong(ad.period).split(' ')[0]} delivery`
+              : 'Actual Spend'
+          }
+        >
           {syncedFromMeta ? (
             // Meta owns the spend once synced — plain read-only value. The card's
             // "from Meta" badge labels the source, so no per-field tag here.
@@ -734,6 +752,34 @@ export function PacerRow({
                     ))}
                   </div>
                 )}
+                {/* Manual run linkage — only when unsynced (synced ad sets
+                    auto-chain across months by ad-set id). Picks the prior-month
+                    ad this instance continues; the run then settles once at
+                    flight end. */}
+                {isLifetime && !synced && (prevMonthAds?.length ?? 0) > 0 && (
+                  <div className="mt-2 border-t border-[var(--border)] pt-2">
+                    <div
+                      className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider"
+                      style={{ color: COLORS.lifetime }}
+                    >
+                      Continues a prior-month run
+                    </div>
+                    <SearchableSelect
+                      value={ad.linkedPrevAdId ?? ''}
+                      onChange={(v) => v && onResolveCrossMonth('link', undefined, v)}
+                      options={(prevMonthAds ?? []).map((p) => ({
+                        value: p.id,
+                        label: `${p.name || 'Untitled'} · ${fmtPeriodLong(p.period)}`,
+                      }))}
+                      placeholder="Link to last month's ad…"
+                    />
+                    {ad.linkedPrevAdId && (
+                      <div className="mt-1 text-[10px] text-[var(--muted-foreground)]">
+                        Linked — this run settles once at flight end.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -790,33 +836,46 @@ export function PacerRow({
         <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {isLifetime ? (
+          // Lifetime ads: Meta distributes the budget across the flight however
+          // it wants, so there's nothing to pace day-to-day (Prompt 1/2). Show
+          // run-level reconciliation only — spent-to-date vs the lifetime cap +
+          // an actual-vs-budget status — never daily projection / rec-daily.
           (() => {
-            const pct = calc.lifetimePacingPct;
-            const onTrack = pct != null && pct >= 95 && pct <= 105;
-            const overpacing = pct != null && pct > 105;
-            const underpacing = pct != null && pct < 95;
-            const color = onTrack
-              ? COLORS.success
-              : overpacing
-                ? COLORS.warn
-                : underpacing
-                  ? COLORS.error
-                  : undefined;
+            const lifetimeBudget = num(ad.metaLifetimeBudget) ?? calc.budget;
+            const spentToDate = num(ad.pacerRunSpend) ?? calc.spent;
+            const ratio = lifetimeBudget > 0 ? spentToDate / lifetimeBudget : null;
+            const over = ratio != null && ratio > 1;
             return (
-              <MetricBox
-                label="Pacing"
-                value={pct != null ? `${pct.toFixed(1)}%` : '—'}
-                sub={
-                  pct == null
-                    ? 'set flight start, end, and target'
-                    : onTrack
-                      ? 'on track'
-                      : overpacing
-                        ? 'spending faster than scheduled'
-                        : 'spending slower than scheduled'
-                }
-                color={color}
-              />
+              <>
+                <MetricBox
+                  label="Spent to date"
+                  value={fmt(spentToDate)}
+                  sub={
+                    ratio != null
+                      ? `${(ratio * 100).toFixed(0)}% of lifetime budget`
+                      : 'set a lifetime budget'
+                  }
+                />
+                <MetricBox
+                  label="Lifetime budget"
+                  value={lifetimeBudget > 0 ? fmt(lifetimeBudget) : '—'}
+                  sub="Meta spend cap"
+                />
+                <MetricBox
+                  label="Status"
+                  value={
+                    ratio == null
+                      ? '—'
+                      : over
+                        ? `Over by ${fmt(spentToDate - lifetimeBudget)}`
+                        : `${fmt(lifetimeBudget - spentToDate)} left`
+                  }
+                  sub="Meta controls delivery"
+                  color={
+                    ratio == null ? undefined : over ? COLORS.error : COLORS.success
+                  }
+                />
+              </>
             );
           })()
         ) : (
@@ -836,6 +895,8 @@ export function PacerRow({
             }
           />
         )}
+        {!isLifetime && (
+        <>
         <MetricBox
           label="Days Remaining"
           value={
@@ -902,6 +963,8 @@ export function PacerRow({
           }
           color={recColor}
         />
+        </>
+        )}
       </div>
         </>
       )}
@@ -932,9 +995,9 @@ export function PacerRow({
         if (isLifetime) {
           return (
             <p className="m-0 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-              {fmt(calc.remaining)} of the lifetime budget left across{' '}
-              {fmtDaysLeft(calc.daysLeft)}. To finish on time, average ~
-              {fmt(calc.recDaily)}/day.
+              Meta controls how this lifetime budget is delivered across the
+              flight — there&apos;s no daily rate to steer. The full variance
+              settles when the run completes.
             </p>
           );
         }

@@ -107,6 +107,7 @@ export async function POST(
         accountKey,
         planId: plan.id,
         period,
+        platform: 'google',
         action: 'budget_push',
         authorUserId: session.user?.id ?? null,
         summary: `Pushed daily budget $${amount.toFixed(2)} to Google for "${ad.name}"`,

@@ -9,7 +9,9 @@ import {
   ChevronRightIcon,
   ClipboardDocumentListIcon,
   ExclamationTriangleIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { InvestmentIcon } from '@/components/icons/investment';
 import type { PacerAd, DirectoryUser } from '@/lib/ad-pacer/types';
 import { COLORS, AD_COLORS } from '@/lib/ad-pacer/constants';
@@ -63,6 +65,7 @@ interface ReconMonth {
     billedActual: number;
     contribution: number;
     klass: 'real' | 'billed-cross-month' | 'lifetime-in-progress';
+    settlesThisMonth?: boolean;
   }[];
 }
 interface CarryoverApplication {
@@ -96,7 +99,19 @@ interface ReconData {
  * months') over/under into the live month's bucket via the ledger, correcting
  * the account's running annual variance.
  */
-export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
+export function ReconciliationPanel({
+  accountKey,
+  platform,
+}: {
+  accountKey: string;
+  /** 'google' scopes the whole tab to Google's ledger; omit/undefined = Meta. */
+  platform?: 'meta' | 'google';
+}) {
+  const { confirm } = useLoomiDialog();
+  const isGoogle = platform === 'google';
+  // Appended to every reconciliation fetch so reads + applies stay on the
+  // caller's platform ledger.
+  const platformQs = isGoogle ? '&platform=google' : '';
   const [year, setYear] = useState<number>(() =>
     Number(currentPeriod().slice(0, 4)),
   );
@@ -106,6 +121,7 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [bucket, setBucket] = useState<'base' | 'added'>('base');
   const [backfilling, setBackfilling] = useState(false);
+  const [clearingBackfill, setClearingBackfill] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   // CM4: which month rows are expanded to their per-ad variance breakdown.
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
@@ -113,7 +129,7 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
   const load = useCallback(() => {
     setData(null);
     setLoadError(null);
-    fetch(`/api/meta-ads-pacer/${accountKey}/reconciliation?year=${year}`)
+    fetch(`/api/meta-ads-pacer/${accountKey}/reconciliation?year=${year}${platformQs}`)
       .then(async (r) => {
         if (!r.ok) {
           const t = await r.text().catch(() => '');
@@ -138,7 +154,7 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
     setActionError(null);
     try {
       const r = await fetch(
-        `/api/meta-ads-pacer/${accountKey}/reconciliation?year=${year}`,
+        `/api/meta-ads-pacer/${accountKey}/reconciliation?year=${year}${platformQs}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -173,6 +189,34 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
     }
   };
 
+  // Undo the backfill — clear the Meta-pulled actual spend for pre-tool months
+  // so it stops tainting variance. Scoped to the year on screen.
+  const clearBackfill = async () => {
+    const ok = await confirm({
+      title: `Remove backfilled spend for ${year}?`,
+      message:
+        'Clears the actual-spend amounts pulled from Meta for pre-tool months this year so they stop counting toward reconciliation variance. Your tracked months are untouched, and you can re-run Backfill later.',
+      confirmLabel: 'Remove backfill',
+      destructive: true,
+    });
+    if (!ok) return;
+    setClearingBackfill(true);
+    setActionError(null);
+    try {
+      const r = await fetch(
+        `/api/meta-ads-pacer/${accountKey}/backfill-history?year=${year}`,
+        { method: 'DELETE' },
+      );
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(json?.error || `HTTP ${r.status}`);
+      load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to clear backfill.');
+    } finally {
+      setClearingBackfill(false);
+    }
+  };
+
   // variance > 0 = overspent (warn); < 0 = underspent (lifetime/blue).
   const overUnder = (v: number) =>
     Math.abs(v) < 0.005
@@ -184,10 +228,6 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
   const net = data?.ytdUnapplied ?? 0;
   const netReconciled = Math.abs(net) < 0.005;
   const canApply = !!data?.targetPeriod && !netReconciled;
-  // §4: the health-gauge total (lifetime drift incl. the in-progress live
-  // month, variance convention) — distinct from `net` (the settle-able queue).
-  const inclLive = data?.ytdVarianceInclLive ?? 0;
-  const inclLiveGauge = overUnder(inclLive);
   // §4: name the settled months still carrying unapplied over/under.
   const unappliedMonthsLabel = (data?.unappliedMonths ?? [])
     .map((p) =>
@@ -228,17 +268,36 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
               <ChevronRightIcon className="w-4 h-4" />
             </button>
           </div>
-          <Tooltip label="Pull account-total monthly spend from Meta for pre-tool months this year">
-          <button
-            type="button"
-            onClick={backfill}
-            disabled={backfilling}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
-          >
-            <ArrowPathIcon className={`w-3.5 h-3.5 ${backfilling ? 'animate-spin' : ''}`} />
-            {backfilling ? 'Backfilling…' : 'Backfill historical spend'}
-          </button>
-          </Tooltip>
+          {/* Backfill pulls account-total spend from Meta — Meta-only (Google has
+              no pre-tool backfill), so the controls are hidden for Google. */}
+          {!isGoogle && (
+            <>
+              <Tooltip label="Pull account-total monthly spend from Meta for pre-tool months this year">
+              <button
+                type="button"
+                onClick={backfill}
+                disabled={backfilling}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
+              >
+                <ArrowPathIcon className={`w-3.5 h-3.5 ${backfilling ? 'animate-spin' : ''}`} />
+                {backfilling ? 'Backfilling…' : 'Backfill historical spend'}
+              </button>
+              </Tooltip>
+              {data?.months.some((m) => m.isBackfilled) && (
+                <Tooltip label="Remove the Meta-pulled actual spend for pre-tool months this year (your tracked months stay untouched)">
+                <button
+                  type="button"
+                  onClick={clearBackfill}
+                  disabled={clearingBackfill}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
+                >
+                  <TrashIcon className="w-3.5 h-3.5" />
+                  {clearingBackfill ? 'Removing…' : 'Remove backfill'}
+                </button>
+                </Tooltip>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -274,8 +333,8 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                 {netReconciled
                   ? 'No outstanding over/under across settled months.'
                   : net > 0
-                    ? `Underspent ${unappliedMonthsLabel ? `across ${unappliedMonthsLabel}` : 'across settled months'} — apply to add ${fmt(net)} to ${data.targetPeriod ? fmtPeriodLong(data.targetPeriod) : 'the live month'}.`
-                    : `Overspent ${unappliedMonthsLabel ? `across ${unappliedMonthsLabel}` : 'across settled months'} — apply to pull ${fmt(-net)} from ${data.targetPeriod ? fmtPeriodLong(data.targetPeriod) : 'the live month'}.`}
+                    ? `Underspent ${unappliedMonthsLabel ? `across ${unappliedMonthsLabel}` : 'across settled (closed) months'}. Apply adds ${fmt(net)} to ${data.targetPeriod ? fmtPeriodLong(data.targetPeriod) : 'the live month'}.`
+                    : `Overspent ${unappliedMonthsLabel ? `across ${unappliedMonthsLabel}` : 'across settled (closed) months'}. Apply pulls ${fmt(-net)} from ${data.targetPeriod ? fmtPeriodLong(data.targetPeriod) : 'the live month'}.`}
               </div>
               {data.appliedThisMonth.total !== 0 && data.targetPeriod && (
                 <div className="text-[11px] text-[var(--muted-foreground)] mt-2 flex items-center gap-2 flex-wrap">
@@ -296,30 +355,6 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                   </button>
                 </div>
               )}
-              {/* §4: health-gauge total — lifetime drift INCLUDING the
-                  in-progress live month. Deliberately distinct from the
-                  settle-able "net still to reconcile" above (which excludes the
-                  open month) so the two can't be confused: one is the action
-                  queue, this is the overall over/under reading. */}
-              <div className="mt-3 pt-3 border-t border-[var(--border)]">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                  Net variance · incl. live month
-                </div>
-                <div className="flex items-baseline gap-2 mt-0.5 flex-wrap">
-                  <span
-                    className="text-base font-semibold tabular-nums"
-                    style={{ color: inclLiveGauge.color }}
-                  >
-                    {inclLiveGauge.text}
-                  </span>
-                  <span className="text-[10px] text-[var(--muted-foreground)]">
-                    health gauge — total drift including{' '}
-                    {data.targetPeriod
-                      ? `${fmtPeriodLong(data.targetPeriod)} in progress`
-                      : 'the live month'}
-                  </span>
-                </div>
-              </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
@@ -632,14 +667,20 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
                                       )}
                                       {av.klass === 'lifetime-in-progress' && (
                                         <Tooltip
-                                          label="Lifetime ad still running — its spend is held out of the over/under until the run completes."
+                                          label={
+                                            av.settlesThisMonth === false
+                                              ? 'Cross-month lifetime run — its variance settles in a future month at flight completion.'
+                                              : "Lifetime ad still running — not paceable (Meta controls delivery). It settles at this month's close, not a future month."
+                                          }
                                           className="flex-shrink-0"
                                         >
                                         <span
                                           className="text-[9px] font-semibold"
                                           style={{ color: COLORS.lifetime }}
                                         >
-                                          lifetime · books on completion
+                                          {av.settlesThisMonth === false
+                                            ? 'lifetime · settles on completion'
+                                            : 'lifetime · settles at month end'}
                                         </span>
                                         </Tooltip>
                                       )}

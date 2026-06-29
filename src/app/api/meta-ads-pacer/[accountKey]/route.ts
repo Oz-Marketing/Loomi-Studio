@@ -198,7 +198,12 @@ export async function PUT(
   const existingById = new Map(existingAds.map((a) => [a.id, a]));
   const existingBudget = await prisma.metaAdsPacerPeriodBudget.findUnique({
     where: { planId_period: { planId: plan.id, period } },
-    select: { baseBudgetGoal: true, addedBudgetGoal: true },
+    select: {
+      baseBudgetGoal: true,
+      addedBudgetGoal: true,
+      googleBaseBudgetGoal: true,
+      googleAddedBudgetGoal: true,
+    },
   });
   const accountDealer =
     (await prisma.account.findUnique({
@@ -384,11 +389,21 @@ export async function PUT(
     const authorUserId = session.user?.id ?? null;
     const groupId = newAuditGroupId();
     const entries: AuditInput[] = [];
-    const base = { accountKey, planId: plan.id, period, groupId, authorUserId };
+    const base = {
+      accountKey,
+      planId: plan.id,
+      period,
+      platform: postPlatform === 'google' ? 'google' : null,
+      groupId,
+      authorUserId,
+    };
 
+    // Per-platform budget goals: the caller always sends base/addedBudgetGoal in
+    // the body, but they land in the google* column for the Google tool. Diff the
+    // column the caller actually wrote so the change log is platform-correct.
     const goalDiffs: Array<[string, string, string | null, string | null]> = [
-      ['baseBudgetGoal', 'Base budget goal', existingBudget?.baseBudgetGoal ?? null, nullable(body.baseBudgetGoal)],
-      ['addedBudgetGoal', 'Added budget goal', existingBudget?.addedBudgetGoal ?? null, nullable(body.addedBudgetGoal)],
+      [baseCol, 'Base budget goal', existingBudget?.[baseCol] ?? null, nullable(body.baseBudgetGoal)],
+      [addedCol, 'Added budget goal', existingBudget?.[addedCol] ?? null, nullable(body.addedBudgetGoal)],
     ];
     for (const [field, label, from, to] of goalDiffs) {
       if (from !== to) {

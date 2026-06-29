@@ -96,7 +96,7 @@ export async function POST(
 
     if (result.imported.length > 0) {
       const groupId = newAuditGroupId();
-      const base = { accountKey, planId: plan.id, period, groupId, authorUserId: userId };
+      const base = { accountKey, planId: plan.id, period, platform: 'google', groupId, authorUserId: userId };
       await writeAudit([
         {
           ...base,
