@@ -143,6 +143,7 @@ export function makeAd(position: number, period: string): PacerAd {
     metaLifetimeBudget: null,
     fullRunAppliedToMonth: null,
     lifetimeMonthSplit: null,
+    linkedPrevAdId: null,
     metaStartDate: null,
     metaEndDate: null,
     alertsMuted: false,

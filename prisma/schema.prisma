@@ -1760,6 +1760,13 @@ model MetaAdsPacerAd {
   // across the months its flight touches. DISPLAY-ONLY (planned vs actual);
   // never books a variance (§3 owns the over/under). Server-managed too.
   lifetimeMonthSplit    String?
+  // Cross-month SPLIT run linkage (Prompt 1): this month-instance continues the
+  // linked prior-month ad's run. The chain (followed via this pointer) is one
+  // logical lifetime run that settles ONCE at flight end — the final month books
+  // Σ actual across the chain − the Meta lifetime budget; every earlier linked
+  // month books $0. Null = not part of a linked split run. Set via the
+  // "link to previous month" dropdown; server-managed (survives Meta re-sync).
+  linkedPrevAdId        String?
 
   // Pacer-only date scoping: lets the user adjust "today" and "end" per ad
   // without affecting the Ad Planner flight dates.
