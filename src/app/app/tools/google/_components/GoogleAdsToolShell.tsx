@@ -336,18 +336,26 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   // lifetimeMonthSplit), so the standard full-replace PUT saves it.
   const resolveCrossMonth = (
     ad: PacerAd,
-    action: 'apply_full_run' | 'split' | 'clear',
+    action: 'apply_full_run' | 'split' | 'clear' | 'link',
     splitMap?: Record<string, number>,
+    linkedPrevAdId?: string,
   ) => {
     if (action === 'apply_full_run')
-      updateAd({ ...ad, fullRunAppliedToMonth: ad.period, lifetimeMonthSplit: null });
+      updateAd({ ...ad, fullRunAppliedToMonth: ad.period, lifetimeMonthSplit: null, linkedPrevAdId: null });
     else if (action === 'split')
       updateAd({
         ...ad,
         fullRunAppliedToMonth: null,
         lifetimeMonthSplit: JSON.stringify(splitMap ?? {}),
       });
-    else updateAd({ ...ad, fullRunAppliedToMonth: null, lifetimeMonthSplit: null });
+    else if (action === 'link')
+      updateAd({
+        ...ad,
+        fullRunAppliedToMonth: null,
+        lifetimeMonthSplit: ad.lifetimeMonthSplit ?? '{}',
+        linkedPrevAdId: linkedPrevAdId ?? null,
+      });
+    else updateAd({ ...ad, fullRunAppliedToMonth: null, lifetimeMonthSplit: null, linkedPrevAdId: null });
   };
 
   // Activity log — the per-ad endpoints are keyed by accountKey + adId on the
@@ -618,8 +626,8 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
               onDailyBudgetChange={(v) => updateAd({ ...ad, pacerDailyBudget: v })}
               onMuteToggle={() => updateAd({ ...ad, alertsMuted: !ad.alertsMuted })}
               onPushDailyBudget={(value) => pushDailyBudget(ad.id, value)}
-              onResolveCrossMonth={(action, splitMap) =>
-                resolveCrossMonth(ad, action, splitMap)
+              onResolveCrossMonth={(action, splitMap, linkedPrevAdId) =>
+                resolveCrossMonth(ad, action, splitMap, linkedPrevAdId)
               }
               siblings={data?.siblingsByName?.[ad.name] ?? null}
               synced={!!ad.googleCampaignId && !!ad.pacerSyncedAt}

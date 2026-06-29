@@ -30,6 +30,7 @@ import {
 } from '@/lib/ad-pacer/helpers';
 import { fmtPeriodLong } from '@/lib/ad-pacer/period';
 import { buildPacerCalc } from '@/lib/ad-pacer/pacer-calc';
+import { SearchableSelect } from '@/components/flows/builder/SearchableSelect';
 import { usePacerReadOnly } from './pacer-read-only';
 import { Tooltip } from './Tooltip';
 import { DollarInput, Field, readonlyClass, labelClass } from './inputs';
@@ -47,6 +48,7 @@ export function PacerRow({
   onMuteToggle,
   onPushDailyBudget,
   onResolveCrossMonth,
+  prevMonthAds,
   siblings,
   synced,
   linkPicker,
@@ -67,11 +69,17 @@ export function PacerRow({
   /** Push the row's current daily budget to its linked platform object. */
   onPushDailyBudget: (value: string) => Promise<{ ok: boolean; text: string }>;
   /** §2: resolve a cross-month straddler — count its full run in its own month
-   *  (apply_full_run), set a lifetime planned split, or clear. Persists server-side. */
+   *  (apply_full_run), set a lifetime planned split, link to a prior-month run
+   *  (link), or clear. Persists server-side. */
   onResolveCrossMonth: (
-    action: 'apply_full_run' | 'split' | 'clear',
+    action: 'apply_full_run' | 'split' | 'clear' | 'link',
     splitMap?: Record<string, number>,
+    linkedPrevAdId?: string,
   ) => void;
+  /** Prior-period ads for the manual "continues a prior-month run" picker, each
+   *  { id, name, period }. Shown only for an unsynced split run (synced runs
+   *  auto-chain by ad-set id). Empty/undefined hides the picker. */
+  prevMonthAds?: { id: string; name: string; period: string }[];
   /** #58: this ad's same-title sibling rows across months (period →
    *  {allocation, actual}), so the split reference shows each month's real plan
    *  + spend. null when the ad has no same-name rows in other periods. */
@@ -732,6 +740,34 @@ export function PacerRow({
                         </span>
                       </div>
                     ))}
+                  </div>
+                )}
+                {/* Manual run linkage — only when unsynced (synced ad sets
+                    auto-chain across months by ad-set id). Picks the prior-month
+                    ad this instance continues; the run then settles once at
+                    flight end. */}
+                {isLifetime && !synced && (prevMonthAds?.length ?? 0) > 0 && (
+                  <div className="mt-2 border-t border-[var(--border)] pt-2">
+                    <div
+                      className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider"
+                      style={{ color: COLORS.lifetime }}
+                    >
+                      Continues a prior-month run
+                    </div>
+                    <SearchableSelect
+                      value={ad.linkedPrevAdId ?? ''}
+                      onChange={(v) => v && onResolveCrossMonth('link', undefined, v)}
+                      options={(prevMonthAds ?? []).map((p) => ({
+                        value: p.id,
+                        label: `${p.name || 'Untitled'} · ${fmtPeriodLong(p.period)}`,
+                      }))}
+                      placeholder="Link to last month's ad…"
+                    />
+                    {ad.linkedPrevAdId && (
+                      <div className="mt-1 text-[10px] text-[var(--muted-foreground)]">
+                        Linked — this run settles once at flight end.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
