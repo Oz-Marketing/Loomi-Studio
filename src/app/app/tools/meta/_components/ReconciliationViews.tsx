@@ -99,8 +99,19 @@ interface ReconData {
  * months') over/under into the live month's bucket via the ledger, correcting
  * the account's running annual variance.
  */
-export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
+export function ReconciliationPanel({
+  accountKey,
+  platform,
+}: {
+  accountKey: string;
+  /** 'google' scopes the whole tab to Google's ledger; omit/undefined = Meta. */
+  platform?: 'meta' | 'google';
+}) {
   const { confirm } = useLoomiDialog();
+  const isGoogle = platform === 'google';
+  // Appended to every reconciliation fetch so reads + applies stay on the
+  // caller's platform ledger.
+  const platformQs = isGoogle ? '&platform=google' : '';
   const [year, setYear] = useState<number>(() =>
     Number(currentPeriod().slice(0, 4)),
   );
@@ -118,7 +129,7 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
   const load = useCallback(() => {
     setData(null);
     setLoadError(null);
-    fetch(`/api/meta-ads-pacer/${accountKey}/reconciliation?year=${year}`)
+    fetch(`/api/meta-ads-pacer/${accountKey}/reconciliation?year=${year}${platformQs}`)
       .then(async (r) => {
         if (!r.ok) {
           const t = await r.text().catch(() => '');
@@ -143,7 +154,7 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
     setActionError(null);
     try {
       const r = await fetch(
-        `/api/meta-ads-pacer/${accountKey}/reconciliation?year=${year}`,
+        `/api/meta-ads-pacer/${accountKey}/reconciliation?year=${year}${platformQs}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -257,29 +268,35 @@ export function ReconciliationPanel({ accountKey }: { accountKey: string }) {
               <ChevronRightIcon className="w-4 h-4" />
             </button>
           </div>
-          <Tooltip label="Pull account-total monthly spend from Meta for pre-tool months this year">
-          <button
-            type="button"
-            onClick={backfill}
-            disabled={backfilling}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
-          >
-            <ArrowPathIcon className={`w-3.5 h-3.5 ${backfilling ? 'animate-spin' : ''}`} />
-            {backfilling ? 'Backfilling…' : 'Backfill historical spend'}
-          </button>
-          </Tooltip>
-          {data?.months.some((m) => m.isBackfilled) && (
-            <Tooltip label="Remove the Meta-pulled actual spend for pre-tool months this year (your tracked months stay untouched)">
-            <button
-              type="button"
-              onClick={clearBackfill}
-              disabled={clearingBackfill}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
-            >
-              <TrashIcon className="w-3.5 h-3.5" />
-              {clearingBackfill ? 'Removing…' : 'Remove backfill'}
-            </button>
-            </Tooltip>
+          {/* Backfill pulls account-total spend from Meta — Meta-only (Google has
+              no pre-tool backfill), so the controls are hidden for Google. */}
+          {!isGoogle && (
+            <>
+              <Tooltip label="Pull account-total monthly spend from Meta for pre-tool months this year">
+              <button
+                type="button"
+                onClick={backfill}
+                disabled={backfilling}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
+              >
+                <ArrowPathIcon className={`w-3.5 h-3.5 ${backfilling ? 'animate-spin' : ''}`} />
+                {backfilling ? 'Backfilling…' : 'Backfill historical spend'}
+              </button>
+              </Tooltip>
+              {data?.months.some((m) => m.isBackfilled) && (
+                <Tooltip label="Remove the Meta-pulled actual spend for pre-tool months this year (your tracked months stay untouched)">
+                <button
+                  type="button"
+                  onClick={clearBackfill}
+                  disabled={clearingBackfill}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-50"
+                >
+                  <TrashIcon className="w-3.5 h-3.5" />
+                  {clearingBackfill ? 'Removing…' : 'Remove backfill'}
+                </button>
+                </Tooltip>
+              )}
+            </>
           )}
         </div>
       </div>
