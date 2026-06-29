@@ -484,6 +484,113 @@ export function decomposeMonthVariance(
   };
 }
 
+// ─── Cross-month SPLIT run settlement (Prompt 1) ────────────────────────────
+
+/** The ad shape the split-run grouping needs (loose strings = server rows OK). */
+export type SplitRunAdLike = AdScheduleLike & {
+  id: string;
+  metaObjectId?: string | null;
+  linkedPrevAdId?: string | null;
+  lifetimeMonthSplit?: string | null;
+  pacerActual?: string | null;
+  pacerRunSpend?: string | null;
+  fullRunAppliedToMonth?: string | null;
+  allocation?: string | null;
+  metaLifetimeBudget?: string | null;
+};
+
+export interface SplitRunSettlement {
+  /** Ad ids in a marked split run — held out of every month's settle-able base. */
+  memberIds: Set<string>;
+  /** Member ad id → the run's final month (its latest period). */
+  finalPeriodByMember: Map<string, string>;
+  /** Per-period Σ member actual to remove from the settle-able base. */
+  excludeActualByPeriod: Map<string, number>;
+  /** Per-period Σ member allocation to remove from the settle-able base. */
+  excludeAllocByPeriod: Map<string, number>;
+  /** Final-month → Σ (run actual − cap), COMPLETED runs only (settles once). */
+  settlementByPeriod: Map<string, number>;
+}
+
+/**
+ * Group ads into logical runs and compute how a cross-month SPLIT lifetime run
+ * settles (Prompt 1). A split run is a multi-month chain of lifetime ads,
+ * explicitly marked "split across months" on at least one member. Chains are
+ * grouped by Meta ad-set id (synced auto-chain) or the manual prev-month link
+ * (`linkedPrevAdId`). Such a run NEVER measures against any month's client
+ * budget: every member's actual + allocation is removed from the settle-able
+ * base in its month, and the run books a single variance — Σ actual across the
+ * run − the Meta lifetime budget (falling back to summed allocations when
+ * unsynced) — on its FINAL month, but only once the whole run has ended. Pure +
+ * string-tolerant so getYearReconciliation (server rows) can call it directly.
+ */
+export function computeSplitRunSettlement(
+  ads: SplitRunAdLike[],
+  nowMs: number,
+  timeZone: string,
+): SplitRunSettlement {
+  const out: SplitRunSettlement = {
+    memberIds: new Set<string>(),
+    finalPeriodByMember: new Map<string, string>(),
+    excludeActualByPeriod: new Map<string, number>(),
+    excludeAllocByPeriod: new Map<string, number>(),
+    settlementByPeriod: new Map<string, number>(),
+  };
+  const byId = new Map(ads.map((a) => [a.id, a]));
+  const runKeyOf = (a: SplitRunAdLike): string => {
+    if (a.metaObjectId) return `meta:${a.metaObjectId}`;
+    let cur = a;
+    const seen = new Set<string>();
+    while (cur.linkedPrevAdId && byId.has(cur.linkedPrevAdId) && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      cur = byId.get(cur.linkedPrevAdId)!;
+    }
+    return `link:${cur.id}`;
+  };
+  const runs = new Map<string, SplitRunAdLike[]>();
+  for (const a of ads) {
+    const k = runKeyOf(a);
+    (runs.get(k) ?? runs.set(k, []).get(k)!).push(a);
+  }
+  const add = (m: Map<string, number>, k: string, v: number) =>
+    m.set(k, (m.get(k) ?? 0) + v);
+  for (const members of runs.values()) {
+    // A split run: multi-month, all lifetime, explicitly marked split.
+    if (members.length < 2) continue;
+    if (!members.every((m) => m.budgetType === 'Lifetime')) continue;
+    if (!members.some((m) => m.lifetimeMonthSplit != null)) continue;
+    const finalPeriod = members.reduce(
+      (mx, m) => (m.period > mx ? m.period : mx),
+      members[0].period,
+    );
+    for (const m of members) {
+      out.memberIds.add(m.id);
+      out.finalPeriodByMember.set(m.id, finalPeriod);
+      // Exclude via effectiveActual so it mirrors actualByPeriod exactly (a member
+      // that ALSO carries a §2 full-run resolution counts its run in one month);
+      // raw pacerActual would leave a residual in the base.
+      add(out.excludeActualByPeriod, m.period, effectiveActual(m));
+      add(out.excludeAllocByPeriod, m.period, num(m.allocation) ?? 0);
+    }
+    // Settle only once the WHOLE run has ended — its latest flight end is in the
+    // past. This covers Live members (end in the future) AND not-yet-started
+    // Scheduled members, which an in-progress check alone would miss.
+    const today = zonedTodayIso(nowMs, timeZone);
+    const runEnd = members.reduce((mx, m) => {
+      const e = m.metaEndDate ?? m.flightEnd;
+      return e && e > mx ? e : mx;
+    }, '');
+    if (!runEnd || runEnd >= today) continue;
+    const runActual = members.reduce((s, m) => s + effectiveActual(m), 0);
+    const capMember = members.find((m) => m.metaLifetimeBudget != null);
+    const cap = capMember
+      ? num(capMember.metaLifetimeBudget) ?? 0
+      : members.reduce((s, m) => s + (num(m.allocation) ?? 0), 0);
+    add(out.settlementByPeriod, finalPeriod, runActual - cap);
+  }
+  return out;
+}
+
 export interface AdCalc {
   ad: PacerAd;
   isLifetime: boolean;

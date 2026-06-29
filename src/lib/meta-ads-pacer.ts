@@ -21,6 +21,7 @@ import {
   isLifetimeInProgress,
   effectiveActual,
   classifyAdVariance,
+  computeSplitRunSettlement,
 } from '@/lib/ad-pacer/pacer-calc';
 import { writeAudit } from '@/lib/meta-ads-audit';
 
@@ -1124,6 +1125,7 @@ export async function getYearReconciliation(
     prisma.metaAdsPacerAd.findMany({
       where: { planId: plan.id, period: { in: periods }, ...adPlatformWhere('meta') },
       select: {
+        id: true,
         period: true,
         name: true,
         pacerActual: true,
@@ -1137,6 +1139,11 @@ export async function getYearReconciliation(
         flightStart: true,
         metaEndDate: true,
         flightEnd: true,
+        // Cross-month SPLIT run settlement (Prompt 1):
+        metaObjectId: true, // synced runs auto-chain by ad-set id
+        linkedPrevAdId: true, // manual runs chain via the prev-month link
+        lifetimeMonthSplit: true, // the "split across months" mark (any member)
+        metaLifetimeBudget: true, // the settlement cap
       },
     }),
     prisma.metaAdsPacerCarryoverApplication.findMany({
@@ -1169,6 +1176,17 @@ export async function getYearReconciliation(
   // the Reconciliation row drill-down (same classifier the Over/Under page uses).
   const adVarByPeriod = new Map<string, ReconAdVariance[]>();
   const reconNowMs = Date.now();
+
+  // Cross-month SPLIT run settlement (Prompt 1) — pure helper groups the runs
+  // and computes per-month exclusions + the single final-month settlement.
+  const {
+    memberIds: splitMemberIds,
+    finalPeriodByMember: splitMemberFinalPeriod,
+    excludeActualByPeriod: splitExcludeActualByPeriod,
+    excludeAllocByPeriod: splitExcludeAllocByPeriod,
+    settlementByPeriod: runSettlementByPeriod,
+  } = computeSplitRunSettlement(adRows, reconNowMs, tz);
+
   for (const a of adRows) {
     adCountByPeriod.set(a.period, (adCountByPeriod.get(a.period) ?? 0) + 1);
     // §2: a resolved cross-month straddler contributes its FULL run in its own
@@ -1177,16 +1195,34 @@ export async function getYearReconciliation(
     actualByPeriod.set(a.period, (actualByPeriod.get(a.period) ?? 0) + n);
     const v = classifyAdVariance(a, a.period, reconNowMs, tz);
     const list = adVarByPeriod.get(a.period) ?? [];
-    list.push({
-      name: a.name ?? '',
-      inMonthSpend: v.inMonthSpend,
-      billedActual: v.billedActual,
-      contribution: v.contribution,
-      klass: v.klass,
-      settlesThisMonth: v.settlesThisMonth,
-    });
+    // A split-run member never books a per-month variance in the drill-down — its
+    // whole run settles once on the final month (added to that month's total).
+    // Show it as held out, labeled by whether THIS is the run's final month.
+    const splitFinal = splitMemberFinalPeriod.get(a.id);
+    list.push(
+      splitFinal !== undefined
+        ? {
+            name: a.name ?? '',
+            inMonthSpend: v.inMonthSpend,
+            billedActual: 0,
+            contribution: 0,
+            klass: 'lifetime-in-progress',
+            settlesThisMonth: a.period === splitFinal,
+          }
+        : {
+            name: a.name ?? '',
+            inMonthSpend: v.inMonthSpend,
+            billedActual: v.billedActual,
+            contribution: v.contribution,
+            klass: v.klass,
+            settlesThisMonth: v.settlesThisMonth,
+          },
+    );
     adVarByPeriod.set(a.period, list);
-    if (isLifetimeInProgress(a, reconNowMs, tz)) {
+    // Split-run members are excluded via the split maps above (their whole run
+    // is held out of every month's base + settled once on the final month), so
+    // don't ALSO fold them into the in-progress hold-out — that would double-count.
+    if (isLifetimeInProgress(a, reconNowMs, tz) && !splitMemberIds.has(a.id)) {
       ipLifePeriods.add(a.period);
       ipLifeActualByPeriod.set(a.period, (ipLifeActualByPeriod.get(a.period) ?? 0) + n);
       const alloc = Number(a.allocation ?? 0);
@@ -1227,13 +1263,26 @@ export async function getYearReconciliation(
     // uses the base. Settled months have no in-progress lifetime ad, so for them
     // base == total and nothing changes.
     const hasLifetimeInProgress = ipLifePeriods.has(period);
-    const baseActual = actual - (ipLifeActualByPeriod.get(period) ?? 0);
-    const baseTarget = spendTarget - (ipLifeAllocByPeriod.get(period) ?? 0);
+    // Remove both the §3 in-progress lifetime ads AND any cross-month SPLIT run
+    // members from this month's settle-able base (actual + allocation). A split
+    // run never measures against the month's client budget — it settles once,
+    // against its Meta lifetime budget, on its final month (added below).
+    const baseActual =
+      actual -
+      (ipLifeActualByPeriod.get(period) ?? 0) -
+      (splitExcludeActualByPeriod.get(period) ?? 0);
+    const baseTarget =
+      spendTarget -
+      (ipLifeAllocByPeriod.get(period) ?? 0) -
+      (splitExcludeAllocByPeriod.get(period) ?? 0);
     // The live month's target includes carryover applied INTO it, mirroring the
     // Pacer's adjusted target (base × markup + carryover). Past months never
     // receive carryover (appliedIn = 0), so theirs is unchanged.
     const adjustedSpendTarget = spendTarget + appliedIn;
-    const variance = baseActual - (baseTarget + appliedIn);
+    // A completed split run books its single (Σ run actual − Meta lifetime
+    // budget) variance on its final month only; $0 on every other month.
+    const variance =
+      baseActual - (baseTarget + appliedIn) + (runSettlementByPeriod.get(period) ?? 0);
     const carryover = -variance;
     const appliedOut = appliedOutByPeriod.get(period) ?? 0;
     return {
