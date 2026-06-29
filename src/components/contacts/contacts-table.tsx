@@ -524,6 +524,7 @@ export function ContactsTable({
                 <SortHeader label="Name" sortKey="fullName" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortHeader label="Email" sortKey="email" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                 <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Phone</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Address</th>
                 <SortHeader label="Vehicle" sortKey="vehicleMake" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                 <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Tags</th>
                 <SortHeader label="Source" sortKey="source" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
@@ -771,12 +772,17 @@ function ContactRow({
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--primary)]/10 text-[var(--primary)] flex-shrink-0">
-            {(contact.firstName || contact.fullName || '?').charAt(0).toUpperCase()}
+            {(contact.firstName || contact.fullName || contact.email || '?').charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium truncate">
-              {contact.fullName || `${contact.firstName} ${contact.lastName}`.trim() || 'Unknown'}
+              {contact.firstName || contact.fullName?.split(' ')[0] || 'Unknown'}
             </p>
+            {(contact.lastName || (contact.fullName && contact.fullName.includes(' '))) && (
+              <p className="text-xs text-[var(--muted-foreground)] truncate">
+                {contact.lastName || contact.fullName?.split(' ').slice(1).join(' ')}
+              </p>
+            )}
             {alerts.length > 0 && (
               <div className="flex gap-1 mt-0.5">
                 {alerts.map((a, i) => (
@@ -796,6 +802,10 @@ function ContactRow({
       {/* Phone */}
       <td className="px-4 py-3 text-sm text-[var(--muted-foreground)] whitespace-nowrap">
         {contact.phone || '—'}
+      </td>
+      {/* Address */}
+      <td className="px-4 py-3 text-sm text-[var(--muted-foreground)] truncate max-w-[180px]">
+        {[contact.address1, contact.city, contact.state].filter(Boolean).join(', ') || '—'}
       </td>
       {/* Vehicle */}
       <td className="px-4 py-3 text-sm text-[var(--muted-foreground)] truncate max-w-[180px]">

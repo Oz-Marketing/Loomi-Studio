@@ -622,57 +622,132 @@ function FieldSelect({
       ? SELECT_NEW_CUSTOM
       : value;
 
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) { setSearch(''); return; }
+    setTimeout(() => searchRef.current?.focus(), 0);
+  }, [open]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleSelect = (next: string) => {
+    if (next === SELECT_NEW_CUSTOM) {
+      onChange(`custom:${header}`);
+    } else if (next.startsWith(SELECT_DECLARED_PREFIX)) {
+      onChange(`custom:${next.slice(SELECT_DECLARED_PREFIX.length)}`);
+    } else if (next === IGNORE_FIELD) {
+      onChange(IGNORE_FIELD);
+    } else {
+      onChange(next as ContactField);
+    }
+    setOpen(false);
+  };
+
+  const q = search.trim().toLowerCase();
+
+  const canonicalOptions = CONTACT_FIELDS.filter((f) =>
+    !q || FIELD_LABELS[f].toLowerCase().includes(q)
+  );
+  const declaredOptions = declaredCustoms.filter((cf) =>
+    !q || cf.label.toLowerCase().includes(q) || cf.key.toLowerCase().includes(q)
+  );
+  const showAdHoc = !q || 'custom field'.includes(q);
+
+  const selectedLabel =
+    selectValue === IGNORE_FIELD
+      ? '— Ignore —'
+      : selectValue === SELECT_NEW_CUSTOM
+        ? 'Custom field (ad-hoc)…'
+        : selectValue.startsWith(SELECT_DECLARED_PREFIX)
+          ? (declaredCustoms.find((c) => c.key === selectValue.slice(SELECT_DECLARED_PREFIX.length))?.label ?? selectValue)
+          : FIELD_LABELS[selectValue as ContactField] ?? selectValue;
+
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <select
-        value={selectValue}
-        onChange={(e) => {
-          const next = e.target.value;
-          if (next === SELECT_NEW_CUSTOM) {
-            // Default the custom key to the original CSV header so
-            // users can tweak it rather than start from scratch.
-            onChange(`custom:${header}`);
-          } else if (next.startsWith(SELECT_DECLARED_PREFIX)) {
-            onChange(`custom:${next.slice(SELECT_DECLARED_PREFIX.length)}`);
-          } else if (next === IGNORE_FIELD) {
-            onChange(IGNORE_FIELD);
-          } else {
-            onChange(next as ContactField);
-          }
-        }}
-        className={`rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none transition-colors ${
-          isMapped
-            ? 'border-[var(--primary)]/35 bg-[var(--primary)]/4 text-[var(--foreground)] focus:border-[var(--primary)]'
-            : 'border-[var(--border)] bg-[var(--card)] focus:border-[var(--primary)]'
-        }`}
-      >
-        <option value={IGNORE_FIELD}>— Ignore —</option>
-        <optgroup label="Canonical fields">
-          {CONTACT_FIELDS.map((field) => {
-            const owned = claimedBy[field];
-            return (
-              <option key={field} value={field}>
-                {FIELD_LABELS[field]}
-                {owned ? ` (currently: ${owned})` : ''}
-              </option>
-            );
-          })}
-        </optgroup>
-        {declaredCustoms.length > 0 && (
-          <optgroup label="Custom fields">
-            {declaredCustoms.map((cf) => {
-              const owned = claimedCustomKeyBy[cf.key];
-              return (
-                <option key={cf.key} value={`${SELECT_DECLARED_PREFIX}${cf.key}`}>
-                  {cf.label}
-                  {owned ? ` (currently: ${owned})` : ''}
-                </option>
-              );
-            })}
-          </optgroup>
+      <div ref={containerRef} className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none transition-colors min-w-[180px] ${
+            isMapped
+              ? 'border-[var(--primary)]/35 bg-[var(--primary)]/4 text-[var(--foreground)] focus:border-[var(--primary)]'
+              : 'border-[var(--border)] bg-[var(--card)] focus:border-[var(--primary)]'
+          }`}
+        >
+          <span className="truncate">{selectedLabel}</span>
+          <svg className="w-3 h-3 flex-shrink-0 text-[var(--muted-foreground)]" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4l4 4 4-4"/></svg>
+        </button>
+
+        {open && (
+          <div className="absolute z-50 mt-1 w-56 rounded-lg border border-[var(--border)] bg-[#18181b] dark:bg-[#18181b] shadow-xl overflow-hidden">
+            <div className="p-2 border-b border-[var(--border)]">
+              <input
+                ref={searchRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search fields…"
+                className="w-full rounded-md border border-[var(--border)] bg-[#111113] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)]"
+              />
+            </div>
+            <div className="max-h-52 overflow-y-auto py-1">
+              {!q && (
+                <button type="button" onClick={() => handleSelect(IGNORE_FIELD)}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--muted)] transition-colors ${selectValue === IGNORE_FIELD ? 'text-[var(--primary)]' : 'text-[var(--muted-foreground)]'}`}>
+                  — Ignore —
+                </button>
+              )}
+              {canonicalOptions.length > 0 && (
+                <>
+                  <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">Canonical fields</p>
+                  {canonicalOptions.map((field) => {
+                    const owned = claimedBy[field];
+                    return (
+                      <button key={field} type="button" onClick={() => handleSelect(field)}
+                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--muted)] transition-colors ${selectValue === field ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'}`}>
+                        {FIELD_LABELS[field]}{owned ? <span className="text-[var(--muted-foreground)]"> ({owned})</span> : null}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+              {declaredOptions.length > 0 && (
+                <>
+                  <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">Custom fields</p>
+                  {declaredOptions.map((cf) => {
+                    const owned = claimedCustomKeyBy[cf.key];
+                    const val = `${SELECT_DECLARED_PREFIX}${cf.key}`;
+                    return (
+                      <button key={cf.key} type="button" onClick={() => handleSelect(val)}
+                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--muted)] transition-colors ${selectValue === val ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'}`}>
+                        {cf.label}{owned ? <span className="text-[var(--muted-foreground)]"> ({owned})</span> : null}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+              {showAdHoc && (
+                <button type="button" onClick={() => handleSelect(SELECT_NEW_CUSTOM)}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--muted)] transition-colors ${selectValue === SELECT_NEW_CUSTOM ? 'text-[var(--primary)]' : 'text-[var(--muted-foreground)]'}`}>
+                  Custom field (ad-hoc)…
+                </button>
+              )}
+              {canonicalOptions.length === 0 && declaredOptions.length === 0 && !showAdHoc && (
+                <p className="px-3 py-3 text-xs text-[var(--muted-foreground)] italic">No matches</p>
+              )}
+            </div>
+          </div>
         )}
-        <option value={SELECT_NEW_CUSTOM}>Custom field (ad-hoc)…</option>
-      </select>
+      </div>
 
       {isAdHocCustom && (
         <input

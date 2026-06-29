@@ -342,6 +342,39 @@ export interface AdVariance {
   /** billedActual − effectiveTarget — this ad's over/under contribution. */
   contribution: number;
   klass: VarianceClass;
+  /** Where this ad's variance settles. true = at THIS month's close (a normal
+   *  ad, a billed-this-month ad, or a single-month lifetime ad whose flight ends
+   *  in the month). false = DEFERRED to a future month (a cross-month lifetime
+   *  run whose flight extends past the month — Prompt 2: only these are "settles
+   *  later"; a single-month lifetime ad is never deferred). */
+  settlesThisMonth: boolean;
+}
+
+/**
+ * For a lifetime ad: does its run settle at THIS month's close (its flight ends
+ * within the pacing month) vs deferred to a future month (its flight extends
+ * past it — a cross-month run)? Prompt 2: a single-month lifetime ad settles at
+ * month-end like everything else and is never deferred; only a cross-month run
+ * leaves the month. An open-ended run (no end date) is treated as settling this
+ * month rather than deferring indefinitely. Non-lifetime ads aren't asked this.
+ */
+export function lifetimeSettlesThisMonth(
+  ad: AdScheduleLike,
+  asMonth: string,
+): boolean {
+  // Resolve the run's real end the same way clampToMonth does — including its
+  // stale-metaEndDate guard: a Meta end BEFORE this month is stale (a recurring
+  // ad set still carrying a prior run's stop date), so defer to the planner's
+  // flightEnd (the forward intent). Without this, a genuine cross-month run with
+  // a stale Meta end would be misread as "ends this month". Compare the UNCLAMPED
+  // end month (clampToMonth's effectiveEnd is capped at month-end, which would
+  // hide the "extends past the month" signal we need here).
+  const bounds = monthBoundsIso(asMonth);
+  const metaEndStale =
+    bounds != null && ad.metaEndDate != null && ad.metaEndDate < bounds.start;
+  const rawEnd = metaEndStale ? ad.flightEnd : ad.metaEndDate ?? ad.flightEnd;
+  const endMonth = rawEnd?.slice(0, 7) ?? null;
+  return endMonth == null ? true : endMonth <= asMonth;
 }
 
 /**
@@ -365,7 +398,15 @@ export function classifyAdVariance(
 ): AdVariance {
   const inMonthSpend = num(ad.pacerActual) ?? 0;
   if (isLifetimeInProgress(ad, nowMs, timeZone)) {
-    return { inMonthSpend, billedActual: 0, contribution: 0, klass: 'lifetime-in-progress' };
+    return {
+      inMonthSpend,
+      billedActual: 0,
+      contribution: 0,
+      klass: 'lifetime-in-progress',
+      // Only a cross-month run (flight past this month) is deferred; a
+      // single-month lifetime ad settles at this month's close (Prompt 2).
+      settlesThisMonth: lifetimeSettlesThisMonth(ad, asMonth),
+    };
   }
   const billedActual = effectiveActual(ad, asMonth);
   const contribution = billedActual - effectiveTarget(ad, asMonth);
@@ -373,7 +414,7 @@ export function classifyAdVariance(
     ad.fullRunAppliedToMonth != null && Math.abs(billedActual - inMonthSpend) >= 0.005
       ? 'billed-cross-month'
       : 'real';
-  return { inMonthSpend, billedActual, contribution, klass };
+  return { inMonthSpend, billedActual, contribution, klass, settlesThisMonth: true };
 }
 
 export interface MonthVarianceBreakdown {
@@ -389,6 +430,10 @@ export interface MonthVarianceBreakdown {
   heldOutLifetime: number;
   crossMonthCount: number;
   heldOutCount: number;
+  /** Of the held-out lifetime ads, how many are DEFERRED to a future month (a
+   *  cross-month run). heldOutCount − this = lifetime ads settling at THIS
+   *  month's close. Lets the UI label the two in-progress states distinctly. */
+  heldOutDeferredCount: number;
   /** Per-ad results in input order — the caller maps back to its ad list. */
   perAd: AdVariance[];
 }
@@ -411,6 +456,7 @@ export function decomposeMonthVariance(
   let heldOutLifetime = 0;
   let crossMonthCount = 0;
   let heldOutCount = 0;
+  let heldOutDeferredCount = 0;
   const perAd: AdVariance[] = [];
   for (const ad of ads) {
     const v = classifyAdVariance(ad, asMonth, nowMs, timeZone);
@@ -420,6 +466,7 @@ export function decomposeMonthVariance(
     if (v.klass === 'lifetime-in-progress') {
       heldOutLifetime += v.inMonthSpend;
       heldOutCount += 1;
+      if (!v.settlesThisMonth) heldOutDeferredCount += 1;
     } else if (v.klass === 'billed-cross-month') {
       billedElsewhere += v.billedActual - v.inMonthSpend;
       crossMonthCount += 1;
@@ -432,8 +479,116 @@ export function decomposeMonthVariance(
     heldOutLifetime,
     crossMonthCount,
     heldOutCount,
+    heldOutDeferredCount,
     perAd,
   };
+}
+
+// ─── Cross-month SPLIT run settlement (Prompt 1) ────────────────────────────
+
+/** The ad shape the split-run grouping needs (loose strings = server rows OK). */
+export type SplitRunAdLike = AdScheduleLike & {
+  id: string;
+  metaObjectId?: string | null;
+  linkedPrevAdId?: string | null;
+  lifetimeMonthSplit?: string | null;
+  pacerActual?: string | null;
+  pacerRunSpend?: string | null;
+  fullRunAppliedToMonth?: string | null;
+  allocation?: string | null;
+  metaLifetimeBudget?: string | null;
+};
+
+export interface SplitRunSettlement {
+  /** Ad ids in a marked split run — held out of every month's settle-able base. */
+  memberIds: Set<string>;
+  /** Member ad id → the run's final month (its latest period). */
+  finalPeriodByMember: Map<string, string>;
+  /** Per-period Σ member actual to remove from the settle-able base. */
+  excludeActualByPeriod: Map<string, number>;
+  /** Per-period Σ member allocation to remove from the settle-able base. */
+  excludeAllocByPeriod: Map<string, number>;
+  /** Final-month → Σ (run actual − cap), COMPLETED runs only (settles once). */
+  settlementByPeriod: Map<string, number>;
+}
+
+/**
+ * Group ads into logical runs and compute how a cross-month SPLIT lifetime run
+ * settles (Prompt 1). A split run is a multi-month chain of lifetime ads,
+ * explicitly marked "split across months" on at least one member. Chains are
+ * grouped by Meta ad-set id (synced auto-chain) or the manual prev-month link
+ * (`linkedPrevAdId`). Such a run NEVER measures against any month's client
+ * budget: every member's actual + allocation is removed from the settle-able
+ * base in its month, and the run books a single variance — Σ actual across the
+ * run − the Meta lifetime budget (falling back to summed allocations when
+ * unsynced) — on its FINAL month, but only once the whole run has ended. Pure +
+ * string-tolerant so getYearReconciliation (server rows) can call it directly.
+ */
+export function computeSplitRunSettlement(
+  ads: SplitRunAdLike[],
+  nowMs: number,
+  timeZone: string,
+): SplitRunSettlement {
+  const out: SplitRunSettlement = {
+    memberIds: new Set<string>(),
+    finalPeriodByMember: new Map<string, string>(),
+    excludeActualByPeriod: new Map<string, number>(),
+    excludeAllocByPeriod: new Map<string, number>(),
+    settlementByPeriod: new Map<string, number>(),
+  };
+  const byId = new Map(ads.map((a) => [a.id, a]));
+  const runKeyOf = (a: SplitRunAdLike): string => {
+    if (a.metaObjectId) return `meta:${a.metaObjectId}`;
+    let cur = a;
+    const seen = new Set<string>();
+    while (cur.linkedPrevAdId && byId.has(cur.linkedPrevAdId) && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      cur = byId.get(cur.linkedPrevAdId)!;
+    }
+    return `link:${cur.id}`;
+  };
+  const runs = new Map<string, SplitRunAdLike[]>();
+  for (const a of ads) {
+    const k = runKeyOf(a);
+    (runs.get(k) ?? runs.set(k, []).get(k)!).push(a);
+  }
+  const add = (m: Map<string, number>, k: string, v: number) =>
+    m.set(k, (m.get(k) ?? 0) + v);
+  for (const members of runs.values()) {
+    // A split run: multi-month, all lifetime, explicitly marked split.
+    if (members.length < 2) continue;
+    if (!members.every((m) => m.budgetType === 'Lifetime')) continue;
+    if (!members.some((m) => m.lifetimeMonthSplit != null)) continue;
+    const finalPeriod = members.reduce(
+      (mx, m) => (m.period > mx ? m.period : mx),
+      members[0].period,
+    );
+    for (const m of members) {
+      out.memberIds.add(m.id);
+      out.finalPeriodByMember.set(m.id, finalPeriod);
+      // Exclude via effectiveActual so it mirrors actualByPeriod exactly (a member
+      // that ALSO carries a §2 full-run resolution counts its run in one month);
+      // raw pacerActual would leave a residual in the base.
+      add(out.excludeActualByPeriod, m.period, effectiveActual(m));
+      add(out.excludeAllocByPeriod, m.period, num(m.allocation) ?? 0);
+    }
+    // Settle only once the WHOLE run has ended — its latest flight end is in the
+    // past. This covers Live members (end in the future) AND not-yet-started
+    // Scheduled members, which an in-progress check alone would miss.
+    const today = zonedTodayIso(nowMs, timeZone);
+    const runEnd = members.reduce((mx, m) => {
+      const e = m.metaEndDate ?? m.flightEnd;
+      return e && e > mx ? e : mx;
+    }, '');
+    if (!runEnd || runEnd >= today) continue;
+    const runActual = members.reduce((s, m) => s + effectiveActual(m), 0);
+    const capMember = members.find((m) => m.metaLifetimeBudget != null);
+    const cap = capMember
+      ? num(capMember.metaLifetimeBudget) ?? 0
+      : members.reduce((s, m) => s + (num(m.allocation) ?? 0), 0);
+    add(out.settlementByPeriod, finalPeriod, runActual - cap);
+  }
+  return out;
 }
 
 export interface AdCalc {

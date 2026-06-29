@@ -78,11 +78,18 @@ export interface PacerAd {
   pacerSyncedAt: string | null;
   /** Full-run (all-time) spend across the ad set's whole flight; informational. */
   pacerRunSpend: string | null;
+  /** Meta's lifetime budget for the ad set (spend cap), synced — the settlement
+   *  baseline for a lifetime run (Σ run actual − this). Null for daily ads. */
+  metaLifetimeBudget: string | null;
   // §2a/§2b: server-persisted cross-month resolution (survives Meta re-sync).
   // fullRunAppliedToMonth = the YYYY-MM the full run is counted in (single-month
   // straddler). lifetimeMonthSplit = JSON planned per-month split (display-only).
   fullRunAppliedToMonth: string | null;
   lifetimeMonthSplit: string | null;
+  /** Cross-month split run: the prior-month ad this instance continues. The
+   *  chain settles once at flight end (final month books Σ run actual − the
+   *  Meta lifetime budget; earlier months book $0). Null = not linked. */
+  linkedPrevAdId: string | null;
   // Actual run schedule from Meta (account-TZ YYYY-MM-DD). Server-managed;
   // the pacer clamps these to the pacing month. metaEndDate null = open-ended.
   metaStartDate: string | null;
@@ -104,6 +111,16 @@ export interface PacerAd {
   activityLog: ActivityEntry[];
 }
 
+export interface PriorOverUnder {
+  period: string;
+  clientBudget: number;
+  spendTarget: number;
+  actual: number;
+  variance: number; // actual − spendTarget (negative = underspent)
+  carryover: number; // −variance: +ve = spend this much more next month
+  exceedsThreshold: boolean;
+}
+
 export interface PacerPlan {
   accountKey: string;
   period: string;
@@ -113,7 +130,27 @@ export interface PacerPlan {
   // platform default (the admin-configured agency markup). Drives the
   // gross↔actual conversion in the Budget Calculator's Client Budget mode.
   markup: number | null;
+  // Resolved IANA zone for pacing math (Meta ad-account zone → stored zone →
+  // DEFAULT_TIME_ZONE). Always present; the server resolves it.
+  timeZone: string;
+  // Live-vs-frozen month model. A frozen month is a closed-month immutable
+  // snapshot: read-only, no autosave/sync until an admin reopens. `reopened` =
+  // a closed month unlocked for correction (snapshot preserved) until re-frozen.
+  frozen: boolean;
+  frozenAt: string | null;
+  reopened: boolean;
+  // Carryover applied to each bucket's derived spend target (actual-spend $).
+  // null = none. Never affects the typed budget goal.
+  baseCarryover: string | null;
+  addedCarryover: string | null;
+  // Prior month's settled over/under for the carryover prompt. null when the
+  // prior month isn't closed yet or this month is frozen.
+  priorOverUnder: PriorOverUnder | null;
   ads: PacerAd[];
+  // Same-title rows' planned (allocation) + in-month actual across every period,
+  // keyed by ad name → period — lets a lifetime ad render its real cross-month
+  // split. Only names present in 2+ periods are included.
+  siblingsByName?: Record<string, Record<string, { allocation: number; actual: number }>>;
 }
 
 export interface PeriodSummary {

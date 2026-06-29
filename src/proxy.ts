@@ -200,6 +200,10 @@ export async function proxy(request: NextRequest) {
     // NextAuth session, so they must skip the session gate here or the proxy
     // 401s them before the route's own secret check can run.
     pathname.startsWith('/api/internal/') ||
+    // Public form submission endpoint — accepts cross-origin POSTs from forms
+    // embedded on customer sites (iframe / JS snippet), so it must skip the
+    // session gate just like the public /f/ form page below.
+    pathname.startsWith('/api/f/') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/onboarding') ||
     pathname.startsWith('/_next') ||

@@ -63,6 +63,7 @@ export async function POST(
           accountKey,
           planId: plan.id,
           period,
+          platform: 'google',
           action: 'sync',
           authorUserId: userId,
           summary: `Synced from Google: ${sync.matched} of ${sync.total} campaign${sync.total === 1 ? '' : 's'} updated`,

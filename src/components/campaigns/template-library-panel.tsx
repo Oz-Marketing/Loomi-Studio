@@ -81,9 +81,15 @@ export function TemplateLibraryPanel({ onSelect }: TemplateLibraryPanelProps) {
   }, [templates, search, sort]);
 
   return (
-    <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">
+    <div className="glass-section-card rounded-2xl border border-[var(--border)] overflow-hidden">    
       <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--border)] flex-wrap">
-        <p className="text-base font-semibold">Templates</p>
+        <div className='flex items-center gap-3'>
+            <p className="text-base font-semibold">Templates</p>
+            <div className='inline-flex items-center gap-2 h-10 px-4 text-sm font-medium rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors mt-3 cursor-pointer'>
+              <a href="/templates" target="_blank">Add</a>
+            </div>
+        </div>
+
         <div className="flex items-center gap-2 flex-1 min-w-[260px] max-w-[460px]">
           <div className="relative flex-1">
             <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] pointer-events-none" />

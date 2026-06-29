@@ -8,6 +8,7 @@ import {
   classifyAdVariance,
   decomposeMonthVariance,
   clampToMonth,
+  computeSplitRunSettlement,
 } from './pacer-calc';
 import type { PacerAd } from './types';
 
@@ -363,6 +364,68 @@ describe('classifyAdVariance / decomposeMonthVariance (cross-month split)', () =
     expect(v.billedActual).toBe(0);
     expect(v.contribution).toBe(0);
     expect(v.inMonthSpend).toBeCloseTo(180);
+    // Flight ends this month → settles at month-close, NOT deferred (Prompt 2).
+    expect(v.settlesThisMonth).toBe(true);
+  });
+
+  it('a single-month ad settles this month; a cross-month lifetime run is deferred', () => {
+    const single = classifyAdVariance(mk({ allocation: '100', pacerActual: '120' }), PERIOD, NOW, TZ);
+    expect(single.settlesThisMonth).toBe(true);
+    // Lifetime run whose flight extends into a later month → deferred (settles
+    // in the final month at flight completion), so settlesThisMonth is false.
+    const crossMonth = classifyAdVariance(
+      mk({
+        budgetType: 'Lifetime',
+        adStatus: 'Live',
+        flightEnd: '2026-07-20',
+        allocation: '500',
+        pacerActual: '180',
+      }),
+      PERIOD,
+      NOW,
+      TZ,
+    );
+    expect(crossMonth.klass).toBe('lifetime-in-progress');
+    expect(crossMonth.settlesThisMonth).toBe(false);
+  });
+
+  it('a stale metaEndDate (prior run) does not mask a cross-month lifetime run', () => {
+    // Genuine cross-month run (planner flightEnd in July) but the ad set still
+    // carries a prior run's stop date in May — the stale-end guard must defer to
+    // flightEnd, so the run is still recognized as deferred (settles later).
+    const v = classifyAdVariance(
+      mk({
+        budgetType: 'Lifetime',
+        adStatus: 'Live',
+        flightEnd: '2026-07-15',
+        metaEndDate: '2026-05-20', // stale — before the pacing month
+        allocation: '500',
+        pacerActual: '180',
+      }),
+      PERIOD,
+      NOW,
+      TZ,
+    );
+    expect(v.klass).toBe('lifetime-in-progress');
+    expect(v.settlesThisMonth).toBe(false);
+  });
+
+  it('an open-ended lifetime run (no end date) settles this month, not deferred', () => {
+    const v = classifyAdVariance(
+      mk({
+        budgetType: 'Lifetime',
+        adStatus: 'Live',
+        flightEnd: null,
+        metaEndDate: null,
+        allocation: '500',
+        pacerActual: '180',
+      }),
+      PERIOD,
+      NOW,
+      TZ,
+    );
+    expect(v.klass).toBe('lifetime-in-progress');
+    expect(v.settlesThisMonth).toBe(true);
   });
 
   it('a COMPLETED lifetime ad is real — its single variance books', () => {
@@ -395,6 +458,7 @@ describe('classifyAdVariance / decomposeMonthVariance (cross-month split)', () =
     expect(d.heldOutLifetime).toBeCloseTo(180);
     expect(d.crossMonthCount).toBe(1);
     expect(d.heldOutCount).toBe(1);
+    expect(d.heldOutDeferredCount).toBe(0); // its flight ends this month
     expect(d.perAd).toHaveLength(3);
   });
 });
@@ -428,5 +492,63 @@ describe('clampToMonth — Meta end vs planner flight', () => {
       mk({ metaEndDate: null, flightEnd: '2026-07-15', period: '2026-06' }),
     );
     expect(effectiveEnd).toBe('2026-06-30');
+  });
+});
+
+describe('computeSplitRunSettlement (cross-month split runs)', () => {
+  it('settles a marked, completed split run once on the final month', () => {
+    // April+May linked lifetime run, marked split, both completed. Run actual
+    // 120.15 + 110.80 = 230.95 vs Meta lifetime budget 231 → −0.05, in May only.
+    const ads = [
+      mk({
+        id: 'apr', period: '2026-04', budgetType: 'Lifetime', adStatus: 'Completed Run',
+        flightStart: '2026-04-10', flightEnd: '2026-05-20', metaEndDate: '2026-05-20',
+        metaObjectId: 'set1', lifetimeMonthSplit: '{}', pacerActual: '120.15',
+        allocation: '115.50', metaLifetimeBudget: '231',
+      }),
+      mk({
+        id: 'may', period: '2026-05', budgetType: 'Lifetime', adStatus: 'Completed Run',
+        flightStart: '2026-04-10', flightEnd: '2026-05-20', metaEndDate: '2026-05-20',
+        metaObjectId: 'set1', pacerActual: '110.80', allocation: '115.50', metaLifetimeBudget: '231',
+      }),
+    ];
+    const r = computeSplitRunSettlement(ads, NOW, TZ);
+    expect(r.memberIds.has('apr') && r.memberIds.has('may')).toBe(true);
+    expect(r.finalPeriodByMember.get('apr')).toBe('2026-05');
+    expect(r.excludeActualByPeriod.get('2026-04')).toBeCloseTo(120.15);
+    expect(r.excludeActualByPeriod.get('2026-05')).toBeCloseTo(110.8);
+    expect(r.settlementByPeriod.get('2026-05')).toBeCloseTo(230.95 - 231);
+    expect(r.settlementByPeriod.has('2026-04')).toBe(false);
+  });
+
+  it('an UNMARKED multi-month lifetime run is not a split run', () => {
+    const ads = [
+      mk({ id: 'a', period: '2026-04', budgetType: 'Lifetime', metaObjectId: 'set2', pacerActual: '100', allocation: '50' }),
+      mk({ id: 'b', period: '2026-05', budgetType: 'Lifetime', metaObjectId: 'set2', pacerActual: '100', allocation: '50' }),
+    ];
+    const r = computeSplitRunSettlement(ads, NOW, TZ);
+    expect(r.memberIds.size).toBe(0);
+    expect(r.settlementByPeriod.size).toBe(0);
+  });
+
+  it('an in-progress split run excludes members but does NOT settle yet', () => {
+    const ads = [
+      mk({ id: 'a', period: '2026-05', budgetType: 'Lifetime', adStatus: 'Live', flightStart: '2026-05-01', flightEnd: '2026-06-20', metaEndDate: '2026-06-20', metaObjectId: 's3', lifetimeMonthSplit: '{}', pacerActual: '60', allocation: '50', metaLifetimeBudget: '100' }),
+      mk({ id: 'b', period: '2026-06', budgetType: 'Lifetime', adStatus: 'Live', flightStart: '2026-05-01', flightEnd: '2026-06-20', metaEndDate: '2026-06-20', metaObjectId: 's3', pacerActual: '20', allocation: '50', metaLifetimeBudget: '100' }),
+    ];
+    const r = computeSplitRunSettlement(ads, NOW, TZ);
+    expect(r.memberIds.size).toBe(2);
+    expect(r.excludeActualByPeriod.get('2026-06')).toBeCloseTo(20);
+    expect(r.settlementByPeriod.size).toBe(0);
+  });
+
+  it('chains a manual run via linkedPrevAdId; cap falls back to summed allocations', () => {
+    const ads = [
+      mk({ id: 'm1', period: '2026-04', budgetType: 'Lifetime', adStatus: 'Completed Run', flightEnd: '2026-05-10', metaEndDate: null, lifetimeMonthSplit: '{}', pacerActual: '70', allocation: '40' }),
+      mk({ id: 'm2', period: '2026-05', budgetType: 'Lifetime', adStatus: 'Completed Run', flightEnd: '2026-05-10', metaEndDate: null, linkedPrevAdId: 'm1', pacerActual: '30', allocation: '40' }),
+    ];
+    const r = computeSplitRunSettlement(ads, NOW, TZ);
+    expect(r.memberIds.size).toBe(2);
+    expect(r.settlementByPeriod.get('2026-05')).toBeCloseTo(100 - 80);
   });
 });
