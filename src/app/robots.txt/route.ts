@@ -15,12 +15,41 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { findVerifiedDomainByHostname } from '@/lib/services/account-domains';
+import { marketingHost } from '@/lib/marketing/seo';
 
 export const dynamic = 'force-dynamic';
+
+function isMarketingHost(host: string): boolean {
+  const marketing = marketingHost();
+  if (host === marketing || host === `www.${marketing}`) return true;
+  if (host === 'marketing.localhost' || host.startsWith('marketing.localhost:')) return true;
+  return false;
+}
 
 export async function GET(req: NextRequest) {
   const host = (req.headers.get('host') || '').toLowerCase();
   const proto = req.headers.get('x-forwarded-proto') || 'https';
+
+  // Marketing site (loomilm.com apex) — everything public is fair game; the
+  // authenticated surfaces live on their own subdomains (studio/app/reporting)
+  // with their own robots rules, so just allow all and point at the sitemap.
+  if (isMarketingHost(host)) {
+    const body = [
+      'User-agent: *',
+      'Allow: /',
+      '',
+      `Sitemap: ${proto}://${host}/sitemap.xml`,
+      '',
+    ].join('\n');
+    return new NextResponse(body, {
+      status: 200,
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'public, max-age=3600, s-maxage=3600',
+      },
+    });
+  }
+
   const onCustomDomain = host ? await findVerifiedDomainByHostname(host) : null;
 
   const sitemapUrl = `${proto}://${host}/lp-sitemap.xml`;

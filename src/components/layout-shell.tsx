@@ -207,7 +207,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 /** Which Loomi surface the current request is being rendered for. */
-export type Surface = 'studio' | 'reporting' | 'app';
+export type Surface = 'studio' | 'reporting' | 'app' | 'marketing';
 
 /**
  * Top-level layout shell.

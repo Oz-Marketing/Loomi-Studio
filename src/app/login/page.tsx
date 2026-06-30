@@ -5,6 +5,32 @@ import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AppLogo } from '@/components/app-logo';
 
+/**
+ * Validate a `?callbackUrl` against an open-redirect. Returns the URL to
+ * navigate to, or null to fall back to the current host's root.
+ *   - Relative paths ("/projects") are always allowed.
+ *   - Absolute URLs are allowed only on a Loomi host (apex, any *.loomilm.com
+ *     subdomain) or a local dev *.localhost host.
+ */
+function resolveSafeCallbackUrl(raw: string | null): string | null {
+  const value = (raw || '').trim();
+  if (!value) return null;
+  if (value.startsWith('/') && !value.startsWith('//')) return value;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    const host = url.hostname.toLowerCase();
+    const ok =
+      host === 'loomilm.com' ||
+      host.endsWith('.loomilm.com') ||
+      host === 'localhost' ||
+      host.endsWith('.localhost');
+    return ok ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -33,7 +59,16 @@ export default function LoginPage() {
       setError('Invalid email or password');
       setLoading(false);
     } else {
-      router.push('/');
+      // Honor a same-site ?callbackUrl (e.g. the marketing site sends users to
+      // the App surface). Cross-origin targets use a full navigation so the
+      // session cookie (scoped to .loomilm.com in prod) carries over; relative
+      // paths and unknown behavior fall back to the current host's root.
+      const dest = resolveSafeCallbackUrl(searchParams.get('callbackUrl'));
+      if (dest && /^https?:\/\//.test(dest)) {
+        window.location.assign(dest);
+        return;
+      }
+      router.push(dest || '/');
       router.refresh();
     }
   };

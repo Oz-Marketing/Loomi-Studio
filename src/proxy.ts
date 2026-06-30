@@ -85,6 +85,27 @@ function isAppHost(host: string): boolean {
   return false;
 }
 
+// The public marketing site (loomilm.com apex). Unlike the studio/app/reporting
+// surfaces it requires no auth — every path is public content.
+function resolveMarketingHost(): string {
+  const explicit = process.env.NEXT_PUBLIC_MARKETING_HOST ?? process.env.MARKETING_HOST;
+  if (explicit) return explicit.toLowerCase();
+  return 'loomilm.com';
+}
+
+function isMarketingHost(host: string): boolean {
+  const lower = host.toLowerCase();
+  const marketing = resolveMarketingHost();
+  // Apex + www. The www variant gets the same treatment (a CDN/edge redirect
+  // to the apex is the usual prod setup, but serve it regardless so a direct
+  // hit never 404s).
+  if (lower === marketing || lower === `www.${marketing}`) return true;
+  // Local dev: marketing.localhost(:PORT). Checked BEFORE isBaseHost (which
+  // would otherwise claim any `*.localhost`) by ordering in proxy().
+  if (lower === 'marketing.localhost' || lower.startsWith('marketing.localhost:')) return true;
+  return false;
+}
+
 /**
  * The App-surface host that corresponds to the current Studio/base host.
  * Mirrors the client `getAppUrl` host logic so the Ad Pacer redirect lands on
@@ -151,13 +172,27 @@ export async function proxy(request: NextRequest) {
   // Ad Pacer/Planner relocated from Studio to the App surface. Redirect any
   // lingering Studio `/tools/*` hits (bookmarks, old email/notification links,
   // dashboard links) to the App host so nothing 404s after the move.
-  if (host && isBaseHost(host) && (pathname === '/tools' || pathname.startsWith('/tools/'))) {
+  if (
+    host &&
+    !isMarketingHost(host) &&
+    isBaseHost(host) &&
+    (pathname === '/tools' || pathname.startsWith('/tools/'))
+  ) {
     const target = request.nextUrl.clone();
     target.host = appHostForBaseHost(host);
     return NextResponse.redirect(target);
   }
 
-  if (host && isAppHost(host)) {
+  if (host && isMarketingHost(host)) {
+    // Public marketing site — rewrite non-global paths into the /marketing
+    // tree. /login (a global path) falls through so the sign-in CTA works,
+    // and the request never reaches the auth gate below (this branch returns).
+    if (!pathname.startsWith('/marketing') && !isGlobalAppPath(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = pathname === '/' ? '/marketing' : `/marketing${pathname}`;
+      return NextResponse.rewrite(url);
+    }
+  } else if (host && isAppHost(host)) {
     // Rewrite non-global app paths into the /app tree. Already-canonical
     // /app/* paths and global paths (api/auth, login, _next, etc.) fall
     // through to the auth check below.
@@ -206,6 +241,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/api/f/') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/onboarding') ||
+    pathname.startsWith('/marketing') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
     pathname.startsWith('/lp/') ||

@@ -32,9 +32,22 @@ function configuredAppHost(): string {
   ).toLowerCase();
 }
 
+function isMarketingHost(host: string): boolean {
+  const marketing = (
+    process.env.NEXT_PUBLIC_MARKETING_HOST ??
+    process.env.MARKETING_HOST ??
+    'loomilm.com'
+  ).toLowerCase();
+  if (host === marketing || host === `www.${marketing}`) return true;
+  if (host === 'marketing.localhost' || host.startsWith('marketing.localhost:')) return true;
+  return false;
+}
+
 async function resolveSurface(): Promise<Surface> {
   const h = await headers();
   const host = (h.get('host') ?? '').toLowerCase();
+  // Public marketing site (loomilm.com apex) — no admin chrome, full-bleed.
+  if (isMarketingHost(host)) return 'marketing';
   // The App-surface host is configurable (prod: app.loomilm.com; staging:
   // app-staging.loomilm.com), so match the configured host exactly — not just
   // a hardcoded `app.` prefix — plus the prod convention and the dev host.
@@ -49,6 +62,22 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const surface = await resolveSurface();
+
+  // Public marketing site: render bare + server-side. The app's global
+  // ThemeProvider gates all children behind client hydration (returns null on
+  // the server), which would strip the marketing copy + JSON-LD from the
+  // initial HTML — bad for SEO. The marketing hero is self-contained and needs
+  // none of the app providers, so we render it directly. Locked to the dark
+  // theme (the brand `:root`) for a deterministic, dramatic teaser with no
+  // hydration flash and no light ancestor to override the jewel-tone aurora.
+  if (surface === 'marketing') {
+    return (
+      <html lang="en" data-theme="dark">
+        <body className="min-h-screen">{children}</body>
+      </html>
+    );
+  }
+
   // Publish the configured App-surface host so client cross-links (the
   // Studio/Projects surface switch) resolve to the right host on staging, where
   // the prefix-swap convention doesn't hold. Mirror of __LOOMI_STUDIO_ORIGIN__
