@@ -308,6 +308,13 @@ export function PacerRow({
           />
           {ad.adStatus || 'No status'}
         </span>
+        {/* Google channel-type (Search/Display/…) — the Meta equivalent has no
+            channel, so this only shows for Google lines that carry one. */}
+        {isGoogle && ad.googleChannelType && (
+          <span className="hidden md:inline-flex items-center text-[11px] text-[var(--muted-foreground)] whitespace-nowrap flex-shrink-0 before:content-['·'] before:mr-1.5">
+            {ad.googleChannelType}
+          </span>
+        )}
         {/* Cross-month treatment is indicated by a single pill inside the
             expanded card's pill row (next to Daily/Lifetime + Base/Added),
             not here in the collapsed header — keeps the row clean. */}

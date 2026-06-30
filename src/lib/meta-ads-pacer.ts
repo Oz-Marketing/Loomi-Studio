@@ -1531,11 +1531,11 @@ export async function getCurrentPacerPeriod(accountKey: string): Promise<string>
 }
 
 /** Lists periods that have at least one ad or one budget row. */
-export async function listPeriods(planId: string) {
+export async function listPeriods(planId: string, platform?: PacerPlatform) {
   const [adGroups, budgets] = await Promise.all([
     prisma.metaAdsPacerAd.groupBy({
       by: ['period'],
-      where: { planId, period: { not: '' } },
+      where: { planId, period: { not: '' }, ...adPlatformWhere(platform) },
       _count: { _all: true },
     }),
     prisma.metaAdsPacerPeriodBudget.findMany({

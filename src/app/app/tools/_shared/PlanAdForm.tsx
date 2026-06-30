@@ -164,36 +164,33 @@ export function PlanAdForm({
                 </select>
               </Field>
             )}
-            {isMeta && (
-              <Field label="Recurring?">
-                <select
-                  value={ad.recurring}
-                  onChange={(e) => onUpdate({ ...ad, recurring: e.target.value })}
-                  className={inputClass}
-                >
-                  {RECURRING_OPTS.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            {isMeta && (
-              <Field label="Co-op?">
-                <select
-                  value={ad.coop}
-                  onChange={(e) => onUpdate({ ...ad, coop: e.target.value })}
-                  className={inputClass}
-                >
-                  {COOP_OPTS.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
+            {/* Recurring + Co-op are optional nice-to-haves on both platforms. */}
+            <Field label="Recurring?">
+              <select
+                value={ad.recurring}
+                onChange={(e) => onUpdate({ ...ad, recurring: e.target.value })}
+                className={inputClass}
+              >
+                {RECURRING_OPTS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Co-op?">
+              <select
+                value={ad.coop}
+                onChange={(e) => onUpdate({ ...ad, coop: e.target.value })}
+                className={inputClass}
+              >
+                {COOP_OPTS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Ad Status">
               <StatusSelect
                 value={ad.adStatus}
@@ -399,8 +396,9 @@ export function PlanAdForm({
             </div>
           )}
 
-          {/* Creative & Design + Approvals — Meta creative-workflow only. */}
-          {isMeta && (
+          {/* Creative & Design + Approvals — optional nice-to-haves on both
+              platforms. Google campaigns have no creative workflow of their own,
+              but reps may still want to track design/approvals against a line. */}
           <>
           <CollapsibleSection
             icon={<PaintBrushIcon className="w-3 h-3" />}
@@ -552,7 +550,6 @@ export function PlanAdForm({
           </div>
           </CollapsibleSection>
           </>
-          )}
 
     </div>
   );
