@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { toast } from 'sonner';
 import { useAccount } from '@/contexts/account-context';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { FormsList } from '@/components/forms/forms-list';
+import { DeployFormModal } from '@/components/forms/deploy-form-modal';
 import type { FormSummary } from '@/lib/services/forms';
 
 const fetcher = async (url: string) => {
@@ -23,6 +24,10 @@ const fetcher = async (url: string) => {
 export function FormTemplatesTab({ accountKey }: { accountKey?: string }) {
   const { accounts } = useAccount();
   const { confirm } = useLoomiDialog();
+  // Deploy is an admin-only action — pushing a global template into
+  // sub-accounts only makes sense from the unscoped library view.
+  const canDeploy = !accountKey;
+  const [deployTarget, setDeployTarget] = useState<FormSummary | null>(null);
 
   const query = accountKey
     ? `?isTemplate=true&accountKey=${encodeURIComponent(accountKey)}`
@@ -67,17 +72,29 @@ export function FormTemplatesTab({ accountKey }: { accountKey?: string }) {
   }
 
   return (
-    <FormsList
-      forms={templates}
-      loading={isLoading}
-      variant="template"
-      accountNames={!accountKey ? accountNames : undefined}
-      onDelete={(form) => void handleDelete(form)}
-      emptyState={{
-        title: 'No form templates yet',
-        subtitle:
-          'Open a form on the Forms page and choose “Save as template” to reuse its design here.',
-      }}
-    />
+    <>
+      <FormsList
+        forms={templates}
+        loading={isLoading}
+        variant="template"
+        accountNames={!accountKey ? accountNames : undefined}
+        onDelete={(form) => void handleDelete(form)}
+        onDeploy={canDeploy ? (form) => setDeployTarget(form) : undefined}
+        emptyState={{
+          title: 'No form templates yet',
+          subtitle:
+            'Open a form on the Forms page and choose “Save as template” to reuse its design here.',
+        }}
+      />
+      {deployTarget && (
+        <DeployFormModal
+          open={!!deployTarget}
+          formId={deployTarget.id}
+          formName={deployTarget.name || 'Untitled template'}
+          onClose={() => setDeployTarget(null)}
+          onDeployed={() => setDeployTarget(null)}
+        />
+      )}
+    </>
   );
 }

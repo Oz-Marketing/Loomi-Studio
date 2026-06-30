@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import {
   ArrowTopRightOnSquareIcon,
+  ArrowUpTrayIcon,
   ClockIcon,
   EllipsisVerticalIcon,
   InboxStackIcon,
@@ -22,6 +23,8 @@ interface FormCardProps {
   onDelete?: (form: FormSummary) => void;
   /** Save this live form's design as a reusable template (forms only). */
   onSaveAsTemplate?: (form: FormSummary) => void;
+  /** Deploy this template into sub-account(s) as live draft forms (templates only). */
+  onDeploy?: (form: FormSummary) => void;
   /** Soft-disable the toggle while a PATCH is mid-flight. */
   isPublishUpdating?: boolean;
   /**
@@ -60,6 +63,7 @@ export function FormCard({
   onTogglePublish,
   onDelete,
   onSaveAsTemplate,
+  onDeploy,
   isPublishUpdating = false,
   variant = 'form',
 }: FormCardProps) {
@@ -132,6 +136,7 @@ export function FormCard({
               editLabel={isTemplate ? 'Edit template' : 'Edit form'}
               showLiveLink={!isTemplate}
               onSaveAsTemplate={isTemplate ? undefined : onSaveAsTemplate}
+              onDeploy={isTemplate ? onDeploy : undefined}
               onDelete={onDelete}
             />
           </div>
@@ -208,6 +213,7 @@ function CardMenu({
   editLabel = 'Edit form',
   showLiveLink = true,
   onSaveAsTemplate,
+  onDeploy,
   onDelete,
 }: {
   form: FormSummary;
@@ -215,6 +221,7 @@ function CardMenu({
   editLabel?: string;
   showLiveLink?: boolean;
   onSaveAsTemplate?: (form: FormSummary) => void;
+  onDeploy?: (form: FormSummary) => void;
   onDelete?: (form: FormSummary) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -257,7 +264,7 @@ function CardMenu({
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown shadow-lg p-1"
+          className="absolute right-0 top-full mt-1 z-50 w-52 glass-dropdown shadow-lg p-1"
           onClick={(e) => e.stopPropagation()}
         >
           <Link
@@ -293,6 +300,21 @@ function CardMenu({
             >
               <Square2StackIcon className="w-3.5 h-3.5" />
               Save as template
+            </button>
+          )}
+          {onDeploy && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+                onDeploy(form);
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-2 text-xs rounded-md text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors whitespace-nowrap"
+            >
+              <ArrowUpTrayIcon className="w-3.5 h-3.5 flex-shrink-0" />
+              Deploy to sub-account
             </button>
           )}
           {onDelete && (

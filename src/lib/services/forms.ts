@@ -356,6 +356,72 @@ export async function copyFormTemplateToAccount(input: {
   });
 }
 
+/**
+ * Deploy a form template into one or more sub-accounts as live draft
+ * forms (isTemplate=false, status=draft). Unlike {@link copyFormTemplateToAccount}
+ * — which lands an account-scoped *template* — this produces ready-to-edit
+ * live forms, so account staff can publish straight away.
+ *
+ * Each clone is a fully detached copy: the schema JSON is deep-copied and
+ * no parent-template link is stored, so editing the source template later
+ * never touches deployed forms (and a template may be deployed into the
+ * same account more than once). The source must be a template; callers
+ * must have access to a scoped template's owning account (null-account
+ * library templates are deployable by any admin, matching the copy path).
+ *
+ * Per-account failures are collected rather than aborting the batch, so a
+ * single bad target doesn't sink the rest of the deploy.
+ */
+export async function deployFormTemplateToAccounts(input: {
+  sourceId: string;
+  targetAccountKeys: string[];
+  accountKeys: string[] | null;
+  createdByUserId?: string | null;
+}): Promise<{
+  forms: FormDetail[];
+  failures: Array<{ accountKey: string; error: string }>;
+}> {
+  const source = await prisma.form.findUnique({ where: { id: input.sourceId } });
+  if (!source || !source.isTemplate) {
+    throw new FormServiceError('Template not found', 404);
+  }
+  // A scoped caller must not deploy another account's template by id. Null-
+  // account library templates stay deployable by anyone (the common case).
+  if (
+    source.accountKey != null &&
+    input.accountKeys &&
+    input.accountKeys.length > 0 &&
+    !input.accountKeys.includes(source.accountKey)
+  ) {
+    throw new FormServiceError('Template not found', 404);
+  }
+
+  const schema = parseFormTemplate(source.schema) ?? emptyFormTemplate();
+  const forms: FormDetail[] = [];
+  const failures: Array<{ accountKey: string; error: string }> = [];
+
+  for (const targetAccountKey of input.targetAccountKeys) {
+    try {
+      const created = await createForm({
+        accountKey: targetAccountKey,
+        name: source.name,
+        // Fresh deep copy per target so accounts never share a schema object.
+        schema: parseFormTemplate(source.schema) ?? schema,
+        isTemplate: false,
+        createdByUserId: input.createdByUserId ?? null,
+      });
+      forms.push(created);
+    } catch (err) {
+      failures.push({
+        accountKey: targetAccountKey,
+        error: err instanceof FormServiceError ? err.message : 'Deploy failed',
+      });
+    }
+  }
+
+  return { forms, failures };
+}
+
 export async function getForm(
   id: string,
   accountKeys?: string[] | null,
