@@ -36,6 +36,7 @@ import {
   GoogleDailyMetricBoxes,
   GooglePacingInsight,
 } from './google-pacer-card';
+import { AdStatusBadge } from './AdStatusBadge';
 import { SearchableSelect } from '@/components/flows/builder/SearchableSelect';
 import { usePacerReadOnly } from './pacer-read-only';
 import { Tooltip } from './Tooltip';
@@ -466,21 +467,25 @@ export function PacerRow({
             </div>
           </div>
         </div>
-        {/* Mute alerts lives in the expanded-card footer (bottom-right),
-            so the header just carries the Flight window. */}
-        {ad.flightStart && ad.flightEnd && (
-          <div className="text-right flex-shrink-0">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-              Flight
+        {/* Right cluster: the read-only platform Ad Status (always shown so the
+            real delivery state is visible at a glance) above the Flight window.
+            Mute alerts lives in the expanded-card footer (bottom-right). */}
+        <div className="flex flex-shrink-0 flex-col items-end gap-2 text-right">
+          <AdStatusBadge ad={ad} label />
+          {ad.flightStart && ad.flightEnd && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                Flight
+              </div>
+              <div className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
+                {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
+              </div>
+              <div className="text-[10px] text-[var(--muted-foreground)]">
+                {calcDays(ad.flightStart, ad.flightEnd)} days
+              </div>
             </div>
-            <div className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
-              {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
-            </div>
-            <div className="text-[10px] text-[var(--muted-foreground)]">
-              {calcDays(ad.flightStart, ad.flightEnd)} days
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Editable inputs row — just the two values reps actually edit.

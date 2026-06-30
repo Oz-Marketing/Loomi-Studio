@@ -16,7 +16,12 @@ import {
   AdjustmentsHorizontalIcon,
 } from '@heroicons/react/24/outline';
 import { InvestmentIcon } from '@/components/icons/investment';
-import { ReconciliationPanel } from '@/app/app/tools/meta/_components/ReconciliationViews';
+import {
+  ReconciliationPanel,
+  OverviewView,
+  type OverviewAccount,
+} from '@/app/app/tools/meta/_components/ReconciliationViews';
+import { EMPTY_FILTERS } from '@/lib/ad-pacer/filters';
 import { useSession } from 'next-auth/react';
 import { useAccount } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
@@ -202,6 +207,15 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
   );
   const periods = useMemo<PeriodSummary[]>(() => periodsData?.periods ?? [], [periodsData]);
   const otherPeriodsWithAds = periods.some((p) => p.period !== period && p.adCount > 0);
+
+  // Admin all-accounts overview — only fetched when no sub-account is selected.
+  const { data: overviewData, error: overviewError } = useSWR<{ accounts: OverviewAccount[] }>(
+    !accountKey
+      ? `/api/meta-ads-pacer/overview?period=${period}&platform=google`
+      : null,
+    fetcher,
+    { revalidateOnFocus: false },
+  );
   const tz = data?.timeZone ?? 'America/Denver';
   const frozen = !!data?.frozen;
 
@@ -522,22 +536,19 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
           period={period}
           onShiftPeriod={(d) => setPeriod((p) => shiftPeriod(p, d))}
         />
-        <GoogleAdminOverview
+        {/* Reuse Meta's expandable overview for exact parity — each account row
+            expands to its ad drill-down; notes + Open are wired per row. Every
+            accessible account shows regardless of whether it has Google data. */}
+        <OverviewView
           period={period}
+          filters={EMPTY_FILTERS}
+          currentUserId={currentUserId}
           onOpenAccount={(key) => setAccount({ mode: 'account', accountKey: key })}
-          onOpenNotes={(key, label) => setNotesTarget({ accountKey: key, label })}
+          users={directoryUsers}
+          accounts={overviewData?.accounts ?? null}
+          loadError={overviewError ? 'Failed to load accounts' : null}
+          platform="google"
         />
-        {notesTarget && (
-          <AccountNotesDrawer
-            accountKey={notesTarget.accountKey}
-            accountLabel={notesTarget.label}
-            period={period}
-            users={directoryUsers}
-            currentUserId={currentUserId}
-            platform="google"
-            onClose={() => setNotesTarget(null)}
-          />
-        )}
       </div>
     );
   }
@@ -770,7 +781,7 @@ export function GoogleAdsToolShell({ mode }: { mode: 'planner' | 'pacer' }) {
             <thead className="sticky top-0 z-10">
               <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
                 <th className="w-9 pl-3 pr-1 py-2" />
-                {['Ad', '', 'Status', 'Due Date', 'Budget', 'Allocation', 'Flight Dates'].map((h, i) => (
+                {['Ad', '', 'Task Status', 'Due Date', 'Budget', 'Allocation', 'Flight Dates'].map((h, i) => (
                   <th
                     key={i}
                     className={`text-left px-3 py-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)] ${h === '' ? 'w-10 px-2' : ''}`}
@@ -959,92 +970,6 @@ function GooglePacingHeader({
           />
         </div>
       </div>
-    </div>
-  );
-}
-
-type GoogleOverviewAccount = {
-  accountKey: string;
-  dealer: string;
-  notesCount: number;
-  ads: PacerAd[];
-};
-
-/**
- * Admin all-accounts overview (mirrors Meta). Lists EVERY account the user can
- * access for the period — regardless of whether it has Google data yet — each as
- * a card with a comment icon (per-account note count) and an Open action that
- * switches the account context into that sub-account.
- */
-function GoogleAdminOverview({
-  period,
-  onOpenAccount,
-  onOpenNotes,
-}: {
-  period: string;
-  onOpenAccount: (accountKey: string) => void;
-  onOpenNotes: (accountKey: string, label: string) => void;
-}) {
-  const { data, isLoading } = useSWR<{ accounts: GoogleOverviewAccount[] }>(
-    `/api/meta-ads-pacer/overview?period=${period}&platform=google`,
-    fetcher,
-    { revalidateOnFocus: false },
-  );
-  const accounts = data?.accounts ?? [];
-
-  return (
-    <div className="mt-4">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-bold tracking-tight text-[var(--foreground)]">
-          All accounts · {periodLabel(period)}{' '}
-          <span className="font-normal text-[var(--muted-foreground)]">({accounts.length})</span>
-        </span>
-      </div>
-      {isLoading ? (
-        <div className="glass-section-card rounded-xl p-6 text-sm text-[var(--muted-foreground)]">
-          Loading accounts…
-        </div>
-      ) : accounts.length === 0 ? (
-        <div className="glass-section-card rounded-xl p-6 text-sm text-[var(--muted-foreground)]">
-          No accessible accounts.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {accounts.map((a) => {
-            const liveCount = a.ads.filter((ad) => ad.adStatus === 'Live').length;
-            return (
-              <div
-                key={a.accountKey}
-                className="glass-section-card flex flex-col gap-3 rounded-xl p-4"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[var(--foreground)]">
-                      {a.dealer}
-                    </div>
-                    <div className="text-[11px] text-[var(--muted-foreground)]">
-                      {a.ads.length} campaign{a.ads.length === 1 ? '' : 's'}
-                      {a.ads.length > 0 ? ` · ${liveCount} live` : ''}
-                    </div>
-                  </div>
-                  <AccountNotesButton
-                    count={a.notesCount}
-                    onClick={() => onOpenNotes(a.accountKey, a.dealer)}
-                    ariaLabel={`Notes for ${a.dealer}`}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onOpenAccount(a.accountKey)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
-                >
-                  Open
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

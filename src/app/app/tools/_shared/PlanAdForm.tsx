@@ -34,6 +34,7 @@ import { flightDatePresets, TODAY_PRESET } from '@/lib/ad-pacer/period';
 import { Field, DollarInput, inputClass, readonlyClass } from './inputs';
 import { ApprovalPill } from './pills';
 import { StatusSelect } from './StatusSelect';
+import { AdStatusBadge } from './AdStatusBadge';
 import { BudgetTypeToggle, BudgetSourceToggle } from './toggles';
 import { CollapsibleSection } from './CollapsibleSection';
 import { UserPicker } from './UserPicker';
@@ -191,7 +192,9 @@ export function PlanAdForm({
                 ))}
               </select>
             </Field>
-            <Field label="Ad Status">
+            {/* The team's planning lifecycle (editable). Renamed Task Status to
+                distinguish it from the read-only platform Ad Status beside it. */}
+            <Field label="Task Status">
               <StatusSelect
                 value={ad.adStatus}
                 options={AD_STATUSES}
@@ -212,8 +215,15 @@ export function PlanAdForm({
                         : ad.dateCompleted,
                   });
                 }}
-                ariaLabel="Ad status"
+                ariaLabel="Task status"
               />
+            </Field>
+            {/* Read-only platform Ad Status — the campaign's real delivery state
+                synced from Meta/Google. Display-only; never edited here. */}
+            <Field label="Ad Status (from platform)">
+              <div className="flex h-9 items-center">
+                <AdStatusBadge ad={ad} />
+              </div>
             </Field>
           </div>
 
