@@ -13,6 +13,8 @@ interface FormsListProps {
   onDelete?: (form: FormSummary) => void;
   /** Save a live form's design as a reusable template (live-form view only). */
   onSaveAsTemplate?: (form: FormSummary) => void;
+  /** Deploy a template into sub-account(s) as live draft forms (template view only). */
+  onDeploy?: (form: FormSummary) => void;
   /** IDs whose publish toggle should render as in-flight. */
   publishingIds?: string[];
   /** 'template' renders template cards (click → editor, no publish meta). */
@@ -28,6 +30,7 @@ export function FormsList({
   onTogglePublish,
   onDelete,
   onSaveAsTemplate,
+  onDeploy,
   publishingIds,
   variant = 'form',
   emptyState,
@@ -73,6 +76,7 @@ export function FormsList({
           onTogglePublish={onTogglePublish}
           onDelete={onDelete}
           onSaveAsTemplate={onSaveAsTemplate}
+          onDeploy={onDeploy}
           isPublishUpdating={publishingIds?.includes(form.id) ?? false}
         />
       ))}
