@@ -315,7 +315,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
               </button>
               <PrimaryButton
                 type="button"
-                onClick={handleStay}                
+                onClick={handleStay}
               >
                 Stay
               </PrimaryButton>
