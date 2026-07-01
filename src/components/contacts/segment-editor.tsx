@@ -773,7 +773,10 @@ function LoomiSelect({
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
     }
-    function handleScroll() {
+    function handleScroll(e: Event) {
+      // Ignore scrolls originating inside the dropdown's own option list —
+      // only an outside/page scroll should dismiss it.
+      if (ref.current && ref.current.contains(e.target as Node)) return;
       setOpen(false);
     }
     document.addEventListener('mousedown', handleMouseDown);
