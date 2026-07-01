@@ -30,6 +30,13 @@ import {
 } from '@/lib/ad-pacer/helpers';
 import { fmtPeriodLong } from '@/lib/ad-pacer/period';
 import { buildPacerCalc } from '@/lib/ad-pacer/pacer-calc';
+import { buildGooglePacingCard } from '@/lib/ad-pacer/google-pacer-calc';
+import {
+  GooglePacingBadges,
+  GoogleDailyMetricBoxes,
+  GooglePacingInsight,
+} from './google-pacer-card';
+import { AdStatusBadge } from './AdStatusBadge';
 import { SearchableSelect } from '@/components/flows/builder/SearchableSelect';
 import { usePacerReadOnly } from './pacer-read-only';
 import { Tooltip } from './Tooltip';
@@ -147,6 +154,14 @@ export function PacerRow({
   const calc = useMemo(
     () => buildPacerCalc(ad, Date.now(), timeZone),
     [ad, timeZone],
+  );
+  // §5 Google branch — the per-campaign ceiling card (monthly ceiling, rec daily
+  // RATE, budget-limited vs disapproved). Only built for Google lines; Meta lines
+  // render the existing remaining-budget framing untouched.
+  const isGoogle = ad.platform === 'google';
+  const gCard = useMemo(
+    () => (isGoogle ? buildGooglePacingCard(ad, Date.now(), timeZone) : null),
+    [isGoogle, ad, timeZone],
   );
   // The date being paced TO — the Meta/planned end clamped to the pacing
   // month (Change 4). Drives the "until …" labels and the completed banner.
@@ -294,6 +309,13 @@ export function PacerRow({
           />
           {ad.adStatus || 'No status'}
         </span>
+        {/* Google channel-type (Search/Display/…) — the Meta equivalent has no
+            channel, so this only shows for Google lines that carry one. */}
+        {isGoogle && ad.googleChannelType && (
+          <span className="hidden md:inline-flex items-center text-[11px] text-[var(--muted-foreground)] whitespace-nowrap flex-shrink-0 before:content-['·'] before:mr-1.5">
+            {ad.googleChannelType}
+          </span>
+        )}
         {/* Cross-month treatment is indicated by a single pill inside the
             expanded card's pill row (next to Daily/Lifetime + Base/Added),
             not here in the collapsed header — keeps the row clean. */}
@@ -393,16 +415,21 @@ export function PacerRow({
             <div className="flex items-center gap-2 text-[10px]">
               {/* Budget type — Daily (blue) vs Lifetime (purple), matching the
                   table-view tag — so the daily-rate vs fixed-total distinction
-                  is explicit, not just implied by the "/day" vs "total" suffix. */}
-              <span
-                className="font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-                style={{
-                  background: budgetTypeTint(ad.budgetType),
-                  color: typeColor,
-                }}
-              >
-                {ad.budgetType}
-              </span>
+                  is explicit, not just implied by the "/day" vs "total" suffix.
+                  Google lines show Daily/Total + the shared/delivery badges. */}
+              {isGoogle && gCard ? (
+                <GooglePacingBadges card={gCard} />
+              ) : (
+                <span
+                  className="font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+                  style={{
+                    background: budgetTypeTint(ad.budgetType),
+                    color: typeColor,
+                  }}
+                >
+                  {ad.budgetType}
+                </span>
+              )}
               <span
                 className="font-bold uppercase tracking-wider px-2 py-0.5 rounded"
                 style={{
@@ -440,21 +467,25 @@ export function PacerRow({
             </div>
           </div>
         </div>
-        {/* Mute alerts lives in the expanded-card footer (bottom-right),
-            so the header just carries the Flight window. */}
-        {ad.flightStart && ad.flightEnd && (
-          <div className="text-right flex-shrink-0">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-              Flight
+        {/* Right cluster: the read-only platform Ad Status (always shown so the
+            real delivery state is visible at a glance) above the Flight window.
+            Mute alerts lives in the expanded-card footer (bottom-right). */}
+        <div className="flex flex-shrink-0 flex-col items-end gap-2 text-right">
+          <AdStatusBadge ad={ad} label />
+          {ad.flightStart && ad.flightEnd && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                Flight
+              </div>
+              <div className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
+                {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
+              </div>
+              <div className="text-[10px] text-[var(--muted-foreground)]">
+                {calcDays(ad.flightStart, ad.flightEnd)} days
+              </div>
             </div>
-            <div className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
-              {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
-            </div>
-            <div className="text-[10px] text-[var(--muted-foreground)]">
-              {calcDays(ad.flightStart, ad.flightEnd)} days
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Editable inputs row — just the two values reps actually edit.
@@ -958,7 +989,13 @@ export function PacerRow({
             }
           />
         )}
-        {!isLifetime && (
+        {!isLifetime && (isGoogle && gCard ? (
+          <GoogleDailyMetricBoxes
+            card={gCard}
+            hasDates={calc.hasDates && !calc.endsBeforeToday}
+            effectiveEnd={effectiveEnd}
+          />
+        ) : (
         <>
         <MetricBox
           label="Days Remaining"
@@ -1027,7 +1064,7 @@ export function PacerRow({
           color={recColor}
         />
         </>
-        )}
+        ))}
       </div>
         </>
       )}
@@ -1041,6 +1078,11 @@ export function PacerRow({
             (() => {
         if (calc.budget <= 0) return null;
         if (!calc.hasDates) return null;
+        // §5 Google insight owns all cases (budget-limited / disapproved / over
+        // ceiling / short of target / on-track) — opposite remedies, wide band.
+        if (isGoogle && gCard) {
+          return <GooglePacingInsight card={gCard} effectiveEnd={effectiveEnd} />;
+        }
         if (calc.spent >= calc.budget) {
           return (
             <p
