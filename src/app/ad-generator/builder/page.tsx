@@ -341,6 +341,20 @@ export default function AdBuilderPage() {
   const [helpOpen, setHelpOpen] = useState(false);
   // Manual zoom multiplier on top of the fit-to-pane scale (1 = fit the pane).
   const [zoom, setZoom] = useState(1);
+  // Pan offset (px) of the artboard from its centered rest position. The canvas
+  // is a transform viewport (like Figma / the flows editor): the pane clips
+  // (overflow-hidden) and we translate the artboard rather than scroll it, so a
+  // board larger than the pane can be dragged anywhere — even out from under the
+  // settings panel — without fighting flexbox's cross-axis overflow.
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  // Space held → the canvas becomes grab-to-pan (like Figma). Middle-mouse pans too.
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  // Live mirrors so the native wheel listener + window drag handlers read current
+  // zoom/pan without re-subscribing every render.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const panRef = useRef(pan);
+  panRef.current = pan;
   // The background panel shows on deselect; dismissing it sets this until the
   // toolbar's "Background" button reopens it.
   const [bgPanelHidden, setBgPanelHidden] = useState(false);
@@ -470,10 +484,87 @@ export default function AdBuilderPage() {
   const scale = fitScale * zoom;
   const frameW = size.width * scale;
   const frameH = size.height * scale;
-  // Each size refits when you switch to it (drop any manual zoom).
+  // Each size refits + recenters when you switch to it (drop manual zoom/pan).
   useEffect(() => {
     setZoom(1);
+    setPan({ x: 0, y: 0 });
   }, [sizeId]);
+
+  // Hold Space to grab-pan the canvas (Figma-style). Ignore while a form control
+  // is focused so Space still activates buttons / types spaces.
+  useEffect(() => {
+    const isInteractive = () => {
+      const el = document.activeElement as HTMLElement | null;
+      return !!el && (/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(el.tagName) || el.isContentEditable);
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || isInteractive()) return;
+      setSpaceHeld(true);
+      e.preventDefault(); // stop the page/pane from scrolling on Space
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setSpaceHeld(false);
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, []);
+
+  // ⌘/⌃ + wheel (and trackpad pinch, which sends ctrlKey) zooms toward the
+  // cursor; plain two-finger scroll / wheel pans. Native non-passive listener so
+  // we can preventDefault the page from scrolling/zooming underneath us.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom toward the cursor. The artboard is centered in the pane then
+        // offset by `pan`, so its centre sits at (paneCentre + pan). Keeping the
+        // point under the cursor fixed reduces to pan' = pan·r + d·(1−r), where
+        // d is the cursor's offset from the pane centre and r the zoom ratio —
+        // the artboard size cancels out, so this holds at any zoom.
+        const z = zoomRef.current;
+        const z2 = Math.max(0.2, Math.min(5, +(z * (e.deltaY < 0 ? 1.12 : 1 / 1.12)).toFixed(3)));
+        const r = z2 / z;
+        const dx = e.clientX - rect.left - rect.width / 2;
+        const dy = e.clientY - rect.top - rect.height / 2;
+        const p = panRef.current;
+        setZoom(z2);
+        setPan({ x: p.x * r + dx * (1 - r), y: p.y * r + dy * (1 - r) });
+      } else {
+        // Two-finger scroll / wheel pans the canvas.
+        const p = panRef.current;
+        setPan({ x: p.x - e.deltaX, y: p.y - e.deltaY });
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [canvasRef]);
+
+  // Grab-to-pan: translate the artboard as the pointer drags. Shared by the
+  // Space-held path and middle-mouse; window listeners so it keeps tracking
+  // outside the pane. Entry points bail into this before select/marquee.
+  function startPan(e: React.PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const p0 = panRef.current;
+    const move = (ev: PointerEvent) => {
+      setPan({ x: p0.x + (ev.clientX - sx), y: p0.y + (ev.clientY - sy) });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
 
   const layout = doc.layouts[size.id] ?? {};
   const placed = useMemo(
@@ -1722,6 +1813,11 @@ export default function AdBuilderPage() {
   // Element pointerdown: Shift toggles selection; otherwise select (or keep a
   // multi-selection) and start a single / group drag.
   function onBoxPointerDown(e: React.PointerEvent, elId: string) {
+    // Space-held / middle-mouse pans the canvas even when starting over an element.
+    if (spaceHeld || e.button === 1) {
+      startPan(e);
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     // A LOCKED element can't be selected — clicking it clears the selection, so a
@@ -2635,9 +2731,14 @@ export default function AdBuilderPage() {
 
           <div
             ref={canvasRef}
-            className="relative flex flex-1 flex-col gap-4 overflow-auto bg-[var(--muted)]/30 p-3 [align-items:safe_center] [background-image:radial-gradient(var(--adgen-canvas-dot)_1px,transparent_1.5px)] [background-position:center] [background-size:18px_18px] [justify-content:safe_center] sm:p-6"
-            style={{ userSelect: 'none' }}
+            className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--muted)]/30 [background-image:radial-gradient(var(--adgen-canvas-dot)_1px,transparent_1.5px)] [background-position:center] [background-size:18px_18px]"
+            style={{ userSelect: 'none', cursor: spaceHeld ? 'grab' : undefined }}
             onPointerDown={(e) => {
+              // Space-held or middle-mouse → grab-pan the whole canvas.
+              if (spaceHeld || e.button === 1) {
+                startPan(e);
+                return;
+              }
               // Clicking the empty canvas around the artboard clears the
               // selection AND dismisses the background panel — so a click off
               // the artboard fully unfocuses (no lingering settings panel).
@@ -2647,6 +2748,10 @@ export default function AdBuilderPage() {
               }
             }}
           >
+              {/* Transform viewport: the pane clips and we translate the artboard
+                  by `pan` rather than scroll it, so a board larger than the pane
+                  can be dragged anywhere — even out from under the settings panel. */}
+              <div style={{ transform: `translate(${pan.x}px, ${pan.y}px)`, willChange: 'transform' }}>
               <div ref={frameRef} className="relative rounded-md shadow-[0_12px_48px_-8px_rgba(0,0,0,0.28),0_2px_8px_rgba(0,0,0,0.12)] ring-1 ring-black/10" style={{ width: frameW, height: frameH }}>
                 {/* The export renderer, scaled to fit. */}
                 <div className="absolute inset-0 overflow-hidden rounded-md">
@@ -2669,6 +2774,10 @@ export default function AdBuilderPage() {
                 <div
                   className="absolute inset-0"
                   onPointerDown={(e) => {
+                    if (spaceHeld || e.button === 1) {
+                      startPan(e);
+                      return;
+                    }
                     if (e.target === e.currentTarget) startMarquee(e);
                   }}
                 >
@@ -2902,6 +3011,7 @@ export default function AdBuilderPage() {
                   )}
                 </div>
               </div>
+              </div>
 
               {/* Empty-canvas onboarding — guides a brand-new template's first
                   element. Reactive on placed.length, so it clears the moment an
@@ -2933,7 +3043,7 @@ export default function AdBuilderPage() {
                   const idx = Math.max(0, doc.sizes.findIndex((s) => s.id === sizeId));
                   const go = (delta: number) => setSizeId(doc.sizes[(idx + delta + doc.sizes.length) % doc.sizes.length].id);
                   return (
-                    <div className="flex flex-shrink-0 items-center gap-2">
+                    <div className="absolute bottom-3 left-1/2 z-20 flex w-max -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card-strong)]/80 px-1.5 py-1 backdrop-blur-md">
                       <button
                         onClick={() => go(-1)}
                         disabled={doc.sizes.length < 2}
