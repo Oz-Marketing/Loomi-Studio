@@ -70,7 +70,7 @@ import { TextElementIcon, ShapeElementIcon, ButtonElementIcon, DashboardLayoutIc
 import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
 import { useIndustries } from '@/lib/hooks/use-industries';
 import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, DocBackground } from '@/lib/ad-generator/doc-types';
-import type { FieldSpec, FieldType, AdData } from '@/lib/ad-generator/types';
+import type { FieldSpec, FieldType, AdData, AdSize } from '@/lib/ad-generator/types';
 
 const CANVAS_PAD = 48; // breathing room around the ad inside the canvas pane
 const MIN_FRAC = 0.03; // smallest element edge as a fraction of the canvas
@@ -335,12 +335,30 @@ export default function AdBuilderPage() {
   const clearSelection = useCallback(() => setSelectedIds([]), []);
   const toggleSelect = useCallback((id: string) => setSelectedIds((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id])), []);
   const [showOutlines, setShowOutlines] = useState(true);
-  // "Wide view" — an overview of every size rendered side-by-side (multi-size docs only).
-  const [overviewOpen, setOverviewOpen] = useState(false);
+  // Multi-artboard: when on, every *checked* size is laid out together on the
+  // pannable canvas — the active size stays fully editable in place, the rest
+  // are live previews you click to make active. `boardSel` picks which sizes
+  // appear in that grid; an empty set is treated as "all".
+  const [viewAll, setViewAll] = useState(false);
+  const [boardSel, setBoardSel] = useState<Set<string>>(() => new Set(doc.sizes.map((s) => s.id)));
   // Keyboard-shortcuts cheatsheet overlay.
   const [helpOpen, setHelpOpen] = useState(false);
   // Manual zoom multiplier on top of the fit-to-pane scale (1 = fit the pane).
   const [zoom, setZoom] = useState(1);
+  // Pan offset (px) of the artboard from its centered rest position. The canvas
+  // is a transform viewport (like Figma / the flows editor): the pane clips
+  // (overflow-hidden) and we translate the artboard rather than scroll it, so a
+  // board larger than the pane can be dragged anywhere — even out from under the
+  // settings panel — without fighting flexbox's cross-axis overflow.
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  // Space held → the canvas becomes grab-to-pan (like Figma). Middle-mouse pans too.
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  // Live mirrors so the native wheel listener + window drag handlers read current
+  // zoom/pan without re-subscribing every render.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const panRef = useRef(pan);
+  panRef.current = pan;
   // The background panel shows on deselect; dismissing it sets this until the
   // toolbar's "Background" button reopens it.
   const [bgPanelHidden, setBgPanelHidden] = useState(false);
@@ -463,17 +481,131 @@ export default function AdBuilderPage() {
   const frameRef = useRef<HTMLDivElement>(null); // the artboard frame (for panel alignment)
   const availW = canvasSize.width - CANVAS_PAD;
   const availH = canvasSize.height - CANVAS_PAD;
+  // The ordered set of sizes shown together in multi-artboard view — the checked
+  // ones, or all sizes when nothing's checked. Also the export selection.
+  const boardSizes = useMemo(() => {
+    const sel = doc.sizes.filter((s) => boardSel.has(s.id));
+    return sel.length ? sel : doc.sizes;
+  }, [doc.sizes, boardSel]);
+
   // Base scale fits the artboard to the pane; `zoom` (1 = fit) layers manual
   // zoom on top. Everything downstream uses `scale`, so the overlay + drag math
-  // stay consistent at any zoom.
+  // stay consistent at any zoom. In multi-artboard view the base scale fits the
+  // whole grid of boards instead — every board (incl. the editable one) shares
+  // this one scale, so the drag math needs no special-casing.
   const fitScale = availW > 0 && availH > 0 ? Math.min(availW / size.width, availH / size.height) : Math.min(560 / size.width, 560 / size.height);
-  const scale = fitScale * zoom;
+  const GRID_GAP = 40; // screen px between boards in multi-artboard view
+  const allGrid = useMemo(() => {
+    const n = boardSizes.length;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
+    const rows = Math.max(1, Math.ceil(n / cols));
+    const cellW = Math.max(...boardSizes.map((s) => s.width));
+    const cellH = Math.max(...boardSizes.map((s) => s.height));
+    if (!(availW > 0 && availH > 0)) return { fit: 0.2, cols };
+    const sw = (availW - (cols - 1) * GRID_GAP) / (cols * cellW);
+    const sh = (availH - (rows - 1) * GRID_GAP) / (rows * cellH);
+    return { fit: Math.max(0.02, Math.min(sw, sh) * 0.92), cols };
+  }, [boardSizes, availW, availH]);
+  const scale = (viewAll ? allGrid.fit : fitScale) * zoom;
   const frameW = size.width * scale;
   const frameH = size.height * scale;
-  // Each size refits when you switch to it (drop any manual zoom).
+  // Refit + recenter when toggling multi-artboard view (the fit basis changes).
   useEffect(() => {
     setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, [viewAll]);
+  // In single view each size refits when you switch to it; in multi-view the
+  // grid stays put as you click between boards (no jarring recenter).
+  useEffect(() => {
+    if (viewAll) return;
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sizeId]);
+
+  // If the active board is unchecked while in multi-view, hand editing to the
+  // first still-shown board so the editable frame always sits in the grid.
+  useEffect(() => {
+    if (viewAll && boardSel.size > 0 && !boardSel.has(sizeId) && boardSizes[0]) {
+      setSizeId(boardSizes[0].id);
+    }
+  }, [viewAll, boardSel, sizeId, boardSizes]);
+
+  // Hold Space to grab-pan the canvas (Figma-style). Ignore while a form control
+  // is focused so Space still activates buttons / types spaces.
+  useEffect(() => {
+    const isInteractive = () => {
+      const el = document.activeElement as HTMLElement | null;
+      return !!el && (/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(el.tagName) || el.isContentEditable);
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || isInteractive()) return;
+      setSpaceHeld(true);
+      e.preventDefault(); // stop the page/pane from scrolling on Space
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setSpaceHeld(false);
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, []);
+
+  // ⌘/⌃ + wheel (and trackpad pinch, which sends ctrlKey) zooms toward the
+  // cursor; plain two-finger scroll / wheel pans. Native non-passive listener so
+  // we can preventDefault the page from scrolling/zooming underneath us.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom toward the cursor. The artboard is centered in the pane then
+        // offset by `pan`, so its centre sits at (paneCentre + pan). Keeping the
+        // point under the cursor fixed reduces to pan' = pan·r + d·(1−r), where
+        // d is the cursor's offset from the pane centre and r the zoom ratio —
+        // the artboard size cancels out, so this holds at any zoom.
+        const z = zoomRef.current;
+        const z2 = Math.max(0.2, Math.min(5, +(z * (e.deltaY < 0 ? 1.12 : 1 / 1.12)).toFixed(3)));
+        const r = z2 / z;
+        const dx = e.clientX - rect.left - rect.width / 2;
+        const dy = e.clientY - rect.top - rect.height / 2;
+        const p = panRef.current;
+        setZoom(z2);
+        setPan({ x: p.x * r + dx * (1 - r), y: p.y * r + dy * (1 - r) });
+      } else {
+        // Two-finger scroll / wheel pans the canvas.
+        const p = panRef.current;
+        setPan({ x: p.x - e.deltaX, y: p.y - e.deltaY });
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [canvasRef]);
+
+  // Grab-to-pan: translate the artboard as the pointer drags. Shared by the
+  // Space-held path and middle-mouse; window listeners so it keeps tracking
+  // outside the pane. Entry points bail into this before select/marquee.
+  function startPan(e: React.PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const p0 = panRef.current;
+    const move = (ev: PointerEvent) => {
+      setPan({ x: p0.x + (ev.clientX - sx), y: p0.y + (ev.clientY - sy) });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
 
   const layout = doc.layouts[size.id] ?? {};
   const placed = useMemo(
@@ -1722,6 +1854,11 @@ export default function AdBuilderPage() {
   // Element pointerdown: Shift toggles selection; otherwise select (or keep a
   // multi-selection) and start a single / group drag.
   function onBoxPointerDown(e: React.PointerEvent, elId: string) {
+    // Space-held / middle-mouse pans the canvas even when starting over an element.
+    if (spaceHeld || e.button === 1) {
+      startPan(e);
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     // A LOCKED element can't be selected — clicking it clears the selection, so a
@@ -2635,9 +2772,14 @@ export default function AdBuilderPage() {
 
           <div
             ref={canvasRef}
-            className="relative flex flex-1 flex-col gap-4 overflow-auto bg-[var(--muted)]/30 p-3 [align-items:safe_center] [background-image:radial-gradient(var(--adgen-canvas-dot)_1px,transparent_1.5px)] [background-position:center] [background-size:18px_18px] [justify-content:safe_center] sm:p-6"
-            style={{ userSelect: 'none' }}
+            className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--muted)]/30 [background-image:radial-gradient(var(--adgen-canvas-dot)_1px,transparent_1.5px)] [background-position:center] [background-size:18px_18px]"
+            style={{ userSelect: 'none', cursor: spaceHeld ? 'grab' : undefined }}
             onPointerDown={(e) => {
+              // Space-held or middle-mouse → grab-pan the whole canvas.
+              if (spaceHeld || e.button === 1) {
+                startPan(e);
+                return;
+              }
               // Clicking the empty canvas around the artboard clears the
               // selection AND dismisses the background panel — so a click off
               // the artboard fully unfocuses (no lingering settings panel).
@@ -2647,7 +2789,21 @@ export default function AdBuilderPage() {
               }
             }}
           >
-              <div ref={frameRef} className="relative rounded-md shadow-[0_12px_48px_-8px_rgba(0,0,0,0.28),0_2px_8px_rgba(0,0,0,0.12)] ring-1 ring-black/10" style={{ width: frameW, height: frameH }}>
+              {/* Transform viewport: the pane clips and we translate the artboard
+                  by `pan` rather than scroll it, so a board larger than the pane
+                  can be dragged anywhere — even out from under the settings panel.
+                  In multi-artboard view this becomes a grid: the editable frame is
+                  one cell (ordered by its slot) and the other boards are appended
+                  as live previews with matching `order`, so no code moves. */}
+              <div
+                className={viewAll ? 'grid place-items-center' : undefined}
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px)`,
+                  willChange: 'transform',
+                  ...(viewAll ? { gridTemplateColumns: `repeat(${allGrid.cols}, max-content)`, gap: GRID_GAP } : {}),
+                }}
+              >
+              <div ref={frameRef} className="relative rounded-md shadow-[0_12px_48px_-8px_rgba(0,0,0,0.28),0_2px_8px_rgba(0,0,0,0.12)] ring-1 ring-black/10" style={{ width: frameW, height: frameH, order: viewAll ? boardSizes.findIndex((s) => s.id === sizeId) : undefined }}>
                 {/* The export renderer, scaled to fit. */}
                 <div className="absolute inset-0 overflow-hidden rounded-md">
                   <iframe
@@ -2669,6 +2825,10 @@ export default function AdBuilderPage() {
                 <div
                   className="absolute inset-0"
                   onPointerDown={(e) => {
+                    if (spaceHeld || e.button === 1) {
+                      startPan(e);
+                      return;
+                    }
                     if (e.target === e.currentTarget) startMarquee(e);
                   }}
                 >
@@ -2902,6 +3062,24 @@ export default function AdBuilderPage() {
                   )}
                 </div>
               </div>
+              {/* Live previews of the other checked sizes — click one to make it
+                  the editable board. `order` matches its slot in boardSizes so it
+                  lands in the right grid cell without reordering the source. */}
+              {viewAll &&
+                boardSizes.map((s, i) =>
+                  s.id === sizeId ? null : (
+                    <PreviewBoard
+                      key={s.id}
+                      doc={doc}
+                      previewData={previewData}
+                      size={s}
+                      scale={scale}
+                      order={i}
+                      onActivate={() => setSizeId(s.id)}
+                    />
+                  ),
+                )}
+              </div>
 
               {/* Empty-canvas onboarding — guides a brand-new template's first
                   element. Reactive on placed.length, so it clears the moment an
@@ -2927,13 +3105,16 @@ export default function AdBuilderPage() {
               )}
 
 
-              {/* Size navigation — arrow-paginated, scales to any number of sizes */}
+              {/* Size navigation — single view: arrow-paginated with a toggle into
+                  multi-artboard view. Multi view: per-size checkbox chips (which
+                  boards show + export) with select/deselect-all. */}
               {doc.sizes.length > 0 &&
+                !viewAll &&
                 (() => {
                   const idx = Math.max(0, doc.sizes.findIndex((s) => s.id === sizeId));
                   const go = (delta: number) => setSizeId(doc.sizes[(idx + delta + doc.sizes.length) % doc.sizes.length].id);
                   return (
-                    <div className="flex flex-shrink-0 items-center gap-2">
+                    <div className="absolute bottom-3 left-1/2 z-20 flex w-max -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--card-strong)]/80 px-1.5 py-1 backdrop-blur-md">
                       <button
                         onClick={() => go(-1)}
                         disabled={doc.sizes.length < 2}
@@ -2943,21 +3124,9 @@ export default function AdBuilderPage() {
                       >
                         <ChevronLeftIcon className="h-4 w-4" />
                       </button>
-                      {doc.sizes.length > 1 ? (
-                        <button
-                          onClick={() => setOverviewOpen(true)}
-                          title="View all sizes"
-                          aria-label="View all sizes"
-                          className="inline-flex min-w-[6.5rem] items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
-                        >
-                          <Squares2X2Icon className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-                          {doc.sizes[idx]?.label.split(' ')[0]} <span className="tabular-nums text-[var(--muted-foreground)]">{idx + 1}/{doc.sizes.length}</span>
-                        </button>
-                      ) : (
-                        <span className="min-w-[6.5rem] text-center text-xs font-medium text-[var(--foreground)]">
-                          {doc.sizes[idx]?.label.split(' ')[0]} <span className="tabular-nums text-[var(--muted-foreground)]">{idx + 1}/{doc.sizes.length}</span>
-                        </span>
-                      )}
+                      <span className="min-w-[6.5rem] text-center text-xs font-medium text-[var(--foreground)]">
+                        {doc.sizes[idx]?.label.split(' ')[0]} <span className="tabular-nums text-[var(--muted-foreground)]">{idx + 1}/{doc.sizes.length}</span>
+                      </span>
                       <button
                         onClick={() => go(1)}
                         disabled={doc.sizes.length < 2}
@@ -2967,9 +3136,88 @@ export default function AdBuilderPage() {
                       >
                         <ChevronRightIcon className="h-4 w-4" />
                       </button>
+                      {doc.sizes.length > 1 && (
+                        <>
+                          <div className="mx-0.5 h-5 w-px bg-[var(--border)]" />
+                          <button
+                            onClick={() => setViewAll(true)}
+                            title="View all sizes together"
+                            aria-label="View all sizes together"
+                            className="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                          >
+                            <Squares2X2Icon className="h-3.5 w-3.5" />
+                            All sizes
+                          </button>
+                        </>
+                      )}
                     </div>
                   );
                 })()}
+
+              {doc.sizes.length > 0 && viewAll && (
+                <div className="absolute bottom-3 left-1/2 z-20 flex max-w-[92%] -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card-strong)]/80 py-1 pl-1.5 pr-2 backdrop-blur-md">
+                  <button
+                    onClick={() => setViewAll(false)}
+                    title="Back to single view"
+                    aria-label="Back to single view"
+                    className="inline-flex h-7 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
+                  >
+                    <ChevronLeftIcon className="h-3.5 w-3.5" />
+                    Edit one
+                  </button>
+                  <div className="h-5 w-px flex-shrink-0 bg-[var(--border)]" />
+                  <button
+                    onClick={() => setBoardSel(new Set(doc.sizes.map((s) => s.id)))}
+                    className="flex-shrink-0 rounded-md px-1.5 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setBoardSel(new Set([sizeId]))}
+                    className="flex-shrink-0 rounded-md px-1.5 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                  >
+                    None
+                  </button>
+                  <div className="h-5 w-px flex-shrink-0 bg-[var(--border)]" />
+                  <div className="flex items-center gap-1 overflow-x-auto">
+                    {doc.sizes.map((s) => {
+                      const checked = boardSel.has(s.id) || boardSel.size === 0;
+                      const isActive = s.id === sizeId;
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() =>
+                            setBoardSel((prev) => {
+                              const next = new Set(prev.size === 0 ? doc.sizes.map((x) => x.id) : prev);
+                              if (next.has(s.id)) {
+                                if (next.size > 1) next.delete(s.id); // keep at least one
+                              } else next.add(s.id);
+                              return next;
+                            })
+                          }
+                          title={`${s.label} — ${checked ? 'shown' : 'hidden'}`}
+                          className={`inline-flex h-7 flex-shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-medium transition-colors ${
+                            isActive
+                              ? 'border-[var(--primary)] text-[var(--foreground)]'
+                              : checked
+                                ? 'border-transparent bg-[var(--muted)] text-[var(--foreground)]'
+                                : 'border-transparent text-[var(--muted-foreground)] hover:bg-[var(--muted)]'
+                          }`}
+                        >
+                          <span
+                            className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border ${
+                              checked ? 'border-[var(--primary)] bg-[var(--primary)] text-white' : 'border-[var(--muted-foreground)]/50'
+                            }`}
+                          >
+                            {checked && <CheckIcon className="h-2.5 w-2.5" strokeWidth={3} />}
+                          </span>
+                          {s.label.split(' ')[0]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {selected && selectedBox && !selectedBox.hidden && (
                 <SelectionPanel
@@ -3028,19 +3276,6 @@ export default function AdBuilderPage() {
           onClose={() => setLoadOpen(false)}
           onLoad={loadTemplate}
           onDelete={deleteSaved}
-        />
-      )}
-
-      {overviewOpen && (
-        <SizesOverviewModal
-          doc={doc}
-          previewData={previewData}
-          currentSizeId={sizeId}
-          onClose={() => setOverviewOpen(false)}
-          onPick={(id) => {
-            setSizeId(id);
-            setOverviewOpen(false);
-          }}
         />
       )}
 
@@ -3850,79 +4085,49 @@ function ColorSwatchInput({ title, value, onChange }: { title: string; value: st
 }
 
 /**
- * "Wide view" — every size in the doc rendered side-by-side through the same
- * `renderDoc` the canvas/export use, so the overview is WYSIWYG. Click a size to
- * jump back to editing it. Only shown for multi-size docs.
+ * A single non-editable board in multi-artboard view — the same `renderDoc` the
+ * canvas/export use (WYSIWYG), rendered at the shared canvas `scale` so it lines
+ * up with the editable frame. Click it to make it the active editable board.
  */
-function SizesOverviewModal({
+function PreviewBoard({
   doc,
   previewData,
-  currentSizeId,
-  onClose,
-  onPick,
+  size,
+  scale,
+  order,
+  onActivate,
 }: {
   doc: TemplateDoc;
   previewData: AdData;
-  currentSizeId: string;
-  onClose: () => void;
-  onPick: (id: string) => void;
+  size: AdSize;
+  scale: number;
+  order: number;
+  onActivate: () => void;
 }) {
-  const MAX_W = 240;
-  const MAX_H = 200;
-  // Render each size's HTML once per (doc, previewData) rather than on every
-  // parent render — each result feeds an <iframe srcDoc>, so recomputing would
-  // reload every iframe on each tick.
-  const previews = useMemo(
-    () => doc.sizes.map((s) => ({ s, html: renderDoc(doc, previewData, s, { preview: true }) })),
-    [doc, previewData],
-  );
-  return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-12" onClick={onClose}>
-      <div className="w-full max-w-4xl rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-5 shadow-xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-[var(--foreground)]">All sizes</h2>
-            <p className="text-xs text-[var(--muted-foreground)]">Every size at a glance — click one to edit it.</p>
-          </div>
-          <button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
-            <XMarkIcon className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {previews.map(({ s, html }) => {
-            const sc = Math.min(MAX_W / s.width, MAX_H / s.height);
-            const active = s.id === currentSizeId;
-            return (
-              <button
-                key={s.id}
-                onClick={() => onPick(s.id)}
-                className={`flex flex-col items-center gap-2 rounded-xl border p-3 transition-colors ${active ? 'border-[var(--primary)] ring-1 ring-[var(--primary)]/40' : 'border-[var(--border)] hover:border-[var(--primary)]'}`}
-              >
-                <div className="flex items-center justify-center" style={{ height: MAX_H }}>
-                  <div className="overflow-hidden rounded shadow-md ring-1 ring-black/10" style={{ width: s.width * sc, height: s.height * sc }}>
-                    <iframe
-                      title={s.label}
-                      srcDoc={html}
-                      style={{ width: s.width, height: s.height, border: 0, transform: `scale(${sc})`, transformOrigin: 'top left', pointerEvents: 'none' }}
-                    />
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-[var(--foreground)]">
-                    {s.label.split(' ')[0]}
-                    {active && (
-                      <span className="rounded bg-[var(--primary)]/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--primary)]">Editing</span>
-                    )}
-                  </div>
-                  <div className="text-[11px] tabular-nums text-[var(--muted-foreground)]">{s.width}×{s.height}</div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>,
-    document.body,
+  // Render this size's HTML once per (doc, previewData, size) — it feeds an
+  // <iframe srcDoc>, so recomputing on every zoom tick would reload the iframe.
+  const html = useMemo(() => renderDoc(doc, previewData, size, { preview: true }), [doc, previewData, size]);
+  return (
+    <div className="flex flex-col items-center gap-1.5" style={{ order }}>
+      <button
+        type="button"
+        onClick={onActivate}
+        title={`Edit ${size.label}`}
+        className="group relative block overflow-hidden rounded-md shadow-[0_12px_48px_-8px_rgba(0,0,0,0.28),0_2px_8px_rgba(0,0,0,0.12)] ring-1 ring-black/10 transition hover:ring-2 hover:ring-[var(--primary)]"
+        style={{ width: size.width * scale, height: size.height * scale }}
+      >
+        <iframe
+          title={size.label}
+          srcDoc={html}
+          tabIndex={-1}
+          style={{ width: size.width, height: size.height, border: 0, transform: `scale(${scale})`, transformOrigin: 'top left', pointerEvents: 'none' }}
+        />
+        <span className="pointer-events-none absolute inset-0 transition-colors group-hover:bg-[var(--primary)]/5" />
+      </button>
+      <span className="text-[11px] font-medium text-[var(--muted-foreground)]">
+        {size.label.split(' ')[0]} <span className="tabular-nums opacity-70">{size.width}×{size.height}</span>
+      </span>
+    </div>
   );
 }
 
