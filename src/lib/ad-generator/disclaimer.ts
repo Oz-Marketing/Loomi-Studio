@@ -18,9 +18,11 @@ export const DISCLAIMER_SLUGS: Record<string, string> = {
   monthly_payment: 'Lease / finance monthly payment — formatted',
   due_at_signing: 'Lease due-at-signing amount — formatted',
   lease_term: 'Lease term in months',
+  security_deposit: 'Lease security deposit — formatted ($0 renders as "$0")',
   apr_rate: 'APR rate (e.g. 1.9)',
   apr_term: 'APR term in months',
   financial_institution: 'Finance institution (e.g. Toyota Financial)',
+  cost_per_thousand: 'Cost per $1,000 financed (e.g. 4.51)',
   discount_amount: 'Discount / cash-back amount — formatted',
   discount_source: 'Source of the discount (e.g. Dealer Discount)',
   sale_price: 'Advertised sale price — formatted',
@@ -67,9 +69,11 @@ export function buildTokenValues(data: AdData): Record<string, string> {
   set('monthly_payment', money(data.monthlyPayment));
   set('due_at_signing', money(data.dueAtSigning));
   set('lease_term', plain(data.leaseTerm));
+  set('security_deposit', money(data.securityDeposit));
   set('apr_rate', plain(data.aprRate));
   set('apr_term', plain(data.aprTerm));
   set('financial_institution', plain(data.financialInstitution));
+  set('cost_per_thousand', plain(data.costPerThousand));
   set('discount_amount', money(data.discountAmount));
   set('discount_source', plain(data.discountSource));
   set('sale_price', money(data.salePrice));
