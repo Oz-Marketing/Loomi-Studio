@@ -339,27 +339,6 @@ function resizeFreeCropRect(
   };
 }
 
-function cropOutputMimeType(inputType: string | undefined): string {
-  if (inputType === 'image/jpeg' || inputType === 'image/png' || inputType === 'image/webp') {
-    return inputType;
-  }
-  return 'image/png';
-}
-
-function extensionFromMimeType(mimeType: string): string {
-  if (mimeType === 'image/jpeg') return 'jpg';
-  if (mimeType === 'image/png') return 'png';
-  if (mimeType === 'image/webp') return 'webp';
-  return 'png';
-}
-
-function makeCroppedFileName(originalName: string, mimeType: string): string {
-  const trimmed = (originalName || '').trim();
-  const dotIndex = trimmed.lastIndexOf('.');
-  const baseName = dotIndex > 0 ? trimmed.slice(0, dotIndex) : (trimmed || 'image');
-  const ext = extensionFromMimeType(mimeType);
-  return `${baseName}-cropped.${ext}`;
-}
 
 interface CropEditorModalProps {
   file: MediaFile;
@@ -1662,75 +1641,22 @@ export default function MediaPage() {
 
   const handleCropSave = async (crop: CropRect) => {
     const fileToCrop = cropFile;
-    if (!fileToCrop?.url) return;
+    if (!fileToCrop?.id) return;
 
     setCropping(true);
 
     try {
-      const sourceRes = await fetch(fileToCrop.url);
-      if (!sourceRes.ok) {
-        throw new Error('Could not load image for cropping');
-      }
-      const sourceBlob = await sourceRes.blob();
-      const objectUrl = URL.createObjectURL(sourceBlob);
-
-      let croppedFile: File;
-      try {
-        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = () => reject(new Error('Could not decode image'));
-          img.src = objectUrl;
-        });
-
-        const canvas = document.createElement('canvas');
-        canvas.width = crop.width;
-        canvas.height = crop.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          throw new Error('Canvas is not available in this browser');
-        }
-
-        ctx.drawImage(
-          image,
-          crop.x,
-          crop.y,
-          crop.width,
-          crop.height,
-          0,
-          0,
-          crop.width,
-          crop.height,
-        );
-
-        const outputType = cropOutputMimeType(fileToCrop.type);
-        const quality = outputType === 'image/jpeg' || outputType === 'image/webp' ? 0.92 : undefined;
-        const croppedBlob = await new Promise<Blob>((resolve, reject) => {
-          canvas.toBlob((blob) => {
-            if (blob) resolve(blob);
-            else reject(new Error('Could not encode cropped image'));
-          }, outputType, quality);
-        });
-
-        croppedFile = new File(
-          [croppedBlob],
-          makeCroppedFileName(fileToCrop.name, outputType),
-          { type: outputType },
-        );
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
-
-      const formData = new FormData();
-      formData.append('file', croppedFile);
-      formData.append('category', 'general');
-      if (effectiveAccountKey) formData.append('accountKey', effectiveAccountKey);
-      if (currentFolderId) formData.append('folderId', currentFolderId);
-
-      const res = await fetch('/api/media', { method: 'POST', body: formData });
+      // Crop is done SERVER-SIDE (sharp): the browser can't fetch the
+      // cross-origin S3 image into a canvas (Spaces sends no CORS headers → the
+      // old client-side crop failed with "Failed to fetch" / tainted canvas).
+      const res = await fetch(`/api/media/${encodeURIComponent(fileToCrop.id)}/crop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x: crop.x, y: crop.y, width: crop.width, height: crop.height }),
+      });
       const { ok, data, error } = await safeJson<{ file: MediaFile }>(res);
       if (!ok || !data?.file) {
-        throw new Error(error || 'Failed to upload cropped image');
+        throw new Error(error || 'Failed to crop image');
       }
 
       const created: MediaFile = { ...data.file, source: 's3' };
@@ -1742,7 +1668,7 @@ export default function MediaPage() {
       }
       setPreviewFile(created);
 
-      toast.success('Cropped image uploaded');
+      toast.success('Cropped image saved');
       setCropFile(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to crop image';
