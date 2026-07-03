@@ -176,8 +176,35 @@ export default function AdGeneratorPage() {
     ],
     [fontFamilies],
   );
+  // Base64-embedded @font-face for the account's fonts. The URL-based css below
+  // is instant but cross-origin/CORS can silently drop the font in a preview
+  // iframe; we fetch an embedded version and prefer it once loaded so brand
+  // fonts actually render (WYSIWYG with the export, which embeds the same way).
+  // Mirrors the builder (see ad-generator/builder/page.tsx).
+  const [embeddedFontCss, setEmbeddedFontCss] = useState('');
+  useEffect(() => {
+    if (!accountKey || customFonts.length === 0) {
+      setEmbeddedFontCss('');
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/ad-generator/fonts?accountKey=${encodeURIComponent(accountKey)}`)
+      .then((r) => (r.ok ? r.json() : { css: '' }))
+      .then((j: { css?: string }) => {
+        if (!cancelled) setEmbeddedFontCss(j.css ?? '');
+      })
+      .catch(() => {
+        if (!cancelled) setEmbeddedFontCss('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountKey, customFonts.length]);
   // Page-level @font-face so the dropdown can preview the custom families.
-  const pageFontFaceCss = useMemo(() => buildFontFaceCssFromUrls(customFonts), [customFonts]);
+  const pageFontFaceCss = useMemo(
+    () => embeddedFontCss || buildFontFaceCssFromUrls(customFonts),
+    [embeddedFontCss, customFonts],
+  );
 
   const [logoKey, setLogoKey] = useState<string>('light');
   const [colorKey, setColorKey] = useState<string>('primary');
@@ -202,9 +229,9 @@ export default function AdGeneratorPage() {
   const previewFontFaceCss = useMemo(
     () =>
       fontKey && customFonts.some((f) => f.family === fontKey)
-        ? buildFontFaceCssFromUrls(customFonts.filter((f) => f.family === fontKey))
+        ? embeddedFontCss || buildFontFaceCssFromUrls(customFonts.filter((f) => f.family === fontKey))
         : '',
-    [customFonts, fontKey],
+    [embeddedFontCss, customFonts, fontKey],
   );
 
   const brandingData: AdData = useMemo(

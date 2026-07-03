@@ -16,20 +16,44 @@ const FONT_MIME: Record<string, string> = {
   otf: 'font/otf',
 };
 
+function mimeForUrl(url: string): string {
+  const ext = url.split('?')[0].split('.').pop()?.toLowerCase() || 'woff2';
+  return FONT_MIME[ext] || 'font/woff2';
+}
+
+/**
+ * Fetch a font's raw bytes. Prefers the S3 SDK (works for private buckets and
+ * recognized public URLs), but falls back to a plain server-side `fetch` for any
+ * reachable URL — old-bucket URLs, CDN hosts, or anything whose prefix no longer
+ * matches the current `S3_PUBLIC_URL_PREFIX` after a storage migration. The
+ * server has no CORS restriction, so this succeeds where the browser preview's
+ * cross-origin @font-face would be dropped. Returns null if both paths fail.
+ */
+async function fetchFontBytes(url: string): Promise<Buffer | null> {
+  const key = s3KeyFromPublicUrl(url);
+  if (key) {
+    try {
+      return await downloadFromS3(key);
+    } catch {
+      // Fall through to a direct fetch (e.g. key resolved but object moved).
+    }
+  }
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
 /** Embed each face as a base64 data URI so the render never depends on CORS. */
 export async function embeddedFontFaceCss(faces: FontFace[]): Promise<string> {
   const rules: string[] = [];
   for (const f of faces) {
-    const k = s3KeyFromPublicUrl(f.url);
-    if (!k) continue;
-    try {
-      const buf = await downloadFromS3(k);
-      const ext = f.url.split('?')[0].split('.').pop()?.toLowerCase() || 'woff2';
-      const mime = FONT_MIME[ext] || 'font/woff2';
-      rules.push(fontFaceRule(f, `url("data:${mime};base64,${buf.toString('base64')}")`));
-    } catch {
-      // Skip a font we can't fetch; the template falls back to the system stack.
-    }
+    const buf = await fetchFontBytes(f.url);
+    if (!buf) continue; // Skip a font we can't fetch; template falls back to the system stack.
+    rules.push(fontFaceRule(f, `url("data:${mimeForUrl(f.url)};base64,${buf.toString('base64')}")`));
   }
   return rules.join('\n');
 }
