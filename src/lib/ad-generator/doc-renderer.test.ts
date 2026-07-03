@@ -94,6 +94,48 @@ describe('renderDoc', () => {
     expect(html).not.toContain('<img'); // tile renders as a CSS background, not an <img>
   });
 
+  it('composites a unified background element: base fill + texture + fade overlay', () => {
+    const bgDoc: TemplateDoc = {
+      id: 'b',
+      name: 'B',
+      sizes: [SIZE],
+      fields: [],
+      elements: [
+        {
+          id: 'bg',
+          type: 'background',
+          binding: { kind: 'field', key: 'tex' },
+          fit: 'cover',
+          fill: '#199fdb',
+          overlay: { type: 'linear', angle: 180, stops: [{ color: '#ffffff', pos: 0 }, { color: '#ffffff', pos: 100, opacity: 0 }] },
+        },
+      ],
+      layouts: { square: { bg: { x: 0, y: 0, w: 1, h: 1 } } },
+      defaults: {},
+    };
+    const html = renderDoc(bgDoc, { tex: 'https://x/topo.png' }, SIZE);
+    expect(html).toContain('background:#199fdb'); // base fill layer
+    expect(html).toContain('<img src="https://x/topo.png"'); // texture layer (cover)
+    expect(html).toContain('object-fit:cover');
+    expect(html).toContain('linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0) 100%)'); // fade overlay
+  });
+
+  it('renders a background element with a tiled texture and no fill/overlay', () => {
+    const bgDoc: TemplateDoc = {
+      id: 'b',
+      name: 'B',
+      sizes: [SIZE],
+      fields: [],
+      elements: [{ id: 'bg', type: 'background', binding: { kind: 'field', key: 'tex' }, fit: 'tile', tileScale: 0.15, bgImageOpacity: 50 }],
+      layouts: { square: { bg: { x: 0, y: 0, w: 1, h: 1 } } },
+      defaults: {},
+    };
+    const html = renderDoc(bgDoc, { tex: 'https://x/grain.png' }, SIZE);
+    expect(html).toContain('background-image:url(https://x/grain.png)');
+    expect(html).toContain('background-size:15% auto');
+    expect(html).toContain('opacity:0.5'); // texture-layer opacity
+  });
+
   it('positions elements from fractional boxes (× size)', () => {
     const html = renderDoc(doc, { price: '$299/mo' }, SIZE);
     expect(html).toContain('left:100px;top:500px;');

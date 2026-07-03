@@ -216,6 +216,7 @@ const TYPE_ICON: Record<DocElementType, React.ComponentType<{ className?: string
   image: PhotoIcon,
   logo: BuildingStorefrontIcon,
   shape: ShapeElementIcon,
+  background: SwatchIcon,
 };
 
 type SavedTemplate = {
@@ -354,6 +355,19 @@ function makeDefaultElement(id: string, type: DocElementType): DocElement {
       return { id, type, binding: { kind: 'static', value: '' }, fit: 'contain' };
     case 'shape':
       return { id, type, fill: 'brand', radius: 8 };
+    case 'background':
+      // Full-bleed background: base fill + a white→transparent top fade. Texture
+      // is added on demand from the inspector. Placement (full-bleed, back z) is
+      // handled by addBackground, not here.
+      return {
+        id,
+        type,
+        name: 'Background',
+        binding: { kind: 'static', value: '' },
+        fit: 'cover',
+        fill: 'brand',
+        overlay: { type: 'linear', angle: 180, stops: [{ color: '#ffffff', pos: 0 }, { color: '#ffffff', pos: 100, opacity: 0 }] },
+      };
   }
 }
 
@@ -856,7 +870,7 @@ export default function AdBuilderPage() {
   } | null => {
     if (!selected) return null;
     const b = selected.binding;
-    const isImage = selected.type === 'image' || selected.type === 'logo';
+    const isImage = selected.type === 'image' || selected.type === 'logo' || selected.type === 'background';
     if (selected.type === 'shape' || !b) return { mode: 'none', value: '' };
     const value = b.kind === 'static' ? b.value : String(previewData[b.key] ?? '');
     if (b.kind === 'brand') return { mode: isImage ? 'image-readonly' : 'text-readonly', value, note: 'Comes from the account brand.' };
@@ -1126,45 +1140,23 @@ export default function AdBuilderPage() {
     setSelectedIds([id]);
   }, []);
 
-  // Scaffold a composed background as a named "Background" group: a base fill,
-  // a texture slot (pick from the texture library), and a white→transparent fade
-  // on top — full-bleed on every size, pinned behind everything. This is the
-  // in-app equivalent of building a branded background (Subaru-style) in
-  // Illustrator: the designer then styles each layer and it reflows per size.
-  const addBackgroundComposition = useCallback(() => {
-    const grpId = `grp-${rid()}`;
-    const fillId = `shape-${rid()}`;
-    const texId = `image-${rid()}`;
-    const fadeId = `shape-${rid()}`;
+  // Add the unified full-bleed Background element: one element (base fill +
+  // optional texture + optional fade) pinned behind everything on every size.
+  // This is the single way to set a background — it replaces both the old
+  // full-bleed background image and the doc-level canvas fill. The designer
+  // styles fill / texture / fade from its inspector, and it reflows per size.
+  const addBackground = useCallback(() => {
+    const id = `background-${rid()}`;
     setDoc((prev) => {
-      const brandColor = (typeof prev.defaults.brandColor === 'string' && prev.defaults.brandColor) || '#199fdb';
       const layouts = { ...prev.layouts };
       for (const s of prev.sizes) {
         const cur = layouts[s.id] ?? {};
         const minZ = Object.values(cur).reduce((m, b) => Math.min(m, b.z ?? 0), 0);
-        layouts[s.id] = {
-          ...cur,
-          [fillId]: { x: 0, y: 0, w: 1, h: 1, z: minZ - 3 },
-          [texId]: { x: 0, y: 0, w: 1, h: 1, z: minZ - 2 },
-          [fadeId]: { x: 0, y: 0, w: 1, h: 1, z: minZ - 1 },
-        };
+        layouts[s.id] = { ...cur, [id]: { x: 0, y: 0, w: 1, h: 1, z: minZ - 1 } };
       }
-      const els: DocElement[] = [
-        { id: fillId, type: 'shape', name: 'Base fill', groupId: grpId, fill: brandColor },
-        { id: texId, type: 'image', name: 'Texture', groupId: grpId, binding: { kind: 'static', value: '' }, fit: 'cover', opacity: 40 },
-        {
-          id: fadeId,
-          type: 'shape',
-          name: 'Fade',
-          groupId: grpId,
-          gradientFill: { type: 'linear', angle: 180, stops: [{ color: '#ffffff', pos: 0 }, { color: '#ffffff', pos: 100, opacity: 0 }] },
-        },
-      ];
-      const groups = [...(prev.groups ?? []), { id: grpId, name: 'Background' }];
-      return { ...prev, elements: [...prev.elements, ...els], groups, layouts };
+      return { ...prev, elements: [...prev.elements, makeDefaultElement(id, 'background')], layouts };
     });
-    // Select the texture slot so the designer's next click picks a texture.
-    setSelectedIds([texId]);
+    setSelectedIds([id]);
   }, []);
 
   // Patch the selected element's style.
@@ -2273,12 +2265,10 @@ export default function AdBuilderPage() {
     { label: 'Image', Icon: PhotoIcon, onAdd: () => addElement('image') },
     { label: 'Button', Icon: ButtonElementIcon, onAdd: addButton },
     { label: 'Shape', Icon: ShapeElementIcon, onAdd: () => addElement('shape') },
-    // Background — a full-bleed photo behind everything (moved here from the
-    // right-side Background panel so all "add" actions live in one place).
-    { label: 'Background', Icon: SwatchIcon, onAdd: addBackgroundImage },
-    // Background set — a composed, grouped background (base fill + texture + fade)
-    // the designer styles in-app instead of importing per-size art.
-    { label: 'Background set', Icon: Squares2X2Icon, onAdd: addBackgroundComposition },
+    // Background — the single full-bleed background element (base fill + optional
+    // texture + optional fade), styled from its inspector. One entry point for
+    // every kind of background.
+    { label: 'Background', Icon: SwatchIcon, onAdd: addBackground },
   ];
 
   const saveInfo =
@@ -3761,7 +3751,7 @@ function SelectionPanel({
   onToggleCrop: () => void;
 }) {
   const fontSize = box.fontSize ?? 16;
-  const typeLabel = el.type === 'text' ? 'Text' : el.type === 'image' ? 'Image' : el.type === 'logo' ? 'Logo' : 'Shape';
+  const typeLabel = el.type === 'text' ? 'Text' : el.type === 'image' ? 'Image' : el.type === 'logo' ? 'Logo' : el.type === 'background' ? 'Background' : 'Shape';
   const [picking, setPicking] = useState(false);
 
   return (
@@ -3983,6 +3973,93 @@ function SelectionPanel({
             </PanelSection>
           </>
         )}
+
+        {el.type === 'background' && (() => {
+          const baseGrad = toGradientFill(el);
+          const overlayGrad = el.overlay ? toGradientFill({ gradientFill: el.overlay }) : null;
+          const fadeSeed = { type: 'linear' as const, angle: 180, stops: [{ color: '#ffffff', pos: 0 }, { color: '#ffffff', pos: 100, opacity: 0 }] };
+          return (
+            <>
+              {/* Base fill — solid or gradient (absorbs the old canvas background). */}
+              <PanelSection title="Fill">
+                {baseGrad ? (
+                  <GradientEditor value={baseGrad} onChange={(g) => onEl({ gradientFill: g, gradient: undefined, gradientAngle: undefined, gradientStops: undefined })} />
+                ) : (
+                  <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                    Color
+                    <ColorSwatchInput title="Base color" value={el.fill && el.fill !== 'brand' ? el.fill : '#199fdb'} onChange={(v) => onEl({ fill: v })} />
+                  </label>
+                )}
+                <button type="button" onClick={() => onEl(baseGrad ? clearGradientPatch : seedGradientPatch(el.fill))} className="mt-2 text-[11px] font-medium text-[var(--primary)] transition-opacity hover:opacity-80">
+                  {baseGrad ? 'Use a solid color' : 'Use a gradient'}
+                </button>
+              </PanelSection>
+              {/* Texture — pick in the Content section above; frame it here. */}
+              <PanelSection title="Texture">
+                <div className="flex items-center gap-1">
+                  <BarBtn title="Fit (contain)" active={el.fit === 'contain'} onClick={() => onEl({ fit: 'contain' })}>
+                    <ArrowsPointingInIcon className="h-4 w-4" />
+                  </BarBtn>
+                  <BarBtn title="Fill (cover)" active={(el.fit ?? 'cover') === 'cover'} onClick={() => onEl({ fit: 'cover' })}>
+                    <ArrowsPointingOutIcon className="h-4 w-4" />
+                  </BarBtn>
+                  <BarBtn title="Tile (repeat texture)" active={el.fit === 'tile'} onClick={() => onEl({ fit: 'tile' })}>
+                    <span className="grid grid-cols-2 gap-[1.5px]">
+                      {[0, 1, 2, 3].map((i) => (
+                        <span key={i} className="h-1.5 w-1.5 rounded-[1px] bg-current" />
+                      ))}
+                    </span>
+                  </BarBtn>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-4">
+                  {el.fit === 'tile' && (
+                    <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+                      Tile size
+                      <MiniNum
+                        title="Tile size (% of width)"
+                        value={Math.round((el.tileScale ?? 0.25) * 100)}
+                        step={5}
+                        onChange={(v) => {
+                          const n = Math.max(2, Math.min(100, Math.round(v)));
+                          onEl({ tileScale: Number((n / 100).toFixed(3)) });
+                        }}
+                      />
+                      <span className="text-[11px]">%</span>
+                    </label>
+                  )}
+                  <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+                    Opacity
+                    <MiniNum
+                      title="Texture opacity (%)"
+                      value={el.bgImageOpacity ?? 100}
+                      step={5}
+                      onChange={(v) => {
+                        const n = Math.max(0, Math.min(100, Math.round(v)));
+                        onEl({ bgImageOpacity: n >= 100 ? undefined : n });
+                      }}
+                    />
+                  </label>
+                </div>
+                <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">Pick a texture in the Content section above — the Textures tab has your brand patterns.</p>
+              </PanelSection>
+              {/* Fade — a gradient overlay on top (e.g. white→transparent scrim). */}
+              <PanelSection title="Fade">
+                {overlayGrad ? (
+                  <>
+                    <GradientEditor value={overlayGrad} onChange={(g) => onEl({ overlay: g })} />
+                    <button type="button" onClick={() => onEl({ overlay: undefined })} className="mt-2 text-[11px] font-medium text-[var(--primary)] transition-opacity hover:opacity-80">
+                      Remove fade
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => onEl({ overlay: fadeSeed })} className="text-[11px] font-medium text-[var(--primary)] transition-opacity hover:opacity-80">
+                    Add a fade
+                  </button>
+                )}
+              </PanelSection>
+            </>
+          );
+        })()}
 
         {el.type === 'shape' && (() => {
           const kind = el.shapeKind ?? 'rect';
@@ -4206,6 +4283,16 @@ function DetachedVisual({
   resolveUrl: (el: DocElement | null | undefined) => string | null;
 }) {
   const brand = typeof previewData.brandColor === 'string' ? previewData.brandColor : '#4f46e5';
+  if (el.type === 'background') {
+    const g = toGradientFill(el);
+    const base = g ? gradientPreviewCss(g) : el.fill === 'brand' ? brand : el.fill || '#199fdb';
+    const ov = el.overlay ? gradientPreviewCss(el.overlay) : null;
+    return (
+      <span className="pointer-events-none absolute inset-0" style={{ background: base }}>
+        {ov && <span className="absolute inset-0" style={{ background: ov }} />}
+      </span>
+    );
+  }
   if (el.type === 'shape') {
     const kind = el.shapeKind ?? 'rect';
     const g = toGradientFill(el);

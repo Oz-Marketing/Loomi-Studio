@@ -186,6 +186,35 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
     `left:${box.x * width}px;top:${box.y * height}px;` +
     `width:${box.w * width}px;height:${box.h * height}px;`;
 
+  if (el.type === 'background') {
+    // Unified full-bleed background: composite base fill → texture → fade overlay
+    // inside one element. Replaces the old doc-level canvas fill + bg image.
+    const layers: string[] = [];
+    // 1. Base fill (solid or gradient).
+    const baseGrad = normalizeGradient(el);
+    const baseBg = baseGrad ? buildGradientCss(baseGrad, brand) : el.fill ? esc(resolveColor(el.fill, brand, brand)) : '';
+    if (baseBg) layers.push(`<div style="position:absolute;inset:0;background:${baseBg};"></div>`);
+    // 2. Texture image (cover / contain / tile), with its own opacity.
+    const texUrl = esc(resolveBinding(el.binding, data));
+    if (texUrl) {
+      const texOp = el.bgImageOpacity != null && el.bgImageOpacity < 100 ? `opacity:${clamp01(el.bgImageOpacity / 100)};` : '';
+      if ((el.fit ?? 'cover') === 'tile') {
+        const tilePct = Math.max(2, clamp01(el.tileScale ?? 0.25) * 100);
+        layers.push(`<div style="position:absolute;inset:0;${texOp}background-image:url(${texUrl});background-repeat:repeat;background-size:${tilePct}% auto;"></div>`);
+      } else {
+        const objPos = box.objectX != null || box.objectY != null ? `${clamp01(box.objectX ?? 0.5) * 100}% ${clamp01(box.objectY ?? 0.5) * 100}%` : 'center';
+        layers.push(`<div style="position:absolute;inset:0;overflow:hidden;${texOp}"><img src="${texUrl}" alt="" style="width:100%;height:100%;object-fit:${el.fit ?? 'cover'};object-position:${objPos};" /></div>`);
+      }
+    }
+    // 3. Fade / overlay gradient on top.
+    if (el.overlay) {
+      const ov = normalizeGradient({ gradientFill: el.overlay });
+      if (ov) layers.push(`<div style="position:absolute;inset:0;background:${buildGradientCss(ov, brand)};"></div>`);
+    }
+    const radius = el.radius ? `border-radius:${el.radius}px;` : '';
+    return `<div${idAttr} style="${dim}${fx}${pos}overflow:hidden;${radius}">${layers.join('')}</div>`;
+  }
+
   if (el.type === 'shape') {
     const kind = el.shapeKind ?? 'rect';
     // Gradient fill (multi-stop, linear/radial, per-stop alpha) mirrors the

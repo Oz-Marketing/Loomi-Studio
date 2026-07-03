@@ -17,7 +17,7 @@ export type Binding =
   | { kind: 'brand'; key: 'dealerName' | 'logoUrl' | 'brandColor' } // from the account
   | { kind: 'static'; value: string }; // a literal baked into the template
 
-export type DocElementType = 'text' | 'image' | 'logo' | 'shape';
+export type DocElementType = 'text' | 'image' | 'logo' | 'shape' | 'background';
 
 /** CSS mix-blend-mode values — how an element composites over what's beneath it.
  *  Lets a gradient/color layer tint a texture (multiply/overlay), knock lines
@@ -141,6 +141,17 @@ export interface DocElement {
   gradientAngle?: number;
   /** @deprecated Legacy stop offsets [start%, end%]. See `gradientFill`. */
   gradientStops?: [number, number];
+  // ── background (type:'background') ──
+  // The unified full-bleed background element. It composites, bottom→top:
+  //   1. base fill  — `fill` / `gradientFill` (as a shape)
+  //   2. texture    — `binding` image + `fit` (cover/tile/contain) + `tileScale`
+  //   3. fade       — `overlay` gradient on top (e.g. white→transparent scrim)
+  // This is the single way to set a background; it replaces the old doc-level
+  // `DocBackground` canvas fill and the separate full-bleed background image.
+  /** Opacity (0–100) of the background's texture layer only. Undefined = 100. */
+  bgImageOpacity?: number;
+  /** The background's top fade/overlay gradient (composited over the texture). */
+  overlay?: GradientFill;
   /** Corner radius in px. Applies to rectangle shapes AND images/logos (rounds
    *  the image, which is clipped by the wrapper's overflow:hidden). */
   radius?: number;
