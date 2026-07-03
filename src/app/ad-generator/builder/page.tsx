@@ -67,6 +67,7 @@ import { SidebarTooltip } from '@/components/sidebar-collapsed-ui';
 import { renderDoc, SHAPE_CLIP } from '@/lib/ad-generator/doc-renderer';
 import { buildFontFaceCssFromUrls } from '@/lib/ad-generator/fonts';
 import { FontSelect, type FontSelectOption } from '@/components/font-select';
+import { GOOGLE_FONTS, googleFontsCssUrl, usedGoogleFontFamilies } from '@/lib/ad-generator/google-fonts';
 import { vehicleOfferDoc, vehicleOfferPreviewData } from '@/lib/ad-generator/templates/vehicle-offer-doc';
 import { singleOfferDoc, dualOfferDoc } from '@/lib/ad-generator/templates/offer-docs';
 import { blankTemplateDoc } from '@/lib/ad-generator/doc-template';
@@ -531,11 +532,31 @@ export default function AdBuilderPage() {
   const fontOptions = useMemo<FontSelectOption[]>(
     () => [
       { value: '', label: 'Brand default' },
-      ...[...new Set(customFonts.map((f) => f.family))].map((fam) => ({ value: fam, label: fam })),
-      ...WEBSAFE_FONTS.map((fam) => ({ value: fam, label: fam })),
+      ...[...new Set(customFonts.map((f) => f.family))].map((fam) => ({ value: fam, label: fam, group: 'Uploaded' })),
+      ...GOOGLE_FONTS.map((f) => ({ value: f.family, label: f.family, group: f.category })),
+      ...WEBSAFE_FONTS.map((fam) => ({ value: fam, label: fam, group: 'System' })),
     ],
     [customFonts],
   );
+
+  // Load the curated Google Fonts (weight 400) in the PARENT document so each
+  // option in the font dropdown previews in its own face. Only the CSS loads up
+  // front; a family's file is fetched lazily when its option first renders.
+  useEffect(() => {
+    const families = GOOGLE_FONTS.map((f) => f.family);
+    const links: HTMLLinkElement[] = [];
+    for (let i = 0; i < families.length; i += 24) {
+      const href = googleFontsCssUrl(families.slice(i, i + 24), [400]);
+      if (!href) continue;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.dataset.adgenFontPreview = '1';
+      document.head.appendChild(link);
+      links.push(link);
+    }
+    return () => links.forEach((l) => l.remove());
+  }, []);
 
   // The account's logo variants — offered in the selection panel so a designer
   // can swap which logo a Logo element shows without leaving the canvas.
@@ -550,19 +571,22 @@ export default function AdBuilderPage() {
     ].filter((v): v is { key: string; label: string; url: string } => Boolean(v));
   }, [accountData?.logos]);
 
-  const previewData = useMemo(
-    () =>
-      enrichOfferFields({
-        ...vehicleOfferPreviewData,
-        ...doc.defaults, // designer-set default / preview values for fields
-        ...(adData ?? {}), // ad mode: the ad's real content
-        ...(effectiveFontCss ? { fontFaceCss: effectiveFontCss } : {}),
-        ...(accountData?.dealer ? { dealerName: accountData.dealer } : {}),
-        ...(accountData?.logos?.light ? { logoUrl: accountData.logos.light } : {}),
-        ...(accountData?.branding?.colors?.primary ? { brandColor: accountData.branding.colors.primary } : {}),
-      }),
-    [accountData, effectiveFontCss, doc.defaults, adData],
-  );
+  const previewData = useMemo(() => {
+    const base = enrichOfferFields({
+      ...vehicleOfferPreviewData,
+      ...doc.defaults, // designer-set default / preview values for fields
+      ...(adData ?? {}), // ad mode: the ad's real content
+      ...(effectiveFontCss ? { fontFaceCss: effectiveFontCss } : {}),
+      ...(accountData?.dealer ? { dealerName: accountData.dealer } : {}),
+      ...(accountData?.logos?.light ? { logoUrl: accountData.logos.light } : {}),
+      ...(accountData?.branding?.colors?.primary ? { brandColor: accountData.branding.colors.primary } : {}),
+    });
+    // Load only the Google families this doc actually uses into the canvas iframe.
+    const googleUrl = googleFontsCssUrl(
+      usedGoogleFontFamilies(doc.elements, typeof base.fontFamily === 'string' ? base.fontFamily : undefined),
+    );
+    return googleUrl ? { ...base, googleFontsUrl: googleUrl } : base;
+  }, [accountData, effectiveFontCss, doc.defaults, doc.elements, adData]);
 
   const html = useMemo(() => renderDoc(doc, previewData, size, { preview: true }), [doc, previewData, size]);
 

@@ -314,6 +314,14 @@ export function renderDoc(doc: TemplateDoc, data: AdData, size: AdSize, opts?: {
 
   const fontFamily = cssSafeFamily(data.fontFamily ?? '');
   const fontFaceCss = data.fontFaceCss ?? '';
+  // Google Fonts stylesheet (CSS2 API URL) for the live editor — gstatic serves
+  // with permissive CORS so it loads fine in the srcdoc iframe. Exports don't use
+  // this: they base64-embed the used families instead (no one-shot network race).
+  const googleFontsUrl = typeof data.googleFontsUrl === 'string' ? data.googleFontsUrl : '';
+  const googleLink =
+    googleFontsUrl && /^https:\/\/fonts\.googleapis\.com\//.test(googleFontsUrl)
+      ? `<link rel="stylesheet" href="${googleFontsUrl.replace(/"/g, '')}" />`
+      : '';
   const brandStack = `${fontFamily ? `'${fontFamily}', ` : ''}-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
   const ctx: RenderCtx = { width, height, brand, brandStack, preview: opts?.preview ?? false };
 
@@ -348,6 +356,7 @@ export function renderDoc(doc: TemplateDoc, data: AdData, size: AdSize, opts?: {
   return `<!doctype html>
 <html>
 <head><meta charset="utf-8" />
+${googleLink}
 <style>
   ${fontFaceCss}
   * { margin:0; padding:0; box-sizing:border-box; }

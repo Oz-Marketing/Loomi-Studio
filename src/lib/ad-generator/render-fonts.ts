@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { downloadFromS3, s3KeyFromPublicUrl } from '@/lib/s3';
 import { fontFaceRule, parseCustomFonts, type FontFace } from '@/lib/ad-generator/fonts';
+import { googleFontsCssUrl } from '@/lib/ad-generator/google-fonts';
 
 /**
  * Server-side font embedding for ad renders (shared by the single-PNG and ZIP
@@ -45,6 +46,36 @@ async function fetchFontBytes(url: string): Promise<Buffer | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Base64-embedded @font-face CSS for the given curated Google families. Fetches
+ * the Google Fonts CSS2 API (a desktop UA so it returns woff2), then inlines
+ * every gstatic file as a data URI — so a headless one-shot export never races
+ * the network for a webfont. Returns '' if nothing valid / on any failure.
+ */
+export async function googleFontFaceCss(families: string[]): Promise<string> {
+  const url = googleFontsCssUrl(families);
+  if (!url) return '';
+  let css: string;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
+    if (!res.ok) return '';
+    css = await res.text();
+  } catch {
+    return '';
+  }
+  const urls = [...new Set([...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)].map((m) => m[1]))];
+  for (const u of urls) {
+    const buf = await fetchFontBytes(u);
+    if (buf) css = css.split(u).join(`data:font/woff2;base64,${buf.toString('base64')}`);
+  }
+  return css;
 }
 
 /** Embed each face as a base64 data URI so the render never depends on CORS. */
