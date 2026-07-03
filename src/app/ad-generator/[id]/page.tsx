@@ -456,41 +456,41 @@ export default function AdGeneratorPage() {
 
           {showAutomotiveTools && (
             <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                {/* Source: pull the offer + vehicle from OEM incentives, or enter it by hand. */}
-                <div className="inline-flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
-                  {(['oem', 'manual'] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setOfferSource(s)}
-                      className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                        offerSource === s ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                      }`}
-                    >
-                      {s === 'oem' ? 'OEM Incentive' : 'Manual'}
-                    </button>
-                  ))}
-                </div>
-                {/* Dual: two offers on one model, or two different models. */}
-                {isDual && (
-                  <div className="inline-flex items-center gap-1.5">
-                    <span className="text-[11px] text-[var(--muted-foreground)]">Two offers on:</span>
-                    <div className="inline-flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
-                      {([['same', 'Same model'], ['two', 'Two models']] as const).map(([val, label]) => (
-                        <button
-                          key={val}
-                          onClick={() => setDualVehicleMode(val)}
-                          className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                            dualVehicleMode === val ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              {/* Source tabs — where the vehicle + offer come from. */}
+              <div className="mb-4 flex items-center gap-5 border-b border-[var(--border)]">
+                {(['oem', 'manual'] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setOfferSource(s)}
+                    className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
+                      offerSource === s ? 'border-[var(--primary)] text-[var(--foreground)]' : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {s === 'oem' ? 'OEM Incentive' : 'Manual entry'}
+                  </button>
+                ))}
               </div>
+
+              {/* Dual-offer structure — a distinct config row (not another pill pair). */}
+              {isDual && (
+                <div className="mb-4 flex items-center justify-between gap-2 rounded-lg bg-[var(--muted)]/40 px-3 py-2">
+                  <span className="text-xs font-medium text-[var(--foreground)]">The two offers are on</span>
+                  <div className="inline-flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5">
+                    {([['same', 'One model'], ['two', 'Two models']] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => setDualVehicleMode(val)}
+                        className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                          dualVehicleMode === val ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {offerSource === 'oem' ? (
                 <OemIncentivesPanel
                   defaultMake={oemMake}
@@ -770,8 +770,6 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, ac
   const [notConfigured, setNotConfigured] = useState(false);
   // When the feed fell back (previous model year / national search), tell the designer.
   const [fallbackNote, setFallbackNote] = useState<string | null>(null);
-  // For dual-offer templates, which offer "Apply" fills ('' = Offer 1, 'o2_' = Offer 2).
-  const [target, setTarget] = useState<'' | 'o2_'>('');
   // True while fetching the EVOX jellybean for an applied incentive.
   const [resolvingImg, setResolvingImg] = useState(false);
 
@@ -813,8 +811,8 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, ac
     }
   }
 
-  function apply(inc: MarketCheckIncentive) {
-    const p = dual ? target : ''; // field prefix for the chosen offer slot
+  function apply(inc: MarketCheckIncentive, which: '' | 'o2_' = '') {
+    const p = dual ? which : ''; // field prefix for the chosen offer slot
     const patch: Record<string, string> = {};
     if (inc.type === 'lease') {
       patch[`${p}offerType`] = 'lease';
@@ -837,12 +835,12 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, ac
     // We already know the vehicle from the search — fill it too (name now, EVOX
     // jellybean async). For a same-model dual, Offer 2 rides Offer 1's vehicle,
     // so don't overwrite it here.
-    const setVehicle = !(dual && target === 'o2_' && dualVehicleMode === 'same');
+    const setVehicle = !(dual && which === 'o2_' && dualVehicleMode === 'same');
     if (setVehicle && (make || model)) {
       patch[`${p}vehicleName`] = [year, make, model].filter(Boolean).join(' ');
     }
     onApply(patch);
-    toast.success(dual ? `Filled ${target === 'o2_' ? 'Offer 2' : 'Offer 1'} from the incentive` : 'Offer filled from the incentive');
+    toast.success(dual ? `Filled ${which === 'o2_' ? 'Offer 2' : 'Offer 1'} from the incentive` : 'Offer filled from the incentive');
     if (setVehicle && make) {
       setResolvingImg(true);
       resolveJellybean(make, model, Number(year))
@@ -912,25 +910,6 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, ac
         </p>
       )}
 
-      {dual && (
-        <div className="mt-2 flex items-center gap-2">
-          <span className="text-[11px] text-[var(--muted-foreground)]">Apply to:</span>
-          <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
-            {([['', 'Offer 1'], ['o2_', 'Offer 2']] as const).map(([val, label]) => (
-              <button
-                key={val}
-                onClick={() => setTarget(val)}
-                className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  target === val ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {notConfigured && (
         <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
           MarketCheck isn’t configured here. Set <span className="font-mono">MARKETCHECK_API_KEY</span> to enable the incentive feed.
@@ -948,12 +927,23 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, ac
             <div key={inc.id || i} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
               <div className="mb-1 flex items-center justify-between gap-2">
                 <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${typeBadge[inc.type]}`}>{inc.type}</span>
-                <button
-                  onClick={() => apply(inc)}
-                  className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20"
-                >
-                  Apply to offer
-                </button>
+                {/* Fill directly into the target offer — no separate "Apply to" toggle. */}
+                <div className="flex items-center gap-1">
+                  {dual ? (
+                    <>
+                      <button onClick={() => apply(inc, '')} className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20">
+                        Fill Offer 1
+                      </button>
+                      <button onClick={() => apply(inc, 'o2_')} className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20">
+                        Fill Offer 2
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => apply(inc, '')} className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20">
+                      Fill offer
+                    </button>
+                  )}
+                </div>
               </div>
               <p className="text-xs font-medium text-[var(--foreground)]">{inc.offerDetails || inc.description}</p>
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[var(--muted-foreground)]">
