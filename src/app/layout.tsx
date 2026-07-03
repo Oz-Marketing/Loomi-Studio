@@ -62,15 +62,21 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const surface = await resolveSurface();
+  // The proxy sets this header ONLY when it rewrites the apex to /marketing —
+  // i.e. for the marketing page itself, not for global paths like /login that
+  // also resolve on the marketing host. Gating the bare render on the header
+  // (rather than the host-based surface) keeps /login on the full Providers
+  // tree so its client hooks (useTheme via <AppLogo>) don't crash.
+  const isMarketingPage = (await headers()).get('x-loomi-marketing-page') === '1';
 
-  // Public marketing site: render bare + server-side. The app's global
+  // Public marketing page: render bare + server-side. The app's global
   // ThemeProvider gates all children behind client hydration (returns null on
   // the server), which would strip the marketing copy + JSON-LD from the
   // initial HTML — bad for SEO. The marketing hero is self-contained and needs
   // none of the app providers, so we render it directly. Locked to the dark
   // theme (the brand `:root`) for a deterministic, dramatic teaser with no
   // hydration flash and no light ancestor to override the jewel-tone aurora.
-  if (surface === 'marketing') {
+  if (isMarketingPage) {
     return (
       <html lang="en" data-theme="dark">
         <body className="min-h-screen">{children}</body>
