@@ -648,6 +648,11 @@ export default function AdBuilderPage() {
     const el = canvasRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      // A scrollable settings panel floats over the canvas — let it scroll itself
+      // instead of panning/zooming the canvas underneath. (The wheel listener is
+      // on the pane, so panel wheel events bubble here; bail if they came from a
+      // panel.)
+      if ((e.target as Element | null)?.closest?.('[data-adgen-panel]')) return;
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) {
@@ -2898,6 +2903,11 @@ export default function AdBuilderPage() {
                       // transparent, so this never changes the ad's own stacking.
                       zIndex: isSel && !isFullBleed(el.id) ? 50 : (b.z ?? 0) + 1,
                       cursor: el.locked ? 'default' : isCropping ? 'grab' : box.hidden ? 'pointer' : 'move',
+                      // A locked layer never intercepts the pointer — so a locked
+                      // full-bleed background can't block dragging the elements on
+                      // top of it. Clicks on empty (locked) canvas fall through to
+                      // the frame's marquee → deselect, as before.
+                      pointerEvents: el.locked ? 'none' : undefined,
                       touchAction: 'none',
                     };
                     return (
@@ -3559,7 +3569,7 @@ function FieldsSidebar({
   return (
     // Floating right-docked sidebar (no modal / backdrop) — the form that drives
     // the ad stays open beside the canvas while you design.
-    <div className="fixed right-4 top-20 bottom-4 z-40 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl">
+    <div data-adgen-panel className="fixed right-4 top-20 bottom-4 z-40 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl">
       <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] p-4">
         <div>
           <h2 className="text-sm font-bold text-[var(--foreground)]">Template fields</h2>
@@ -3646,6 +3656,7 @@ function SelectionPanel({
 
   return (
     <div
+      data-adgen-panel
       className={`absolute bottom-4 top-4 z-[70] flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl ${shifted ? 'right-[360px]' : 'right-4'}`}
     >
       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2.5">
