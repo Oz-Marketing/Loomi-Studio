@@ -75,8 +75,9 @@ import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } fro
 import { TextElementIcon, ShapeElementIcon, ButtonElementIcon, DashboardLayoutIcon, LayersIcon, OutlinesIcon, MarginsIcon, CropIcon } from '@/components/ad-generator/builder-icons';
 import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
 import { useIndustries } from '@/lib/hooks/use-industries';
-import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, DocBackground } from '@/lib/ad-generator/doc-types';
+import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, DocBackground, GradientFill, GradientStop, BlendMode } from '@/lib/ad-generator/doc-types';
 import type { FieldSpec, FieldType, AdData, AdSize } from '@/lib/ad-generator/types';
+import { SearchableSelect } from '@/components/flows/builder/SearchableSelect';
 
 const CANVAS_PAD = 48; // breathing room around the ad inside the canvas pane
 const MIN_FRAC = 0.03; // smallest element edge as a fraction of the canvas
@@ -1486,7 +1487,15 @@ export default function AdBuilderPage() {
       if (dx === 0 && dy === 0) return;
       let deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
       if (which === 'start') deg += 180;
-      setBackground({ gradientAngle: ((Math.round(deg) % 360) + 360) % 360 });
+      const angle = ((Math.round(deg) % 360) + 360) % 360;
+      setDoc((prev) => {
+        const g = toGradientFill(prev.background);
+        if (!g) return prev;
+        return {
+          ...prev,
+          background: { ...(prev.background ?? {}), gradientFill: { ...g, type: 'linear', angle }, gradient: undefined, gradientAngle: undefined, gradientStops: undefined },
+        };
+      }, 'bg:gradientAngle');
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
@@ -2877,8 +2886,10 @@ export default function AdBuilderPage() {
                   {/* Gradient angle line — shown while the Background (gradient)
                       panel is active and nothing's selected. Drag an end handle
                       to rotate; the handles are tinted with the two stop colors. */}
-                  {doc.background?.gradient && !selected && bgSelected && (() => {
-                    const angle = doc.background.gradientAngle ?? 135;
+                  {(() => {
+                    const bgGrad = toGradientFill(doc.background);
+                    if (!bgGrad || (bgGrad.type ?? 'linear') !== 'linear' || selected || !bgSelected) return null;
+                    const angle = bgGrad.angle ?? 135;
                     const rad = (angle * Math.PI) / 180;
                     const dx = Math.sin(rad);
                     const dy = -Math.cos(rad);
@@ -2889,7 +2900,9 @@ export default function AdBuilderPage() {
                     const ey = cy + dy * L;
                     const sx = cx - dx * L;
                     const sy = cy - dy * L;
-                    const [c0, c1] = doc.background.gradient!;
+                    const sorted = [...bgGrad.stops].sort((a, b) => a.pos - b.pos);
+                    const c0 = sorted[0].color;
+                    const c1 = sorted[sorted.length - 1].color;
                     const handle = (x: number, y: number, color: string, which: 'start' | 'end') => (
                       <button
                         type="button"
@@ -3929,7 +3942,7 @@ function SelectionPanel({
 
         {el.type === 'shape' && (() => {
           const kind = el.shapeKind ?? 'rect';
-          const grad = el.gradient;
+          const grad = toGradientFill(el);
           const SHAPES = ['rect', 'ellipse', 'triangle', 'diamond', 'star'] as const;
           return (
           <PanelSection title="Shape">
@@ -3944,65 +3957,9 @@ function SelectionPanel({
                 </BarBtn>
               ))}
             </div>
-            {/* Fill — solid or two-stop gradient (mirrors the canvas background). */}
+            {/* Fill — solid or a multi-stop gradient (linear/radial, per-stop alpha). */}
             {grad ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                    From
-                    <ColorSwatchInput title="Gradient start" value={grad[0]} onChange={(v) => onEl({ gradient: [v, grad[1]] })} />
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                    To
-                    <ColorSwatchInput title="Gradient end" value={grad[1]} onChange={(v) => onEl({ gradient: [grad[0], v] })} />
-                  </label>
-                </div>
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-xs text-[var(--muted-foreground)]">Angle</span>
-                    <span className="text-[11px] tabular-nums text-[var(--muted-foreground)]">{el.gradientAngle ?? 135}°</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={360}
-                    step={1}
-                    value={el.gradientAngle ?? 135}
-                    onChange={(e) => onEl({ gradientAngle: Number(e.target.value) })}
-                    aria-label="Gradient angle"
-                    className="range-slider"
-                  />
-                </div>
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-xs text-[var(--muted-foreground)]">Spread</span>
-                    <span className="text-[11px] tabular-nums text-[var(--muted-foreground)]">{el.gradientStops?.[0] ?? 0}%–{el.gradientStops?.[1] ?? 100}%</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <MiniNum
-                      title="Start stop (%)"
-                      value={el.gradientStops?.[0] ?? 0}
-                      step={5}
-                      onChange={(v) => {
-                        const start = Math.max(0, Math.min(100, v));
-                        const end = el.gradientStops?.[1] ?? 100;
-                        onEl({ gradientStops: [Math.min(start, end), end] });
-                      }}
-                    />
-                    <span className="text-[11px] text-[var(--muted-foreground)]">to</span>
-                    <MiniNum
-                      title="End stop (%)"
-                      value={el.gradientStops?.[1] ?? 100}
-                      step={5}
-                      onChange={(v) => {
-                        const end = Math.max(0, Math.min(100, v));
-                        const start = el.gradientStops?.[0] ?? 0;
-                        onEl({ gradientStops: [start, Math.max(start, end)] });
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+              <GradientEditor value={grad} onChange={(g) => onEl({ gradientFill: g, gradient: undefined, gradientAngle: undefined, gradientStops: undefined })} />
             ) : (
               <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
                 Fill
@@ -4011,11 +3968,7 @@ function SelectionPanel({
             )}
             <button
               type="button"
-              onClick={() =>
-                grad
-                  ? onEl({ gradient: undefined })
-                  : onEl({ gradient: [el.fill && el.fill !== 'brand' ? el.fill : '#4f46e5', '#1e293b'] })
-              }
+              onClick={() => onEl(grad ? clearGradientPatch : seedGradientPatch(el.fill))}
               className="mt-2 text-[11px] font-medium text-[var(--primary)] transition-opacity hover:opacity-80"
             >
               {grad ? 'Use a solid color' : 'Use a gradient'}
@@ -4027,6 +3980,8 @@ function SelectionPanel({
                 <MiniNum title="Corner radius (px)" value={el.radius ?? 0} onChange={(v) => onEl({ radius: v ? Math.round(v) : undefined })} />
               </label>
             )}
+            {/* Opacity + blend — composite the shape over what's beneath it. */}
+            <CompositeControls el={el} onEl={onEl} />
           </PanelSection>
           );
         })()}
@@ -4062,19 +4017,9 @@ function SelectionPanel({
                 Radius
                 <MiniNum title="Corner radius (px)" value={el.radius ?? 0} onChange={(v) => onEl({ radius: v > 0 ? Math.round(v) : undefined })} />
               </label>
-              <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-                Opacity
-                <MiniNum
-                  title="Opacity (%)"
-                  value={el.opacity ?? 100}
-                  step={5}
-                  onChange={(v) => {
-                    const n = Math.max(0, Math.min(100, Math.round(v)));
-                    onEl({ opacity: n >= 100 ? undefined : n });
-                  }}
-                />
-              </label>
             </div>
+            {/* Opacity + blend — lets an image tint/knock back a layer below it. */}
+            <CompositeControls el={el} onEl={onEl} />
             {cropping && (
               // Crop mode — the box IS the crop window. Drag the image on the
               // canvas to reposition; zoom scales it in; X/Y are precise framing.
@@ -4196,8 +4141,9 @@ function DetachedVisual({
   const brand = typeof previewData.brandColor === 'string' ? previewData.brandColor : '#4f46e5';
   if (el.type === 'shape') {
     const kind = el.shapeKind ?? 'rect';
-    const fill = el.gradient
-      ? `linear-gradient(${el.gradientAngle ?? 135}deg, ${el.gradient[0]}, ${el.gradient[1]})`
+    const g = toGradientFill(el);
+    const fill = g
+      ? gradientPreviewCss(g)
       : el.fill === 'brand'
         ? brand
         : el.fill || '#4f46e5';
@@ -4342,6 +4288,228 @@ function ColorSwatchInput({ title, value, onChange }: { title: string; value: st
   );
 }
 
+/** Read whichever gradient model a shape/background carries into the editable
+ *  `GradientFill` shape — the new `gradientFill` wins; a legacy two-stop
+ *  `gradient`/`gradientAngle`/`gradientStops` is upconverted so old templates
+ *  open in the new editor. Returns null when there's no gradient. */
+function toGradientFill(src: {
+  gradientFill?: GradientFill;
+  gradient?: [string, string];
+  gradientAngle?: number;
+  gradientStops?: [number, number];
+} | undefined): GradientFill | null {
+  if (src?.gradientFill?.stops && src.gradientFill.stops.length >= 2) return src.gradientFill;
+  if (src?.gradient) {
+    const gs = src.gradientStops;
+    return {
+      type: 'linear',
+      angle: src.gradientAngle ?? 135,
+      stops: [
+        { color: src.gradient[0], pos: gs?.[0] ?? 0 },
+        { color: src.gradient[1], pos: gs?.[1] ?? 100 },
+      ],
+    };
+  }
+  return null;
+}
+
+/** Patch that switches a fill to a seeded gradient, clearing the legacy fields
+ *  so only `gradientFill` remains authoritative. `from` seeds the first stop. */
+function seedGradientPatch(from?: string): {
+  gradientFill: GradientFill;
+  gradient: undefined;
+  gradientAngle: undefined;
+  gradientStops: undefined;
+} {
+  const c = from && from !== 'brand' ? from : '#ffffff';
+  return {
+    gradientFill: { type: 'linear', angle: 135, stops: [{ color: c, pos: 0 }, { color: '#1e293b', pos: 100 }] },
+    gradient: undefined,
+    gradientAngle: undefined,
+    gradientStops: undefined,
+  };
+}
+
+/** Patch that clears every gradient field (→ back to a solid fill). */
+const clearGradientPatch = { gradientFill: undefined, gradient: undefined, gradientAngle: undefined, gradientStops: undefined } as const;
+
+/** CSS for a single stop in a client-side preview (folds opacity into rgba). */
+function stopPreviewCss(s: GradientStop): string {
+  const pct = s.opacity == null ? 100 : Math.max(0, Math.min(100, s.opacity));
+  const h = (s.color || '#000').trim().replace(/^#/, '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  if (pct < 100 && /^[0-9a-fA-F]{6}$/.test(full)) {
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${(pct / 100).toFixed(2)}) ${s.pos}%`;
+  }
+  return `${s.color} ${s.pos}%`;
+}
+
+/** Build a preview CSS gradient string from a GradientFill (client-side twin of
+ *  the renderer's buildGradientCss, minus brand resolution). */
+function gradientPreviewCss(g: GradientFill): string {
+  const stops = [...g.stops].sort((a, b) => a.pos - b.pos).map(stopPreviewCss).join(', ');
+  return (g.type ?? 'linear') === 'radial'
+    ? `radial-gradient(${g.radialShape ?? 'ellipse'} at ${g.center?.[0] ?? 50}% ${g.center?.[1] ?? 50}%, ${stops})`
+    : `linear-gradient(${g.angle ?? 135}deg, ${stops})`;
+}
+
+const BLEND_OPTIONS: { value: BlendMode; label: string }[] = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'multiply', label: 'Multiply' },
+  { value: 'screen', label: 'Screen' },
+  { value: 'overlay', label: 'Overlay' },
+  { value: 'darken', label: 'Darken' },
+  { value: 'lighten', label: 'Lighten' },
+  { value: 'color-dodge', label: 'Color dodge' },
+  { value: 'color-burn', label: 'Color burn' },
+  { value: 'hard-light', label: 'Hard light' },
+  { value: 'soft-light', label: 'Soft light' },
+  { value: 'difference', label: 'Difference' },
+  { value: 'exclusion', label: 'Exclusion' },
+  { value: 'hue', label: 'Hue' },
+  { value: 'saturation', label: 'Saturation' },
+  { value: 'color', label: 'Color' },
+  { value: 'luminosity', label: 'Luminosity' },
+];
+
+/**
+ * Multi-stop gradient editor — linear/radial, per-stop color + position +
+ * opacity, add/remove stops. Writes a full {@link GradientFill}; callers fold
+ * the returned value into the element/background and clear the legacy fields.
+ * This is the primitive that lets designers build layered fades (Subaru-style
+ * white→transparent scrims over a texture) natively.
+ */
+function GradientEditor({ value, onChange }: { value: GradientFill; onChange: (g: GradientFill) => void }) {
+  const type = value.type ?? 'linear';
+  const stops = value.stops;
+  const setStop = (i: number, patch: Partial<GradientStop>) =>
+    onChange({ ...value, stops: stops.map((s, idx) => (idx === i ? { ...s, ...patch } : s)) });
+  const addStop = () => {
+    const sorted = [...stops].sort((a, b) => a.pos - b.pos);
+    const mid = Math.round((sorted[0].pos + sorted[sorted.length - 1].pos) / 2);
+    onChange({ ...value, stops: [...stops, { color: sorted[sorted.length - 1].color, pos: mid }] });
+  };
+  const removeStop = (i: number) => {
+    if (stops.length <= 2) return;
+    onChange({ ...value, stops: stops.filter((_, idx) => idx !== i) });
+  };
+  return (
+    <div className="space-y-3">
+      {/* Live preview bar. */}
+      <div className="h-6 w-full rounded-md border border-[var(--border)]" style={{ background: gradientPreviewCss(value) }} />
+      {/* Type: linear / radial. */}
+      <div className="flex items-center gap-1">
+        <BarBtn title="Linear" active={type === 'linear'} onClick={() => onChange({ ...value, type: 'linear' })}>
+          <span className="text-[10px] font-semibold leading-none">Linear</span>
+        </BarBtn>
+        <BarBtn title="Radial" active={type === 'radial'} onClick={() => onChange({ ...value, type: 'radial' })}>
+          <span className="text-[10px] font-semibold leading-none">Radial</span>
+        </BarBtn>
+      </div>
+      {type === 'linear' ? (
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-xs text-[var(--muted-foreground)]">Angle</span>
+            <span className="text-[11px] tabular-nums text-[var(--muted-foreground)]">{value.angle ?? 135}°</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={360}
+            step={1}
+            value={value.angle ?? 135}
+            onChange={(e) => onChange({ ...value, angle: Number(e.target.value) })}
+            aria-label="Gradient angle"
+            className="range-slider"
+          />
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center gap-1">
+            <BarBtn title="Ellipse" active={(value.radialShape ?? 'ellipse') === 'ellipse'} onClick={() => onChange({ ...value, radialShape: 'ellipse' })}>
+              <span className="h-3.5 w-4 rounded-[50%] border border-current" />
+            </BarBtn>
+            <BarBtn title="Circle" active={value.radialShape === 'circle'} onClick={() => onChange({ ...value, radialShape: 'circle' })}>
+              <span className="h-3.5 w-3.5 rounded-full border border-current" />
+            </BarBtn>
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+            X
+            <MiniNum title="Center X (%)" value={value.center?.[0] ?? 50} step={5} onChange={(v) => onChange({ ...value, center: [Math.max(0, Math.min(100, v)), value.center?.[1] ?? 50] })} />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+            Y
+            <MiniNum title="Center Y (%)" value={value.center?.[1] ?? 50} step={5} onChange={(v) => onChange({ ...value, center: [value.center?.[0] ?? 50, Math.max(0, Math.min(100, v))] })} />
+          </label>
+        </div>
+      )}
+      {/* Stops. */}
+      <div className="space-y-1.5">
+        <span className="text-xs text-[var(--muted-foreground)]">Stops</span>
+        {stops.map((s, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <ColorSwatchInput title={`Stop ${i + 1} color`} value={s.color && s.color !== 'brand' ? s.color : '#ffffff'} onChange={(v) => setStop(i, { color: v })} />
+            <label className="flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]" title="Position along the gradient (%)">
+              <MiniNum title="Position (%)" value={s.pos} step={5} onChange={(v) => setStop(i, { pos: Math.max(0, Math.min(100, Math.round(v))) })} />
+              <span>%</span>
+            </label>
+            <label className="flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]" title="Stop opacity (%) — lower fades to transparent">
+              <MiniNum title="Opacity (%)" value={s.opacity ?? 100} step={5} onChange={(v) => { const n = Math.max(0, Math.min(100, Math.round(v))); setStop(i, { opacity: n >= 100 ? undefined : n }); }} />
+              <span>α</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => removeStop(i)}
+              disabled={stops.length <= 2}
+              title="Remove stop"
+              aria-label="Remove stop"
+              className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--muted-foreground)]"
+            >
+              <TrashIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+        <button type="button" onClick={addStop} className="text-[11px] font-medium text-[var(--primary)] transition-opacity hover:opacity-80">
+          + Add stop
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Opacity + blend-mode row — the compositing controls shared by shapes and
+ *  images so a fill/overlay can tint or knock back what's beneath it. */
+function CompositeControls({ el, onEl }: { el: DocElement; onEl: (patch: Partial<DocElement>) => void }) {
+  return (
+    <div className="mt-3 space-y-2.5">
+      <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+        Opacity
+        <MiniNum
+          title="Opacity (%)"
+          value={el.opacity ?? 100}
+          step={5}
+          onChange={(v) => {
+            const n = Math.max(0, Math.min(100, Math.round(v)));
+            onEl({ opacity: n >= 100 ? undefined : n });
+          }}
+        />
+      </label>
+      <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+        Blend
+        <SearchableSelect
+          value={el.blendMode ?? 'normal'}
+          onChange={(v) => onEl({ blendMode: v === 'normal' ? undefined : (v as BlendMode) })}
+          options={BLEND_OPTIONS}
+          className="w-32"
+        />
+      </label>
+    </div>
+  );
+}
+
 /**
  * A single non-editable board in multi-artboard view — the same `renderDoc` the
  * canvas/export use (WYSIWYG), rendered at the shared canvas `scale` so it lines
@@ -4417,7 +4585,7 @@ function BackgroundPanel({
   onRemoveImage: () => void;
 }) {
   const bg = background ?? {};
-  const grad = bg.gradient;
+  const grad = toGradientFill(bg);
   const [tab, setTab] = useState<'color' | 'image'>(hasBgImage ? 'image' : 'color');
   return (
     <div
@@ -4493,66 +4661,12 @@ function BackgroundPanel({
       <div className="flex flex-col divide-y divide-[var(--border)] px-3 py-0.5">
         <PanelSection title="Fill">
           {grad ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                  From
-                  <ColorSwatchInput title="Gradient start" value={grad[0]} onChange={(v) => onChange({ gradient: [v, grad[1]] })} />
-                </label>
-                <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                  To
-                  <ColorSwatchInput title="Gradient end" value={grad[1]} onChange={(v) => onChange({ gradient: [grad[0], v] })} />
-                </label>
-              </div>
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-xs text-[var(--muted-foreground)]">Angle</span>
-                  <span className="text-[11px] tabular-nums text-[var(--muted-foreground)]">{bg.gradientAngle ?? 135}°</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={360}
-                  step={1}
-                  value={bg.gradientAngle ?? 135}
-                  onChange={(e) => onChange({ gradientAngle: Number(e.target.value) })}
-                  aria-label="Gradient angle"
-                  className="range-slider"
-                />
-              </div>
-              {/* Spread — stop offsets along the gradient line. Tightening the
-                  window sharpens the color transition; widening softens it. */}
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-xs text-[var(--muted-foreground)]">Spread</span>
-                  <span className="text-[11px] tabular-nums text-[var(--muted-foreground)]">{bg.gradientStops?.[0] ?? 0}%–{bg.gradientStops?.[1] ?? 100}%</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MiniNum
-                    title="Start stop (%)"
-                    value={bg.gradientStops?.[0] ?? 0}
-                    step={5}
-                    onChange={(v) => {
-                      const start = Math.max(0, Math.min(100, v));
-                      const end = bg.gradientStops?.[1] ?? 100;
-                      onChange({ gradientStops: [Math.min(start, end), end] });
-                    }}
-                  />
-                  <span className="text-[11px] text-[var(--muted-foreground)]">to</span>
-                  <MiniNum
-                    title="End stop (%)"
-                    value={bg.gradientStops?.[1] ?? 100}
-                    step={5}
-                    onChange={(v) => {
-                      const end = Math.max(0, Math.min(100, v));
-                      const start = bg.gradientStops?.[0] ?? 0;
-                      onChange({ gradientStops: [start, Math.max(start, end)] });
-                    }}
-                  />
-                </div>
+            <>
+              <GradientEditor value={grad} onChange={(g) => onChange({ gradientFill: g, gradient: undefined, gradientAngle: undefined, gradientStops: undefined })} />
+              {(grad.type ?? 'linear') === 'linear' && (
                 <p className="mt-1.5 text-[11px] leading-snug text-[var(--muted-foreground)]">Drag the line on the artboard to set the angle.</p>
-              </div>
-            </div>
+              )}
+            </>
           ) : (
             <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
               Color
@@ -4560,11 +4674,7 @@ function BackgroundPanel({
             </label>
           )}
           <button
-            onClick={() =>
-              grad
-                ? onChange({ gradient: undefined })
-                : onChange({ gradient: [bg.color && bg.color !== 'brand' ? bg.color : '#ffffff', '#1e293b'] })
-            }
+            onClick={() => onChange(grad ? clearGradientPatch : seedGradientPatch(bg.color))}
             className="mt-2 text-[11px] font-medium text-[var(--primary)] transition-opacity hover:opacity-80"
           >
             {grad ? 'Use a solid color' : 'Use a gradient'}

@@ -19,6 +19,59 @@ export type Binding =
 
 export type DocElementType = 'text' | 'image' | 'logo' | 'shape';
 
+/** CSS mix-blend-mode values — how an element composites over what's beneath it.
+ *  Lets a gradient/color layer tint a texture (multiply/overlay), knock lines
+ *  back (screen), etc. — the moves that let a background be composed in-app
+ *  instead of pre-baked in Illustrator. `normal` / undefined = plain stacking. */
+export type BlendMode =
+  | 'normal'
+  | 'multiply'
+  | 'screen'
+  | 'overlay'
+  | 'darken'
+  | 'lighten'
+  | 'color-dodge'
+  | 'color-burn'
+  | 'hard-light'
+  | 'soft-light'
+  | 'difference'
+  | 'exclusion'
+  | 'hue'
+  | 'saturation'
+  | 'color'
+  | 'luminosity';
+
+/** One color stop in a {@link GradientFill}. */
+export interface GradientStop {
+  /** Hex color (`#rgb`/`#rrggbb`/`#rrggbbaa`), or `'brand'` = account color. */
+  color: string;
+  /** Position along the gradient line, 0–100. */
+  pos: number;
+  /** Stop opacity 0–100. Undefined = 100 (opaque). Lets a stop fade to
+   *  transparent — e.g. a white→transparent scrim that lets a texture show
+   *  through, the core move behind the Subaru-style fades. */
+  opacity?: number;
+}
+
+/**
+ * A multi-stop gradient fill. Supersedes the legacy two-stop
+ * `gradient`/`gradientAngle`/`gradientStops` triple on shapes and the canvas
+ * background — those are still READ for existing templates (see
+ * `normalizeGradient` in doc-renderer), but new work writes `gradientFill`.
+ */
+export interface GradientFill {
+  /** `'linear'` (default) or `'radial'`. */
+  type?: 'linear' | 'radial';
+  /** Linear only: direction in degrees (CSS linear-gradient angle). Default 135. */
+  angle?: number;
+  /** Radial only: silhouette. Default `'ellipse'`. */
+  radialShape?: 'circle' | 'ellipse';
+  /** Radial only: center [x, y] as percentages (0–100). Default [50, 50]. */
+  center?: [number, number];
+  /** Two or more stops. Rendered in array order; positions need not be sorted. */
+  stops: GradientStop[];
+}
+
 /**
  * A shared element: its identity, binding, and base style. Position + size
  * live PER SIZE in `layouts` (so a designer tunes each aspect ratio
@@ -57,21 +110,30 @@ export interface DocElement {
   align?: 'left' | 'center' | 'right';
   // ── image / logo ──
   fit?: 'contain' | 'cover';
-  /** Element opacity, 0–100 (percent). Undefined = fully opaque. Used by
-   *  images/logos for watermarks & overlays; rendered on the element wrapper. */
+  // ── all element types ──
+  /** Element opacity, 0–100 (percent). Undefined = fully opaque. Applies to any
+   *  element (images/logos for watermarks, shapes/text for overlays); rendered
+   *  on the element wrapper. */
   opacity?: number;
+  /** How this element composites over what's beneath it (CSS mix-blend-mode).
+   *  Undefined / `'normal'` = plain stacking. Enables tint/knock-back moves for
+   *  composing backgrounds natively. */
+  blendMode?: BlendMode;
   // ── shape ──
   /** Shape silhouette. Defaults to `'rect'` (a plain rectangle). `ellipse` is a
    *  circle/oval; `triangle`/`diamond`/`star` are drawn via CSS clip-path. */
   shapeKind?: 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'star';
-  /** Hex fill, or `'brand'`. Ignored when `gradient` is set. */
+  /** Hex fill, or `'brand'`. Ignored when a gradient is set. */
   fill?: string;
-  /** Two-stop linear gradient fill [from, to] for a shape — mirrors the canvas
-   *  background gradient. When set, takes precedence over `fill`. */
+  /** Multi-stop gradient fill (linear/radial, per-stop opacity). When set, takes
+   *  precedence over `fill` and the legacy `gradient` fields. */
+  gradientFill?: GradientFill;
+  /** @deprecated Legacy two-stop linear gradient [from, to]. Still rendered for
+   *  existing templates; new work writes `gradientFill`. */
   gradient?: [string, string];
-  /** Gradient direction in degrees (CSS linear-gradient angle). Defaults to 135. */
+  /** @deprecated Legacy gradient angle. See `gradientFill`. */
   gradientAngle?: number;
-  /** Stop offsets [start%, end%] along the gradient line (0–100). Defaults [0,100]. */
+  /** @deprecated Legacy stop offsets [start%, end%]. See `gradientFill`. */
   gradientStops?: [number, number];
   /** Corner radius in px. Applies to rectangle shapes AND images/logos (rounds
    *  the image, which is clipped by the wrapper's overflow:hidden). */
@@ -106,14 +168,17 @@ export interface DocLayoutBox {
 /** Canvas base fill. A background IMAGE is a full-bleed image element/layer
  *  (not a doc-level field) — see DocElement + the builder's "Background image". */
 export interface DocBackground {
-  /** Solid fill (hex). Ignored when `gradient` is set. */
+  /** Solid fill (hex). Ignored when a gradient is set. */
   color?: string;
-  /** Two-stop linear gradient [from, to]. */
+  /** Multi-stop gradient fill (linear/radial, per-stop opacity). When set, takes
+   *  precedence over `color` and the legacy `gradient` fields. */
+  gradientFill?: GradientFill;
+  /** @deprecated Legacy two-stop linear gradient [from, to]. Still rendered for
+   *  existing templates; new work writes `gradientFill`. */
   gradient?: [string, string];
-  /** Gradient direction in degrees (CSS linear-gradient angle). Defaults to 135. */
+  /** @deprecated Legacy gradient angle. See `gradientFill`. */
   gradientAngle?: number;
-  /** Stop offsets [start%, end%] along the gradient line (0–100). Controls the
-   *  spread / length of the color transition. Defaults to [0, 100]. */
+  /** @deprecated Legacy stop offsets [start%, end%]. See `gradientFill`. */
   gradientStops?: [number, number];
   /** Thin brand-colored bar across the top (the current Vehicle Offer look). */
   accentBar?: boolean;
