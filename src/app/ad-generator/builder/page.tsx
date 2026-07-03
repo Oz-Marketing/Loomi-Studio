@@ -75,7 +75,7 @@ import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } fro
 import { TextElementIcon, ShapeElementIcon, ButtonElementIcon, DashboardLayoutIcon, LayersIcon, OutlinesIcon, MarginsIcon, CropIcon } from '@/components/ad-generator/builder-icons';
 import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
 import { useIndustries } from '@/lib/hooks/use-industries';
-import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, DocBackground, GradientFill, GradientStop, BlendMode } from '@/lib/ad-generator/doc-types';
+import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, GradientFill, GradientStop, BlendMode } from '@/lib/ad-generator/doc-types';
 import type { FieldSpec, FieldType, AdData, AdSize } from '@/lib/ad-generator/types';
 import { SearchableSelect } from '@/components/flows/builder/SearchableSelect';
 
@@ -451,7 +451,6 @@ export default function AdBuilderPage() {
   // The canvas (Background) settings panel is shown only when the canvas itself
   // is focused — clicking the empty artboard selects "the canvas". It never
   // appears just because no element is selected (so it stays hidden on load).
-  const [bgSelected, setBgSelected] = useState(false);
   // Where the Back button returns to. Entry points pass `?from=<path>` so you
   // exit to wherever you came from (e.g. /templates vs /ad-generator); absent →
   // the sensible default below.
@@ -820,11 +819,6 @@ export default function AdBuilderPage() {
     if (cropId && cropId !== selectedId) setCropId(null);
   }, [cropId, selectedId]);
 
-  // Selecting an element takes focus away from the canvas → hide its panel.
-  useEffect(() => {
-    if (selectedIds.length) setBgSelected(false);
-  }, [selectedIds]);
-
   // Read the `from` entry path once on mount (only same-origin absolute paths,
   // so it can't be used as an open-redirect).
   useEffect(() => {
@@ -846,19 +840,6 @@ export default function AdBuilderPage() {
     window.addEventListener('pointerdown', onDown);
     return () => window.removeEventListener('pointerdown', onDown);
   }, [publishOpen]);
-
-  // Escape closes the canvas panel when it's the focused thing (the element-
-  // selection Escape handler below only runs while an element is selected).
-  useEffect(() => {
-    if (!bgSelected) return;
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (document.activeElement?.tagName ?? '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if (e.key === 'Escape') setBgSelected(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [bgSelected]);
 
   // What the selection panel's "Content" section shows for the selected element.
   // It surfaces the element's value directly (text to type, image to pick) instead
@@ -1115,26 +1096,6 @@ export default function AdBuilderPage() {
         radius: 999,
         padding: 14,
       };
-      return { ...prev, elements: [...prev.elements, el], layouts };
-    });
-    setSelectedIds([id]);
-  }, []);
-
-  // Add a full-bleed background photo: a cover image element pinned to the whole
-  // canvas, behind everything, on every size. Background images are full-bleed
-  // image ELEMENTS (not a doc-level field), so this flows through the normal
-  // renderer/export + per-size focal point. Selecting it surfaces the inspector's
-  // Choose/upload control.
-  const addBackgroundImage = useCallback(() => {
-    const id = `image-${rid()}`;
-    setDoc((prev) => {
-      const layouts = { ...prev.layouts };
-      for (const s of prev.sizes) {
-        const cur = layouts[s.id] ?? {};
-        const minZ = Object.values(cur).reduce((m, b) => Math.min(m, b.z ?? 0), 0);
-        layouts[s.id] = { ...cur, [id]: { x: 0, y: 0, w: 1, h: 1, z: minZ - 1 } };
-      }
-      const el: DocElement = { id, type: 'image', name: 'Background', binding: { kind: 'static', value: '' }, fit: 'cover' };
       return { ...prev, elements: [...prev.elements, el], layouts };
     });
     setSelectedIds([id]);
@@ -1499,44 +1460,6 @@ export default function AdBuilderPage() {
   function setSchedule(next: { start?: string | null; end?: string | null } | undefined) {
     setDoc((prev) => ({ ...prev, schedule: next }));
   }
-  // Edit the artboard background (shown in the inspector when nothing is selected).
-  function setBackground(patch: Partial<DocBackground>) {
-    // Coalesce per changed property so a color-picker or angle/spread drag is a
-    // single undo step; toggling fill type or accent is its own step.
-    setDoc((prev) => ({ ...prev, background: { ...(prev.background ?? {}), ...patch } }), `bg:${Object.keys(patch).sort().join(',')}`);
-  }
-  // Drag an on-canvas gradient handle to set the angle. CSS gradient angle:
-  // 0deg = up, clockwise; direction vector = (sinθ, -cosθ). The 'end' handle
-  // points toward the end color; 'start' is opposite (+180°). Live-updates the
-  // doc so the iframe re-renders the gradient as you drag.
-  function startGradientAngleDrag(e: React.PointerEvent, which: 'start' | 'end') {
-    e.preventDefault();
-    e.stopPropagation();
-    const move = (ev: PointerEvent) => {
-      const r = frameRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const dx = ev.clientX - (r.left + r.width / 2);
-      const dy = ev.clientY - (r.top + r.height / 2);
-      if (dx === 0 && dy === 0) return;
-      let deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
-      if (which === 'start') deg += 180;
-      const angle = ((Math.round(deg) % 360) + 360) % 360;
-      setDoc((prev) => {
-        const g = toGradientFill(prev.background);
-        if (!g) return prev;
-        return {
-          ...prev,
-          background: { ...(prev.background ?? {}), gradientFill: { ...g, type: 'linear', angle }, gradient: undefined, gradientAngle: undefined, gradientStops: undefined },
-        };
-      }, 'bg:gradientAngle');
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
   // The Margins toggle (on shows the guide + controls; seeds a default if unset).
   function toggleMargins() {
     setShowSafe((v) => {
@@ -1872,11 +1795,9 @@ export default function AdBuilderPage() {
           .filter((p) => !p.box.hidden && !p.el.locked && p.box.x < r.x + r.w && p.box.x + p.box.w > r.x && p.box.y < r.y + r.h && p.box.y + p.box.h > r.y)
           .map((p) => p.el.id);
         setSelectedIds(hit);
-      } else {
-        // A plain click on the empty artboard (no drag) focuses the canvas →
-        // opens the Background panel; the click already cleared any selection.
-        setBgSelected(true);
       }
+      // A plain click on the empty artboard just clears the selection (handled on
+      // pointerdown). Backgrounds are elements now — there's no canvas panel.
     } else if ((d?.kind === 'bgpan' || d?.kind === 'croppan') && d.dragging) {
       const { elId, sizeId, live } = d;
       setDoc((prev) => {
@@ -2813,12 +2734,10 @@ export default function AdBuilderPage() {
                 startPan(e);
                 return;
               }
-              // Clicking the gray area OUTSIDE the artboard fully unfocuses:
-              // clears the selection and closes the canvas panel. (Clicking the
-              // artboard itself focuses the canvas — handled by the marquee up.)
+              // Clicking the gray area OUTSIDE the artboard clears the selection.
+              // (Clicking the artboard itself is handled by the marquee up.)
               if (e.target === e.currentTarget) {
                 clearSelection();
-                setBgSelected(false);
               }
             }}
           >
@@ -2917,46 +2836,6 @@ export default function AdBuilderPage() {
                       style={{ left: marquee.x * frameW, top: marquee.y * frameH, width: marquee.w * frameW, height: marquee.h * frameH }}
                     />
                   )}
-                  {/* Gradient angle line — shown while the Background (gradient)
-                      panel is active and nothing's selected. Drag an end handle
-                      to rotate; the handles are tinted with the two stop colors. */}
-                  {(() => {
-                    const bgGrad = toGradientFill(doc.background);
-                    if (!bgGrad || (bgGrad.type ?? 'linear') !== 'linear' || selected || !bgSelected) return null;
-                    const angle = bgGrad.angle ?? 135;
-                    const rad = (angle * Math.PI) / 180;
-                    const dx = Math.sin(rad);
-                    const dy = -Math.cos(rad);
-                    const cx = frameW / 2;
-                    const cy = frameH / 2;
-                    const L = 0.4 * Math.min(frameW, frameH);
-                    const ex = cx + dx * L;
-                    const ey = cy + dy * L;
-                    const sx = cx - dx * L;
-                    const sy = cy - dy * L;
-                    const sorted = [...bgGrad.stops].sort((a, b) => a.pos - b.pos);
-                    const c0 = sorted[0].color;
-                    const c1 = sorted[sorted.length - 1].color;
-                    const handle = (x: number, y: number, color: string, which: 'start' | 'end') => (
-                      <button
-                        type="button"
-                        aria-label={`Gradient ${which} — drag to rotate`}
-                        onPointerDown={(e) => startGradientAngleDrag(e, which)}
-                        className="pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 border-white shadow-md active:cursor-grabbing"
-                        style={{ left: x, top: y, backgroundColor: color }}
-                      />
-                    );
-                    return (
-                      <div className="pointer-events-none absolute inset-0 z-20">
-                        <svg className="absolute inset-0" width={frameW} height={frameH} style={{ overflow: 'visible' }}>
-                          <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="white" strokeWidth={3} strokeLinecap="round" opacity={0.9} />
-                          <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="#0f172a" strokeWidth={1} strokeLinecap="round" opacity={0.55} />
-                        </svg>
-                        {handle(sx, sy, c0, 'start')}
-                        {handle(ex, ey, c1, 'end')}
-                      </div>
-                    );
-                  })()}
                   {/* Background pan preview — the whole photo, with the off-canvas
                       bleed dimmed and the live frame outlined. */}
                   {bgPan && (
@@ -3329,19 +3208,6 @@ export default function AdBuilderPage() {
                 />
               )}
 
-              {!selected && bgSelected && (
-                <BackgroundPanel
-                  background={doc.background}
-                  onChange={setBackground}
-                  onClose={() => setBgSelected(false)}
-                  shifted={fieldsOpen}
-                  hasBgImage={!!bgImageId}
-                  bgThumb={(bgImageId ? resolveBindingUrl(doc.elements.find((e) => e.id === bgImageId)) : undefined) ?? undefined}
-                  onAddImage={addBackgroundImage}
-                  onEditImage={() => bgImageId && selectOne(bgImageId)}
-                  onRemoveImage={() => bgImageId && deleteElement(bgImageId)}
-                />
-              )}
             </div>
         </div>
       </div>
@@ -4714,138 +4580,6 @@ function PreviewBoard({
       <span className="text-[11px] font-medium text-[var(--muted-foreground)]">
         {size.label.split(' ')[0]} <span className="tabular-nums opacity-70">{size.width}×{size.height}</span>
       </span>
-    </div>
-  );
-}
-
-/**
- * Background (Canvas) panel — shown only when the canvas is focused (click the
- * empty artboard). Two tabs: **Color** (solid/gradient fill + brand accent) and
- * **Image** (a full-bleed photo, which is really a normal image element you can
- * later select to crop/reposition). Mirrors the SelectionPanel's docked styling.
- */
-function BackgroundPanel({
-  background,
-  onChange,
-  onClose,
-  shifted,
-  hasBgImage,
-  bgThumb,
-  onAddImage,
-  onEditImage,
-  onRemoveImage,
-}: {
-  background?: DocBackground;
-  onChange: (patch: Partial<DocBackground>) => void;
-  onClose: () => void;
-  shifted: boolean;
-  hasBgImage: boolean;
-  bgThumb?: string;
-  onAddImage: () => void;
-  onEditImage: () => void;
-  onRemoveImage: () => void;
-}) {
-  const bg = background ?? {};
-  const grad = toGradientFill(bg);
-  const [tab, setTab] = useState<'color' | 'image'>(hasBgImage ? 'image' : 'color');
-  return (
-    <div
-      className={`absolute bottom-4 top-4 z-[70] flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl ${shifted ? 'right-[360px]' : 'right-4'}`}
-    >
-      <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm font-semibold text-[var(--foreground)]">Background</span>
-          <span className="shrink-0 rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">Canvas</span>
-        </div>
-        <button onClick={onClose} title="Close" aria-label="Close" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
-          <XMarkIcon className="h-4 w-4" />
-        </button>
-      </div>
-      {/* Color / Image tabs — the two ways to fill the canvas. */}
-      <div className="flex items-center gap-1 border-b border-[var(--border)] p-2">
-        {(['color', 'image'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium capitalize transition-colors ${
-              tab === t ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      {tab === 'image' ? (
-        <div className="flex flex-col px-3 py-0.5">
-          <PanelSection title="Image">
-            {hasBgImage ? (
-              <>
-                <div className="flex items-center gap-3">
-                  <span
-                    className="h-14 w-14 flex-shrink-0 rounded-lg border border-[var(--border)] bg-[var(--muted)] bg-cover bg-center"
-                    style={bgThumb ? { backgroundImage: `url(${bgThumb})` } : undefined}
-                  />
-                  <div className="flex flex-1 flex-col gap-1.5">
-                    <button
-                      onClick={onEditImage}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                    >
-                      <PhotoIcon className="h-4 w-4" />
-                      Replace / crop
-                    </button>
-                    <button
-                      onClick={onRemoveImage}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500"
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                      Remove
-                    </button>
-                  </div>
-                </div>
-                <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">Opens the image layer — pick a new photo, then drag on the canvas or crop it.</p>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={onAddImage}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                >
-                  <PhotoIcon className="h-4 w-4" />
-                  Upload / choose image
-                </button>
-                <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">A full-bleed photo behind everything — you can reposition and crop it after adding.</p>
-              </>
-            )}
-          </PanelSection>
-        </div>
-      ) : (
-      <div className="flex flex-col divide-y divide-[var(--border)] px-3 py-0.5">
-        <PanelSection title="Fill">
-          {grad ? (
-            <>
-              <GradientEditor value={grad} onChange={(g) => onChange({ gradientFill: g, gradient: undefined, gradientAngle: undefined, gradientStops: undefined })} />
-              {(grad.type ?? 'linear') === 'linear' && (
-                <p className="mt-1.5 text-[11px] leading-snug text-[var(--muted-foreground)]">Drag the line on the artboard to set the angle.</p>
-              )}
-            </>
-          ) : (
-            <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-              Color
-              <ColorSwatchInput title="Background color" value={bg.color && bg.color !== 'brand' ? bg.color : '#ffffff'} onChange={(v) => onChange({ color: v })} />
-            </label>
-          )}
-          <button
-            onClick={() => onChange(grad ? clearGradientPatch : seedGradientPatch(bg.color))}
-            className="mt-2 text-[11px] font-medium text-[var(--primary)] transition-opacity hover:opacity-80"
-          >
-            {grad ? 'Use a solid color' : 'Use a gradient'}
-          </button>
-        </PanelSection>
-        <PanelSection title="Accent">
-          <ToggleRow label="Brand accent bar" on={!!bg.accentBar} onClick={() => onChange({ accentBar: !bg.accentBar })} />
-        </PanelSection>
-      </div>
-      )}
     </div>
   );
 }
