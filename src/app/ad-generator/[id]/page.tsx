@@ -265,6 +265,21 @@ export default function AdGeneratorPage() {
   );
   const showAutomotiveTools = isVehicleAccount && isVehicleOffer;
 
+  // Dual-offer templates carry o2_ fields. Reps choose whether the two offers
+  // are on the SAME model (Offer 2 reuses Offer 1's vehicle) or TWO models.
+  const isDual = useMemo(() => template.fields.some((f) => f.key.startsWith('o2_')), [template]);
+  const [dualVehicleMode, setDualVehicleMode] = useState<'same' | 'two'>('same');
+  // Offer sourcing: pull from OEM incentives (MarketCheck) or enter manually.
+  const [offerSource, setOfferSource] = useState<'oem' | 'manual'>('oem');
+  // Same-model dual: keep Offer 2's vehicle in sync with Offer 1's.
+  useEffect(() => {
+    if (!isDual || dualVehicleMode !== 'same') return;
+    setData((d) => {
+      if (d.o2_vehicleName === d.vehicleName && d.o2_vehicleImageUrl === (d.vehicleImageUrl ?? '')) return d;
+      return { ...d, o2_vehicleName: d.vehicleName ?? '', o2_vehicleImageUrl: d.vehicleImageUrl ?? '' };
+    });
+  }, [isDual, dualVehicleMode, data.vehicleName, data.vehicleImageUrl]);
+
   // OEM compliance: pull the active account's make-keyed required-field rule
   // (resilient — null when none/unmigrated → baseline applies), then compute
   // which required fields are still empty. Export is gated on this.
@@ -440,12 +455,55 @@ export default function AdGeneratorPage() {
         <div className="space-y-6">
 
           {showAutomotiveTools && (
-            <OemIncentivesPanel
-              defaultMake={oemMake}
-              defaultZip={accountData?.postalCode}
-              dual={template.fields.some((f) => f.key.startsWith('o2_'))}
-              onApply={(patch) => setData((d) => ({ ...d, ...patch }))}
-            />
+            <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                {/* Source: pull the offer + vehicle from OEM incentives, or enter it by hand. */}
+                <div className="inline-flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
+                  {(['oem', 'manual'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setOfferSource(s)}
+                      className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                        offerSource === s ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      {s === 'oem' ? 'OEM Incentive' : 'Manual'}
+                    </button>
+                  ))}
+                </div>
+                {/* Dual: two offers on one model, or two different models. */}
+                {isDual && (
+                  <div className="inline-flex items-center gap-1.5">
+                    <span className="text-[11px] text-[var(--muted-foreground)]">Two offers on:</span>
+                    <div className="inline-flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
+                      {([['same', 'Same model'], ['two', 'Two models']] as const).map(([val, label]) => (
+                        <button
+                          key={val}
+                          onClick={() => setDualVehicleMode(val)}
+                          className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                            dualVehicleMode === val ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {offerSource === 'oem' ? (
+                <OemIncentivesPanel
+                  defaultMake={oemMake}
+                  defaultZip={accountData?.postalCode}
+                  dual={isDual}
+                  dualVehicleMode={dualVehicleMode}
+                  accountKey={accountKey ?? undefined}
+                  onApply={(patch) => setData((d) => ({ ...d, ...patch }))}
+                />
+              ) : (
+                <p className="text-xs text-[var(--muted-foreground)]">Enter the vehicle and offer details by hand in the cards below.</p>
+              )}
+            </section>
           )}
 
           {/* Branding — admins & up only; clients inherit the account's defaults. */}
@@ -532,29 +590,41 @@ export default function AdGeneratorPage() {
 
           {groups
             // Clients only see OEM Incentives (its own panel above) + Vehicle /
-            // Offer / Legal. Everything else (Copy, Background, etc.) is admin-only.
-            .filter(([group]) => isManager || ['Vehicle', 'Offer', 'Legal'].includes(group))
-            .map(([group, fields]) => (
-            <section key={group} className="glass-card rounded-2xl border border-[var(--border)] p-5">
-              <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{group}</h2>
-              <div className="space-y-4">
-                {fields.map((f) =>
-                  f.key === 'disclaimer' ? (
-                    <DisclaimerField
-                      key={f.key}
-                      field={f}
-                      renderData={renderData}
-                      value={data.disclaimer ?? ''}
-                      onChange={(v) => set('disclaimer', v)}
-                      readOnly={!isManager}
-                    />
-                  ) : (
-                    <Field key={f.key} field={f} value={data[f.key] ?? ''} onChange={(v) => set(f.key, v)} allowVehiclePicker={showAutomotiveTools} />
-                  ),
+            // Offer(s) / Legal (+ Shared, e.g. expiration). Everything else
+            // (Copy/Headline, Background, etc.) is admin-only.
+            .filter(([group]) => isManager || group === 'Vehicle' || group === 'Legal' || group === 'Shared' || group.startsWith('Offer'))
+            .map(([group, fields]) => {
+              // Same-model dual: Offer 2 rides Offer 1's vehicle, so hide its
+              // vehicle inputs (they're auto-synced).
+              const shown = fields.filter(
+                (f) => !(isDual && dualVehicleMode === 'same' && (f.key === 'o2_vehicleName' || f.key === 'o2_vehicleImageUrl')),
+              );
+              const sharesVehicle = isDual && dualVehicleMode === 'same' && /Offer\s*2/i.test(group);
+              return (
+              <section key={group} className="glass-card rounded-2xl border border-[var(--border)] p-5">
+                <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{group}</h2>
+                {sharesVehicle && (
+                  <p className="-mt-2 mb-3 text-[11px] text-[var(--muted-foreground)]">Same vehicle as Offer 1 — switch to “Two models” above to give it its own.</p>
                 )}
-              </div>
-            </section>
-          ))}
+                <div className="space-y-4">
+                  {shown.map((f) =>
+                    f.key === 'disclaimer' ? (
+                      <DisclaimerField
+                        key={f.key}
+                        field={f}
+                        renderData={renderData}
+                        value={data.disclaimer ?? ''}
+                        onChange={(v) => set('disclaimer', v)}
+                        readOnly={!isManager}
+                      />
+                    ) : (
+                      <Field key={f.key} field={f} value={data[f.key] ?? ''} onChange={(v) => set(f.key, v)} allowVehiclePicker={showAutomotiveTools} />
+                    ),
+                  )}
+                </div>
+              </section>
+              );
+            })}
         </div>
 
         {/* Preview + export */}
@@ -685,7 +755,7 @@ const EVOX_MAKES = [
  * entry below still works; this is just a faster, accurate source. Renders a
  * "not configured" hint when MARKETCHECK_API_KEY is unset.
  */
-function OemIncentivesPanel({ defaultMake, defaultZip, dual, onApply }: { defaultMake?: string; defaultZip?: string; dual?: boolean; onApply: (patch: Record<string, string>) => void }) {
+function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, accountKey, onApply }: { defaultMake?: string; defaultZip?: string; dual?: boolean; dualVehicleMode?: 'same' | 'two'; accountKey?: string; onApply: (patch: Record<string, string>) => void }) {
   const [year, setYear] = useState(String(EVOX_CURRENT_YEAR));
   const [make, setMake] = useState(defaultMake || '');
   const [model, setModel] = useState('');
@@ -702,6 +772,8 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, onApply }: { defaul
   const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   // For dual-offer templates, which offer "Apply" fills ('' = Offer 1, 'o2_' = Offer 2).
   const [target, setTarget] = useState<'' | 'o2_'>('');
+  // True while fetching the EVOX jellybean for an applied incentive.
+  const [resolvingImg, setResolvingImg] = useState(false);
 
   const yearOptions: FontSelectOption[] = EVOX_YEARS.filter((y) => y >= 2020).map((y) => ({ value: String(y), label: String(y) }));
   const makeOptions: FontSelectOption[] = [{ value: '', label: 'Select make…' }, ...EVOX_MAKES.map((m) => ({ value: m, label: m }))];
@@ -762,8 +834,38 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, onApply }: { defaul
       const d = new Date(inc.endDate);
       if (!Number.isNaN(d.getTime())) patch.expiration = d.toISOString().slice(0, 10); // shared
     }
+    // We already know the vehicle from the search — fill it too (name now, EVOX
+    // jellybean async). For a same-model dual, Offer 2 rides Offer 1's vehicle,
+    // so don't overwrite it here.
+    const setVehicle = !(dual && target === 'o2_' && dualVehicleMode === 'same');
+    if (setVehicle && (make || model)) {
+      patch[`${p}vehicleName`] = [year, make, model].filter(Boolean).join(' ');
+    }
     onApply(patch);
     toast.success(dual ? `Filled ${target === 'o2_' ? 'Offer 2' : 'Offer 1'} from the incentive` : 'Offer filled from the incentive');
+    if (setVehicle && make) {
+      setResolvingImg(true);
+      resolveJellybean(make, model, Number(year))
+        .then((url) => { if (url) onApply({ [`${p}vehicleImageUrl`]: url }); })
+        .finally(() => setResolvingImg(false));
+    }
+  }
+
+  // Auto-pull the EVOX jellybean for the searched vehicle: first matching trim +
+  // its first color → resolve (which re-hosts to our S3, so it's cached).
+  async function resolveJellybean(mk: string, mdl: string, yr: number): Promise<string | null> {
+    try {
+      const s = await fetch('/api/ad-generator/evox/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year: yr, make: mk, model: mdl }) });
+      const sj = await s.json().catch(() => ({}));
+      const v = (sj.vehicles ?? [])[0] as EvoxVehicle | undefined;
+      const color = v?.colors?.[0];
+      if (!v || !color) return null;
+      const r = await fetch('/api/ad-generator/evox/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vifnum: v.vifnum, colorCode: color.code, accountKey, hint: `${yr}-${mk}-${mdl}` }) });
+      const rj = await r.json().catch(() => ({}));
+      return typeof rj.url === 'string' ? rj.url : null;
+    } catch {
+      return null;
+    }
   }
 
   const typeBadge: Record<string, string> = {
@@ -774,10 +876,9 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, onApply }: { defaul
   };
 
   return (
-    <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
-      <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">OEM Incentives</h2>
+    <div>
       <p className="mb-3 text-xs text-[var(--muted-foreground)]">
-        Live lease / APR / cash programs from MarketCheck — apply one to fill the offer below, or enter it manually.
+        Live lease / APR / cash programs from MarketCheck — applying one fills the offer <span className="text-[var(--foreground)]">and</span> the vehicle (name + EVOX image).
       </p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <FontSelect value={year} onChange={setYear} options={yearOptions} previewFont={false} />
@@ -804,6 +905,12 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, onApply }: { defaul
       >
         {busy ? 'Searching…' : 'Find incentives'}
       </button>
+
+      {resolvingImg && (
+        <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
+          <ArrowPathIcon className="h-3 w-3 animate-spin" /> Fetching vehicle image…
+        </p>
+      )}
 
       {dual && (
         <div className="mt-2 flex items-center gap-2">
@@ -862,7 +969,7 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, onApply }: { defaul
           ))}
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -1273,3 +1380,4 @@ function EvoxPickerModal({ onClose, onPick }: { onClose: () => void; onPick: (ur
     document.body,
   );
 }
+
