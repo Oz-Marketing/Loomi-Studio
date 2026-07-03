@@ -4109,6 +4109,8 @@ function SelectionPanel({
         <MediaPickerModal
           accountKey={accountKey}
           showCategories
+          showFolders
+          brandingMedia={brandLogos.map((l) => ({ label: `${l.label} logo`, url: l.url }))}
           onSelect={(url) => {
             onContentChange(url);
             setPicking(false);
