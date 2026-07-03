@@ -345,6 +345,49 @@ function computeBox(handle: Handle, start: DocLayoutBox, dxF: number, dyF: numbe
   return { ...rest, x, y, w, h };
 }
 
+/**
+ * Constrain a resize to the element's starting aspect ratio (Shift+drag), keeping
+ * the anchor (the edge/corner opposite the dragged handle) fixed. Works in PIXEL
+ * space (w is a fraction of canvas width, h of height, so their aspect only makes
+ * sense once scaled by nw/nh). Edge handles adjust the perpendicular dimension
+ * about the box center; corner handles drive off width and derive height.
+ */
+function lockAspect(handle: Handle, start: DocLayoutBox, box: DocLayoutBox, nw: number, nh: number): DocLayoutBox {
+  if (handle === 'move') return box;
+  const aspect = (start.w * nw) / (start.h * nh); // pixel w/h of the element
+  if (!isFinite(aspect) || aspect <= 0) return box;
+
+  // Pick the driving dimension, then derive the other to preserve aspect.
+  let wpx = box.w * nw;
+  let hpx = box.h * nh;
+  if (handle === 'n' || handle === 's') {
+    wpx = hpx * aspect; // vertical edge → height drives
+  } else {
+    hpx = wpx / aspect; // corners + horizontal edges → width drives
+  }
+  const w = Math.max(MIN_FRAC, wpx / nw);
+  const h = Math.max(MIN_FRAC, hpx / nh);
+
+  // Re-anchor so the opposite edge/corner stays put.
+  const right = start.x + start.w;
+  const bottom = start.y + start.h;
+  const cx = start.x + start.w / 2;
+  const cy = start.y + start.h / 2;
+  let x = box.x;
+  let y = box.y;
+  switch (handle) {
+    case 'se': x = start.x; y = start.y; break;
+    case 'sw': x = right - w; y = start.y; break;
+    case 'ne': x = start.x; y = bottom - h; break;
+    case 'nw': x = right - w; y = bottom - h; break;
+    case 'e': x = start.x; y = cy - h / 2; break;
+    case 'w': x = right - w; y = cy - h / 2; break;
+    case 's': y = start.y; x = cx - w / 2; break;
+    case 'n': y = bottom - h; x = cx - w / 2; break;
+  }
+  return { ...box, x, y, w, h };
+}
+
 /** A box is "detached" when it sits entirely outside the artboard — it's then a
  *  canvas-only parking spot (omitted from the ad/export) until dragged back in. */
 function isDetached(b: { x: number; y: number; w: number; h: number }): boolean {
@@ -1898,7 +1941,9 @@ export default function AdBuilderPage() {
     const dxF = (e.clientX - d.sx) / d.fw;
     const dyF = (e.clientY - d.sy) / d.fh;
     if (d.kind === 'single') {
-      const box = computeBox(d.handle, d.start, dxF, dyF);
+      let box = computeBox(d.handle, d.start, dxF, dyF);
+      // Shift = constrain to the element's original aspect ratio (all elements).
+      if (d.handle !== 'move' && e.shiftKey) box = lockAspect(d.handle, d.start, box, d.nw, d.nh);
       let gx: number | null = null;
       let gy: number | null = null;
       if (d.handle === 'move') {
@@ -1937,7 +1982,10 @@ export default function AdBuilderPage() {
       // group resize — scale every box (and text font) about the opposite edge.
       const w0 = d.bounds.right - d.bounds.left;
       const h0 = d.bounds.bottom - d.bounds.top;
-      const rect = computeBox(d.handle, { x: d.bounds.left, y: d.bounds.top, w: w0, h: h0 }, dxF, dyF);
+      const startBounds = { x: d.bounds.left, y: d.bounds.top, w: w0, h: h0 };
+      let rect = computeBox(d.handle, startBounds, dxF, dyF);
+      // Shift = lock the group's aspect ratio too (scales everything uniformly).
+      if (d.handle !== 'move' && e.shiftKey) rect = lockAspect(d.handle, startBounds, rect, d.nw, d.nh);
       const scaleX = w0 > 0 ? rect.w / w0 : 1;
       const scaleY = h0 > 0 ? rect.h / h0 : 1;
       const live: Record<string, DocLayoutBox> = {};
