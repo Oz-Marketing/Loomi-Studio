@@ -190,7 +190,13 @@ export async function proxy(request: NextRequest) {
     if (!pathname.startsWith('/marketing') && !isGlobalAppPath(pathname)) {
       const url = request.nextUrl.clone();
       url.pathname = pathname === '/' ? '/marketing' : `/marketing${pathname}`;
-      return NextResponse.rewrite(url);
+      // Flag the marketing page so the root layout renders it bare (no app
+      // Providers) for SSR. Global paths like /login are NOT rewritten here,
+      // so they never carry this header — they keep the full Providers tree
+      // (and thus ThemeProvider, which the login page's <AppLogo> needs).
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set('x-loomi-marketing-page', '1');
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
     }
   } else if (host && isAppHost(host)) {
     // Rewrite non-global app paths into the /app tree. Already-canonical
