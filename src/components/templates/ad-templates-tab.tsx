@@ -28,7 +28,19 @@ import { TemplatesHeaderActionsContext } from '@/app/email/templates/email-templ
 import { AdPreviewThumb, brandingFromAccount } from '@/components/ad-generator/ad-preview-thumb';
 import { adTemplateFromDoc, blankTemplateDoc } from '@/lib/ad-generator/doc-template';
 import { templateInIndustry } from '@/lib/ad-generator/industry';
+import { AD_TEMPLATES } from '@/lib/ad-generator/templates';
+import { singleOfferDoc, dualOfferDoc } from '@/lib/ad-generator/templates/offer-docs';
 import type { TemplateDoc } from '@/lib/ad-generator/doc-types';
+
+// Loomi-provided starting points that the New-ad picker OFFERS but that live in
+// code, not the DB — so they never showed up in this library. Surface them here
+// as read-only "Built-in" cards (duplicate to customize) so the picker and the
+// library agree. Keyed off AD_TEMPLATES membership so retiring one from the
+// picker (removing it there) also drops it here.
+const BUILTIN_DOCS: TemplateDoc[] = (() => {
+  const offered = new Set(AD_TEMPLATES.map((t) => t.id));
+  return [singleOfferDoc, dualOfferDoc].filter((d) => offered.has(d.id));
+})();
 
 type DocTemplate = {
   id: string;
@@ -79,7 +91,31 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
         .filter((t) => templateInIndustry({ industries: t.doc!.industries, fields: t.doc!.fields }, accountData?.category)),
     [data, accountData?.category],
   );
+  // Built-in code templates, scoped to the active account's industry exactly
+  // like the DB ones (admins with no account see all).
+  const builtIns = useMemo(
+    () =>
+      BUILTIN_DOCS.filter((d) =>
+        templateInIndustry({ industries: d.industries, fields: d.fields }, accountData?.category),
+      ),
+    [accountData?.category],
+  );
   const branding = useMemo(() => brandingFromAccount(accountData), [accountData]);
+
+  // A built-in doc, dressed up as a DocTemplate so it flows through the same
+  // preview + duplicate (startFrom) paths as a DB template.
+  const builtinAsDocTemplate = (doc: TemplateDoc): DocTemplate => ({
+    id: doc.id,
+    name: doc.name,
+    description: doc.description ?? null,
+    status: 'published',
+    accountKey: null,
+    updatedAt: todayIso,
+    createdByName: 'Loomi',
+    createdByEmail: null,
+    createdByImage: null,
+    doc,
+  });
 
   // Every builder link carries `from` (this page + the Ads tab) so Back returns
   // to the Ads tab specifically, plus the active account. Assembled once.
@@ -251,7 +287,53 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
           headerSlot,
         )}
 
-      {templates.length === 0 ? (
+      {/* Built-in templates — the code-defined starting points the New-ad
+          picker offers. Read-only here; duplicate one to get an editable copy. */}
+      {builtIns.length > 0 && (
+        <div className="mb-6">
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Built-in</h3>
+            <span className="text-xs text-[var(--muted-foreground)]">Loomi-provided starting points — duplicate to customize.</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {builtIns.map((doc) => {
+              const t = builtinAsDocTemplate(doc);
+              const template = adTemplateFromDoc(doc.id, doc);
+              return (
+                <div
+                  key={doc.id}
+                  className="glass-card group relative rounded-2xl border border-[var(--border)] text-left"
+                >
+                  <div className="cursor-pointer overflow-hidden rounded-t-2xl" onClick={() => setPreview(t)}>
+                    <AdPreviewThumb template={template} data={doc.defaults ?? {}} branding={branding} height={150} />
+                  </div>
+                  <span className="absolute right-2 top-2 rounded-md border border-[var(--border)] bg-[var(--card-strong)]/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)] backdrop-blur">
+                    Built-in
+                  </span>
+                  <div className="p-3">
+                    <div className="truncate text-sm font-semibold text-[var(--foreground)]">{doc.name}</div>
+                    <span className="mt-1 flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
+                      <GlobeAltIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate">All accounts</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void startFrom(t)}
+                      disabled={busy}
+                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 h-8 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:opacity-50"
+                    >
+                      <DocumentDuplicateIcon className="h-3.5 w-3.5" />
+                      Duplicate to customize
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {templates.length === 0 && builtIns.length === 0 ? (
         <div className="glass-card rounded-2xl p-12 text-center flex flex-col items-center">
           <div className="w-16 h-16 rounded-2xl bg-[var(--muted)] flex items-center justify-center mb-4">
             <SparklesIcon className="w-8 h-8 text-[var(--muted-foreground)]" />
@@ -269,6 +351,15 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
             New template
           </button>
         </div>
+      ) : (
+      <>
+      {builtIns.length > 0 && (
+        <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">Your templates</h3>
+      )}
+      {templates.length === 0 ? (
+        <p className="text-sm text-[var(--muted-foreground)]">
+          No custom templates yet — duplicate a built-in above, or create a new one.
+        </p>
       ) : (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {templates.map((t) => {
@@ -356,6 +447,8 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
           );
         })}
       </div>
+      )}
+      </>
       )}
 
       {/* View preview */}
