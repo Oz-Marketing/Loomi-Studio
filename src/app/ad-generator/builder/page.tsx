@@ -63,6 +63,7 @@ import {
 import { useAccount } from '@/contexts/account-context';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { MediaPickerModal } from '@/components/media-picker-modal';
+import { CropEditorModal, type CropRect } from '@/components/media/crop-editor-modal';
 import { SidebarTooltip } from '@/components/sidebar-collapsed-ui';
 import { renderDoc, SHAPE_CLIP } from '@/lib/ad-generator/doc-renderer';
 import { buildFontFaceCssFromUrls } from '@/lib/ad-generator/fonts';
@@ -866,6 +867,10 @@ export default function AdBuilderPage() {
   // the natural pixel size of its source, needed to map drag → object-position.
   const [cropId, setCropId] = useState<string | null>(null);
   const [cropNatural, setCropNatural] = useState<{ w: number; h: number } | null>(null);
+  // Modal cropper (mirrors the media library): set boundaries on the image and
+  // apply → server-side crop → the element points at the new cropped image.
+  const [cropModal, setCropModal] = useState<{ id: string; url: string; name: string } | null>(null);
+  const [cropSaving, setCropSaving] = useState(false);
   // FLIP: gently slide Layers rows to their new spots when the drop order
   // actually changes during a drag. Transforms are cleared before measuring, so
   // an in-flight animation never pollutes the next measurement (no jitter).
@@ -2182,6 +2187,29 @@ export default function AdBuilderPage() {
     listen();
   }
 
+  // Apply the modal crop: server-side crop of the element's current image (by
+  // URL) into a new asset, then point the element at it. Mirrors the media library.
+  async function applyBuilderCrop(crop: CropRect) {
+    if (!cropModal) return;
+    setCropSaving(true);
+    try {
+      const res = await fetch('/api/media/crop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cropModal.url, accountKey: accountKey ?? null, x: crop.x, y: crop.y, width: crop.width, height: crop.height }),
+      });
+      const j = (await res.json().catch(() => null)) as { file?: { url: string }; error?: string } | null;
+      if (!res.ok || !j?.file?.url) throw new Error(j?.error || `HTTP ${res.status}`);
+      setElement(cropModal.id, { binding: { kind: 'static', value: j.file.url } });
+      toast.success('Image cropped');
+      setCropModal(null);
+    } catch (err) {
+      toast.error(`Couldn't crop: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setCropSaving(false);
+    }
+  }
+
   // Element pointerdown: Shift toggles selection; otherwise select (or keep a
   // multi-selection) and start a single / group drag.
   function onBoxPointerDown(e: React.PointerEvent, elId: string) {
@@ -3416,14 +3444,14 @@ export default function AdBuilderPage() {
                   onClose={clearSelection}
                   onFillArtboard={() => fillArtboardAndSendBack(selected.id)}
                   shifted={fieldsOpen}
-                  cropping={cropId === selected.id}
+                  cropping={cropModal?.id === selected.id}
                   onToggleCrop={() => {
-                    if (cropId === selected.id) {
-                      setCropId(null);
-                    } else {
-                      if (selected.fit !== 'cover') updEl({ fit: 'cover' });
-                      setCropId(selected.id);
+                    const url = resolveBindingUrl(selected);
+                    if (!url) {
+                      toast.error('Add an image first, then crop it');
+                      return;
                     }
+                    setCropModal({ id: selected.id, url, name: elName(selected) });
                   }}
                 />
               )}
@@ -3485,6 +3513,15 @@ export default function AdBuilderPage() {
       {helpOpen && <ShortcutsModal onClose={() => setHelpOpen(false)} />}
 
       {deployOpen && <DeployTemplateModal name={templateName} doc={doc} excludeKey={scopeAccount} onClose={() => setDeployOpen(false)} />}
+      {cropModal && (
+        <CropEditorModal
+          file={{ url: cropModal.url, name: cropModal.name }}
+          saving={cropSaving}
+          onClose={() => { if (!cropSaving) setCropModal(null); }}
+          onSave={applyBuilderCrop}
+          confirmLabel="Crop"
+        />
+      )}
 
       {/* Right-click context menu (canvas + layers) */}
       {ctxMenu && typeof document !== 'undefined' &&
