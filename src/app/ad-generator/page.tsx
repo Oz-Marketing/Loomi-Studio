@@ -22,7 +22,7 @@ import { MANAGEMENT_ROLES } from '@/lib/roles';
 import { ListToolbar } from '@/components/list-toolbar';
 import type { StatusFilterValue } from '@/components/status-filter';
 import { AdPreviewThumb, brandingFromAccount } from '@/components/ad-generator/ad-preview-thumb';
-import { AD_TEMPLATES, ALL_TEMPLATES } from '@/lib/ad-generator/templates';
+import { ALL_TEMPLATES } from '@/lib/ad-generator/templates';
 import { adTemplateFromDoc, blankTemplateDoc } from '@/lib/ad-generator/doc-template';
 import { adTypeFormFields, type AdType } from '@/lib/ad-generator/ad-types';
 import { catalogByCategory, aspectLabel, type CatalogSize } from '@/lib/ad-generator/ad-size-catalog';
@@ -108,10 +108,11 @@ export default function AdGeneratorListPage() {
   }, [accountData?.category]);
   // Resolution list (incl. retired templates) — for rendering existing ads.
   const templates = useMemo(() => [...ALL_TEMPLATES, ...dbTemplates], [dbTemplates]);
-  // Picker list — only OFFERED templates, scoped to this account's industry
-  // (non-automotive sees none for now).
+  // Picker list — the shared library (DB templates), scoped to this account's
+  // industry. The code-defined starters stay in ALL_TEMPLATES (so existing ads
+  // still render) but aren't offered here; the library is the single source.
   const pickerTemplates = useMemo(
-    () => [...AD_TEMPLATES, ...dbTemplates].filter((t) => templateInIndustry(t, accountData?.category)),
+    () => dbTemplates.filter((t) => templateInIndustry(t, accountData?.category)),
     [dbTemplates, accountData?.category],
   );
   // Ad types that actually tag at least one offered template — the picker's filter row.
