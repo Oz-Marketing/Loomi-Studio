@@ -6,6 +6,7 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   EllipsisVerticalIcon,
+  EllipsisHorizontalIcon,
   TrashIcon,
   PencilSquareIcon,
   ArrowUpTrayIcon,
@@ -203,7 +204,7 @@ interface MediaCardProps {
   f: MediaFile;
   isMenuOpen: boolean;
   isSelected: boolean;
-  selectMode: boolean;
+  selectionActive: boolean;
   provider: string | null;
   capabilities: MediaCapabilities | null;
   menuClickRef: React.MutableRefObject<boolean>;
@@ -224,7 +225,7 @@ function MediaCard({
   f,
   isMenuOpen,
   isSelected,
-  selectMode,
+  selectionActive,
   provider: activeProvider,
   capabilities: activeCaps,
   menuClickRef,
@@ -252,7 +253,7 @@ function MediaCard({
       {/* Thumbnail */}
       <div
         className="h-[140px] bg-[var(--muted)] relative overflow-hidden rounded-t-xl cursor-pointer"
-        onClick={() => selectMode ? onSelect() : onPreview()}
+        onClick={onPreview}
       >
         {isImage && f.url ? (
           <img
@@ -266,30 +267,30 @@ function MediaCard({
             <PhotoIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
           </div>
         )}
-        {/* Select checkbox */}
-        {selectMode && (
-          <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+        {/* Hover overlay — pointer-events-none so it never blocks the checkbox. */}
+        <div className="pointer-events-none absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+          <EyeIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity drop-shadow-lg" />
+        </div>
+        {/* Select checkbox — appears on hover, and stays once anything is selected. */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onSelect(); }}
+          aria-label={isSelected ? 'Deselect' : 'Select'}
+          className={`absolute top-2 left-2 z-10 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
             isSelected
-              ? 'bg-[var(--primary)] border-[var(--primary)]'
-              : 'bg-black/40 border-white/60 hover:border-white'
-          }`}>
-            {isSelected && <CheckIcon className="w-3.5 h-3.5 text-white" />}
-          </div>
-        )}
-        {/* Hover overlay */}
-        {!selectMode && (
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-            <EyeIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity drop-shadow-lg" />
-          </div>
-        )}
+              ? 'bg-[var(--primary)] border-[var(--primary)] opacity-100'
+              : `bg-black/40 border-white/60 hover:border-white ${selectionActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`
+          }`}
+        >
+          {isSelected && <CheckIcon className="w-3.5 h-3.5 text-white" />}
+        </button>
       </div>
 
       {/* Info */}
       <div className="p-3">
         <div className="flex items-center justify-between gap-2 mb-1.5">
           {(f.source === 's3' ? <ProviderPill prov="s3" /> : activeProvider ? <ProviderPill prov={activeProvider} /> : null)}
-          {!selectMode && (
-            <div className="relative flex-shrink-0">
+          <div className="relative flex-shrink-0">
               <button
                 onMouseDown={(e) => {
                   e.stopPropagation();
@@ -344,7 +345,6 @@ function MediaCard({
                 </div>
               )}
             </div>
-          )}
         </div>
         <h3 className="text-xs font-semibold truncate" title={f.name}>
           {f.name}
@@ -368,7 +368,7 @@ function MediaListRow({
   f,
   isMenuOpen,
   isSelected,
-  selectMode,
+  selectionActive,
   provider: activeProvider,
   capabilities: activeCaps,
   menuClickRef,
@@ -393,22 +393,24 @@ function MediaListRow({
       draggable={draggable}
       onDragStart={onDragStart}
     >
-      {/* Select checkbox */}
-      {selectMode && (
-        <button onClick={onSelect} className="flex-shrink-0">
-          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-            isSelected
-              ? 'bg-[var(--primary)] border-[var(--primary)]'
-              : 'bg-[var(--muted)] border-[var(--border)] hover:border-[var(--primary)]'
-          }`}>
-            {isSelected && <CheckIcon className="w-3.5 h-3.5 text-white" />}
-          </div>
-        </button>
-      )}
+      {/* Select checkbox — appears on hover, stays once anything is selected. */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onSelect(); }}
+        aria-label={isSelected ? 'Deselect' : 'Select'}
+        className={`flex-shrink-0 transition-opacity ${isSelected || selectionActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+      >
+        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+          isSelected
+            ? 'bg-[var(--primary)] border-[var(--primary)]'
+            : 'bg-[var(--muted)] border-[var(--border)] hover:border-[var(--primary)]'
+        }`}>
+          {isSelected && <CheckIcon className="w-3.5 h-3.5 text-white" />}
+        </div>
+      </button>
       {/* Thumbnail */}
       <div
         className="w-10 h-10 rounded-lg bg-[var(--muted)] overflow-hidden flex-shrink-0 cursor-pointer"
-        onClick={() => selectMode ? onSelect() : onPreview()}
+        onClick={onPreview}
       >
         {isImage && f.url ? (
           <img src={f.thumbnailUrl || f.url} alt={f.name} className="w-full h-full object-cover" loading="lazy" />
@@ -419,7 +421,7 @@ function MediaListRow({
         )}
       </div>
       {/* Name + meta */}
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => selectMode ? onSelect() : onPreview()}>
+      <div className="flex-1 min-w-0 cursor-pointer" onClick={onPreview}>
         <p className="text-sm font-medium truncate">{f.name}</p>
         <div className="flex items-center gap-2 mt-0.5">
           {f.size != null && (
@@ -433,8 +435,7 @@ function MediaListRow({
         {f.source === 's3' ? <ProviderPill prov="s3" /> : activeProvider ? <ProviderPill prov={activeProvider} /> : null}
       </div>
       {/* Actions */}
-      {!selectMode && (
-        <div className="relative flex-shrink-0">
+      <div className="relative flex-shrink-0">
           <button
             onMouseDown={(e) => {
               e.stopPropagation();
@@ -489,7 +490,6 @@ function MediaListRow({
             </div>
           )}
         </div>
-      )}
     </div>
   );
 }
@@ -606,11 +606,14 @@ export default function MediaPage() {
   const [cropping, setCropping] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
 
-  // Bulk selection
+  // Bulk selection — selection is always available (hover a file for a checkbox);
+  // the bulk action bar shows whenever at least one file is selected.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectMode, setSelectMode] = useState(false);
+  const selectionActive = selectedIds.size > 0;
   // Archived view: when on, the library shows ONLY archived assets (restore surface).
   const [showArchived, setShowArchived] = useState(false);
+  // ⋯ overflow menu next to New Folder (holds the Archived-view toggle).
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
   // Move modal
   const [showMoveModal, setShowMoveModal] = useState(false);
@@ -1261,7 +1264,6 @@ export default function MediaPage() {
 
   const clearSelection = () => {
     setSelectedIds(new Set());
-    setSelectMode(false);
   };
 
   // ── Move ──
@@ -1650,7 +1652,6 @@ export default function MediaPage() {
 
   useEffect(() => {
     if (!showOverview) return;
-    setSelectMode(false);
     setSelectedIds(new Set());
     setOpenMenu(null);
     setOverviewSearch('');
@@ -1813,6 +1814,35 @@ export default function MediaPage() {
                     New Folder
                   </button>
                 )}
+                {/* ⋯ overflow menu — holds the Archived view toggle. */}
+                <div className="relative">
+                  <button
+                    onClick={() => setMoreMenuOpen((v) => !v)}
+                    title="More"
+                    aria-label="More options"
+                    className={`inline-flex items-center justify-center h-10 w-10 rounded-lg border transition-colors ${
+                      showArchived
+                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    <EllipsisHorizontalIcon className="w-5 h-5" />
+                  </button>
+                  {moreMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setMoreMenuOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1 z-40 w-48 glass-dropdown">
+                        <button
+                          onClick={() => { setShowArchived((v) => !v); setSelectedIds(new Set()); setMoreMenuOpen(false); }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                        >
+                          {showArchived ? <ArrowUturnLeftIcon className="w-4 h-4" /> : <ArchiveBoxIcon className="w-4 h-4" />}
+                          {showArchived ? 'Back to library' : 'View archived'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <PrimaryButton
                   onClick={() => { setStagedFiles([]); setShowUploadModal(true); }}
                   disabled={uploading}
@@ -1875,15 +1905,6 @@ export default function MediaPage() {
                 placeholder={isLoomiOverviewTab ? 'Search Loomi media...' : 'Search sub-accounts...'}
               />
             </div>
-            {isLoomiOverviewTab && adminMediaFiles.length > 0 && !selectMode && (
-              <button
-                onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
-                className="inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-              >
-                <img src="/icons/select-checkbox.svg" alt="" aria-hidden className="w-3.5 h-3.5 invert opacity-80" />
-                Select
-              </button>
-            )}
           </div>
 
           {/* ── Loomi Media Library section ── */}
@@ -1920,7 +1941,7 @@ export default function MediaPage() {
                       f={f}
                       isMenuOpen={openMenu === itemKey}
                       isSelected={selectedIds.has(f.id)}
-                      selectMode={selectMode}
+                      selectionActive={selectionActive}
                       provider="s3"
                       capabilities={S3_CAPABILITIES}
                       menuClickRef={menuClickRef}
@@ -2020,35 +2041,6 @@ export default function MediaPage() {
                     placeholder="Search files..."
                   />
                 </div>
-                {/* Select mode toggle — available whenever there are files to act
-                    on (move / duplicate / archive / delete all use selection). */}
-                {filtered.length > 0 && (
-                  <button
-                    onClick={() => { setSelectMode(prev => !prev); setSelectedIds(new Set()); }}
-                    className={`inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border transition-colors ${
-                      selectMode
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
-                    }`}
-                  >
-                    <img src="/icons/select-checkbox.svg" alt="" aria-hidden className="w-3.5 h-3.5 invert opacity-80" />
-                    {selectMode ? 'Cancel' : 'Select'}
-                  </button>
-                )}
-                {/* Archived view toggle — flips the library to show only archived
-                    assets (a restore surface). Exits select mode on switch. */}
-                <button
-                  onClick={() => { setShowArchived(v => !v); setSelectMode(false); setSelectedIds(new Set()); }}
-                  title={showArchived ? 'Back to library' : 'View archived files'}
-                  className={`inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border transition-colors ${
-                    showArchived
-                      ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                      : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
-                  }`}
-                >
-                  <ArchiveBoxIcon className="w-3.5 h-3.5" />
-                  {showArchived ? 'Archived' : 'Archive'}
-                </button>
                 {/* View mode toggle */}
                 <div className="flex items-center rounded-lg border border-[var(--border)] overflow-hidden">
                   <button
@@ -2226,7 +2218,7 @@ export default function MediaPage() {
                     f={f}
                     isMenuOpen={openMenu === itemKey}
                     isSelected={selectedIds.has(f.id)}
-                    selectMode={selectMode}
+                    selectionActive={selectionActive}
                     provider={provider}
                     capabilities={capabilities}
                     menuClickRef={menuClickRef}
@@ -2262,7 +2254,7 @@ export default function MediaPage() {
         </>
       )}
 
-      {showOverview && isLoomiOverviewTab && selectMode && (
+      {showOverview && isLoomiOverviewTab && selectionActive && (
         <BulkActionDock
           count={selectedIds.size}
           itemLabel="files"
@@ -2293,7 +2285,7 @@ export default function MediaPage() {
         />
       )}
 
-      {!showOverview && selectMode && (
+      {!showOverview && selectionActive && (
         <BulkActionDock
           count={selectedIds.size}
           itemLabel="files"
