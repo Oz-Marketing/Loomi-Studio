@@ -1132,6 +1132,54 @@ export default function AdBuilderPage() {
     });
   }, [doc.elements, setElement]);
 
+  // Best-practice text sizing: after a text resize, shrink the box to HUG its
+  // content so there's no leftover whitespace (industry standard — Canva/Figma).
+  // Height always hugs; width hugs too when the text is a single line (point
+  // text), while multi-line/paragraph text keeps its width and just reflows.
+  // Measured in the builder (from the live node) and stored, so the export —
+  // which renders the same stored box — stays pixel-perfect.
+  const fitTextBox = useCallback(
+    (elId: string, sizeId: string, baseBox: DocLayoutBox) => {
+      const idoc = iframeRef.current?.contentDocument;
+      const node = idoc?.querySelector(`[data-el-id="${elId}"]`) as HTMLElement | null;
+      const el = doc.elements.find((e) => e.id === elId);
+      if (!idoc || !node || el?.type !== 'text') {
+        setBox(sizeId, elId, baseBox);
+        return;
+      }
+      let bb: DOMRect;
+      let lineCount = 1;
+      try {
+        const range = idoc.createRange();
+        range.selectNodeContents(node);
+        const rects = [...range.getClientRects()];
+        bb = range.getBoundingClientRect();
+        lineCount = Math.max(1, new Set(rects.map((r) => Math.round(r.top))).size);
+      } catch {
+        setBox(sizeId, elId, baseBox);
+        return;
+      }
+      if (!bb.width || !bb.height) {
+        setBox(sizeId, elId, baseBox);
+        return;
+      }
+      const fs = baseBox.fontSize ?? 16;
+      const natH = bb.height / scale + fs * 0.24; // native px + a little breathing room
+      const newH = clamp(natH / size.height, MIN_FRAC, 1.5);
+      const patch: DocLayoutBox = { ...baseBox, h: newH };
+      patch.y = baseBox.y + baseBox.h / 2 - newH / 2; // keep vertical center
+      if (lineCount <= 1) {
+        const natW = bb.width / scale + fs * 0.2;
+        const newW = clamp(natW / size.width, MIN_FRAC, 1.5);
+        if (el.align === 'center') patch.x = baseBox.x + baseBox.w / 2 - newW / 2;
+        else if (el.align === 'right') patch.x = baseBox.x + baseBox.w - newW;
+        patch.w = newW;
+      }
+      setBox(sizeId, elId, patch);
+    },
+    [doc.elements, size.width, size.height, scale, setBox],
+  );
+
   // In-place text editing: turn the ACTUAL rendered node inside the iframe into a
   // contenteditable so the caret sits in the real text (WYSIWYG), rather than a
   // floating textarea. Runs once per edit session (keyed on the element id);
@@ -2014,7 +2062,13 @@ export default function AdBuilderPage() {
   onUpRef.current = () => {
     const d = dragRef.current;
     if (d?.kind === 'single') {
-      setBox(d.sizeId, d.elId, d.live);
+      // After resizing a TEXT element, hug the box to the content (no whitespace).
+      const el = doc.elements.find((e) => e.id === d.elId);
+      if (el?.type === 'text' && d.handle !== 'move') {
+        fitTextBox(d.elId, d.sizeId, d.live);
+      } else {
+        setBox(d.sizeId, d.elId, d.live);
+      }
     } else if (d?.kind === 'group' || d?.kind === 'groupresize') {
       setDoc((prev) => {
         const lay = { ...(prev.layouts[d.sizeId] ?? {}) };
