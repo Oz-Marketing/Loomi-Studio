@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BookOpenIcon, HomeIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
+import { HomeIcon } from '@heroicons/react/24/outline';
 
 export default function NotFound() {
   return (
@@ -17,8 +17,8 @@ export default function NotFound() {
         </h1>
 
         <p className="animate-fade-in-up animate-stagger-4 mt-4 max-w-xl text-sm leading-relaxed text-[var(--muted-foreground)] sm:text-base">
-          It may have moved, or the link is just off. Head back to your dashboard,
-          or jump into your templates to keep building.
+          It may have moved, or the link is just off. Head back to your dashboard
+          to keep building.
         </p>
 
         <div className="animate-fade-in-up animate-stagger-5 mt-8 flex flex-wrap gap-3">
@@ -28,15 +28,6 @@ export default function NotFound() {
           >
             <HomeIcon className="h-4 w-4" />
             Go to Dashboard
-          </Link>
-
-          <Link
-            href="/templates"
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--muted)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition hover:border-[var(--primary)]/50 hover:bg-[var(--accent)]"
-          >
-            <BookOpenIcon className="h-4 w-4" />
-            Browse Templates
-            <ArrowRightIcon className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
           </Link>
         </div>
 
