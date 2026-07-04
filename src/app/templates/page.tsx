@@ -11,7 +11,8 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { AD_GENERATOR_ENABLED } from '@/lib/feature-flags';
-import { EmailTemplatesPanel, TemplatesHeaderActionsContext } from '@/app/email/templates/email-templates-view';
+import { EmailTemplatesPanel } from '@/app/email/templates/email-templates-view';
+import { TemplatesHeaderActionsContext } from '@/components/templates/template-header-actions';
 import { FormTemplatesTab } from '@/components/templates/form-templates-tab';
 import { LandingPageTemplatesTab } from '@/components/templates/landing-page-templates-tab';
 import { AdTemplatesTab } from '@/components/templates/ad-templates-tab';

@@ -1,13 +1,11 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
+import { useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-
-// Slot for header-area actions on the embedded templates view (when
-// the parent owns the page title + tabs). ManagementView portals its
-// Create Template + overflow menu into here so the affordances sit
-// in the page header rather than below the tabs.
-export const TemplatesHeaderActionsContext = createContext<HTMLElement | null>(null);
+// The header-actions slot context now lives in the shared header module; re-export
+// so existing importers of it from this view keep working.
+import { TemplatesHeaderActionsContext } from '@/components/templates/template-header-actions';
+export { TemplatesHeaderActionsContext };
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   PlusIcon,

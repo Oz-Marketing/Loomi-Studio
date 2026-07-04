@@ -20,6 +20,7 @@ import { DeployFormModal } from '@/components/forms/deploy-form-modal';
 import { TemplateCard, type TemplateCardAction } from '@/components/templates/template-card';
 import { TemplateLibraryShell } from '@/components/templates/template-library-shell';
 import { TemplateFilterRail } from '@/components/templates/template-filter-rail';
+import { TemplateHeaderActions } from '@/components/templates/template-header-actions';
 import { useTemplateFilters } from '@/components/templates/use-template-filters';
 import type { FormSummary } from '@/lib/services/forms';
 
@@ -80,6 +81,27 @@ export function FormTemplatesTab({ accountKey }: { accountKey?: string }) {
     }
   };
 
+  // Create a blank form template + open the form editor (Email/Ads parity).
+  // Admin (no accountKey) → a system-library template; sub-account → its own.
+  const [creating, setCreating] = useState(false);
+  const handleCreate = async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const res = await fetch('/api/forms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Untitled template', isTemplate: true, ...(accountKey ? { accountKey } : {}) }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      router.push(subHref(`/websites/forms/${json.form.id}/edit`));
+    } catch (err) {
+      toast.error(`Couldn't create: ${err instanceof Error ? err.message : 'unknown error'}`);
+      setCreating(false);
+    }
+  };
+
   const handleDelete = async (form: FormSummary) => {
     const ok = await confirm({
       title: 'Delete template?',
@@ -118,15 +140,18 @@ export function FormTemplatesTab({ accountKey }: { accountKey?: string }) {
 
   if (templates.length === 0) {
     return (
-      <div className="glass-card rounded-2xl px-6 py-14 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-[var(--muted)] flex items-center justify-center mx-auto mb-4">
-          <DocumentTextIcon className="w-7 h-7 text-[var(--muted-foreground)]" />
+      <>
+        <TemplateHeaderActions onCreate={handleCreate} onTagsSaved={() => void mutate()} />
+        <div className="glass-card rounded-2xl px-6 py-14 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-[var(--muted)] flex items-center justify-center mx-auto mb-4">
+            <DocumentTextIcon className="w-7 h-7 text-[var(--muted-foreground)]" />
+          </div>
+          <h3 className="text-lg font-semibold">No form templates yet</h3>
+          <p className="text-sm text-[var(--muted-foreground)] mt-1">
+            Create a template above, or open a form on the Forms page and choose “Save as template”.
+          </p>
         </div>
-        <h3 className="text-lg font-semibold">No form templates yet</h3>
-        <p className="text-sm text-[var(--muted-foreground)] mt-1">
-          Open a form on the Forms page and choose “Save as template” to reuse its design here.
-        </p>
-      </div>
+      </>
     );
   }
 
@@ -145,6 +170,7 @@ export function FormTemplatesTab({ accountKey }: { accountKey?: string }) {
 
   return (
     <>
+      <TemplateHeaderActions onCreate={handleCreate} onTagsSaved={() => void mutate()} />
       <TemplateLibraryShell
         search={filters.search}
         onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}

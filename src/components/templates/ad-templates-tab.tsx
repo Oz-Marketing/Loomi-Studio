@@ -1,6 +1,6 @@
 'use client';
 
-import { useContext, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import useSWR from 'swr';
@@ -22,7 +22,7 @@ import { DeployTemplateModal } from '@/components/ad-generator/deploy-template-m
 import { useAccount } from '@/contexts/account-context';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import PrimaryButton from '@/components/primary-button';
-import { TemplatesHeaderActionsContext } from '@/app/email/templates/email-templates-view';
+import { TemplateHeaderActions } from '@/components/templates/template-header-actions';
 import { TemplateCard, type TemplateCardAction } from '@/components/templates/template-card';
 import { TemplateLibraryShell } from '@/components/templates/template-library-shell';
 import { TemplateFilterRail } from '@/components/templates/template-filter-rail';
@@ -68,7 +68,6 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
   // accounts" for a global (unscoped) template.
   const scopeName = (key: string | null) => (key ? accounts[key]?.dealer ?? key : null);
   const { confirm } = useLoomiDialog();
-  const headerSlot = useContext(TemplatesHeaderActionsContext);
 
   const { data, isLoading, error, mutate } = useSWR<{ templates?: DocTemplate[] }>(
     '/api/ad-generator/templates-doc?all=1',
@@ -272,15 +271,8 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
 
   return (
     <>
-      {/* Primary CTA in the page header (portaled), matching the Email tab. */}
-      {headerSlot &&
-        createPortal(
-          <PrimaryButton onClick={newTemplate}>
-            <PlusIcon className="w-4 h-4" />
-            New template
-          </PrimaryButton>,
-          headerSlot,
-        )}
+      {/* Create + ⋯ Manage tags in the page header (portaled), shared by all tabs. */}
+      <TemplateHeaderActions onCreate={newTemplate} createLabel="New template" onTagsSaved={() => void mutate()} />
 
       {templates.length === 0 ? (
         <div className="glass-card rounded-2xl p-12 text-center flex flex-col items-center">
