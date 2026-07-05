@@ -26,6 +26,7 @@ import { useAccount } from '@/contexts/account-context';
 import { MANAGEMENT_ROLES } from '@/lib/roles';
 import { MediaPickerModal } from '@/components/media-picker-modal';
 import { AccountLogo } from '@/components/account-logo';
+import { MultiSelect } from '@/components/ui/multi-select';
 import { AD_TEMPLATES, ALL_TEMPLATES } from '@/lib/ad-generator/templates';
 import { adTemplateFromDoc } from '@/lib/ad-generator/doc-template';
 import { isVehicleIndustry } from '@/lib/ad-generator/industry';
@@ -264,20 +265,13 @@ export default function AdGeneratorPage() {
     const ids = raw ? raw.split(',').filter(Boolean).filter((id) => template.sizes.some((s) => s.id === id)) : [];
     return ids.length ? ids : template.sizes.map((s) => s.id);
   }, [data._sizes, template]);
-  const toggleSize = (id: string) => {
-    const cur = new Set(selectedSizeIds);
-    let added = false;
-    if (cur.has(id)) {
-      if (cur.size > 1) cur.delete(id); // keep at least one size
-    } else {
-      cur.add(id);
-      added = true;
-    }
-    // Persist in template order.
-    const next = template.sizes.filter((s) => cur.has(s.id)).map((s) => s.id);
+  // Persist the included sizes (multi-select), in template order and never
+  // empty; keep the previewed size within the set.
+  const setSizes = (ids: string[]) => {
+    const next = template.sizes.filter((s) => ids.includes(s.id)).map((s) => s.id);
+    if (next.length === 0) return; // keep at least one
     setData((d) => ({ ...d, _sizes: next.join(',') }));
-    if (added) setSizeId(id); // view a newly-included size
-    else if (!cur.has(sizeId)) setSizeId(next[0]); // removed the viewed one
+    if (!next.includes(sizeId)) setSizeId(next[0]);
   };
   // Keep the previewed size within the included set.
   useEffect(() => {
@@ -560,6 +554,7 @@ export default function AdGeneratorPage() {
 
           {showAutomotiveTools && (
             <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
+              <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Offer</h2>
               {/* Source tabs — where the vehicle + offer come from. */}
               <div className="mb-4 flex items-center gap-5 border-b border-[var(--border)]">
                 {(['oem', 'manual'] as const).map((s) => (
@@ -735,7 +730,7 @@ export default function AdGeneratorPage() {
               const sharesVehicle = isDual && dualVehicleMode === 'same' && /Offer\s*2/i.test(group);
               return (
               <section key={group} className="glass-card rounded-2xl border border-[var(--border)] p-5">
-                <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{group}</h2>
+                <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{!isManager && group === 'Vehicle' ? 'Vehicle color' : group}</h2>
                 {sharesVehicle && (
                   <p className="-mt-2 mb-3 text-[11px] text-[var(--muted-foreground)]">Same vehicle as Offer 1 — switch to “Two models” above to give it its own.</p>
                 )}
@@ -796,26 +791,16 @@ export default function AdGeneratorPage() {
               )}
             </div>
 
-            {/* Multi-select: which sizes this ad includes (toggle in/out). The
-                currently-previewed size gets a ring. */}
-            <div className="mb-4 flex flex-wrap gap-1.5">
-              {template.sizes.map((s) => {
-                const included = selectedSizeIds.includes(s.id);
-                const viewing = s.id === sizeId;
-                return (
-                  <button
-                    key={s.id}
-                    onClick={() => toggleSize(s.id)}
-                    title={included ? `${s.label} — included (click to remove)` : `${s.label} — click to include`}
-                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      included ? 'bg-[var(--primary)]/15 text-[var(--primary)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)]'
-                    } ${viewing ? 'ring-1 ring-[var(--primary)]' : ''}`}
-                  >
-                    {included && <CheckIcon className="h-3 w-3" />}
-                    {s.label.split(' ')[0]}
-                  </button>
-                );
-              })}
+            {/* Which sizes this ad includes — a multi-select so it scales to
+                dozens of presets. The preview below pages through the chosen
+                set; the ZIP export renders exactly these. */}
+            <div className="mb-4">
+              <MultiSelect
+                value={selectedSizeIds}
+                onChange={setSizes}
+                options={template.sizes.map((s) => ({ value: s.id, label: s.label }))}
+                placeholder="Select sizes…"
+              />
             </div>
 
             <div className="flex justify-center rounded-xl bg-[var(--muted)]/40 p-4">
@@ -1030,7 +1015,7 @@ function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, ac
   return (
     <div>
       <p className="mb-3 text-xs text-[var(--muted-foreground)]">
-        Live lease / APR / cash programs from MarketCheck — applying one fills the offer <span className="text-[var(--foreground)]">and</span> the vehicle (name + EVOX image).
+        Pull a current lease / APR / cash offer — applying one fills in the offer <span className="text-[var(--foreground)]">and</span> the vehicle for you.
       </p>
       {/* Two per row so the fields aren't scrunched in the narrow form column. */}
       <div className="grid grid-cols-2 gap-3">
@@ -1205,10 +1190,7 @@ function DisclaimerField({
   if (readOnly) {
     return (
       <div>
-        <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
-          {field.label}
-          <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-normal text-[var(--muted-foreground)]">Managed by your team</span>
-        </label>
+        <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">{field.label}</label>
         <div className="w-full whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2 text-xs leading-snug text-[var(--muted-foreground)]">
           {value || '—'}
         </div>
@@ -1668,7 +1650,6 @@ function VehicleColorPicker({ vehicleName, selectedCode, onPick }: { vehicleName
 
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">Vehicle color</label>
       {!ymm ? (
         <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">
           Choose an offer above to load your vehicle, then pick a color.
