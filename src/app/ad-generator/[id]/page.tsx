@@ -744,14 +744,18 @@ export default function AdGeneratorPage() {
           <div className="glass-card rounded-2xl border border-[var(--border)] p-5">
             <div className="mb-3 flex items-center justify-between gap-2">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Sizes for this ad</span>
-              <Link
-                href={`/ad-generator/builder?ad=${encodeURIComponent(creativeId)}${accountKey ? `&account=${encodeURIComponent(accountKey)}` : ''}`}
-                className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
-                title="Open this ad's layout in the builder"
-              >
-                <Squares2X2Icon className="h-3.5 w-3.5" />
-                Edit design
-              </Link>
+              {/* The builder is a design tool — managers only. Clients never
+                  leave the form + preview. */}
+              {isManager && (
+                <Link
+                  href={`/ad-generator/builder?ad=${encodeURIComponent(creativeId)}${accountKey ? `&account=${encodeURIComponent(accountKey)}` : ''}`}
+                  className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                  title="Open this ad's layout in the builder"
+                >
+                  <Squares2X2Icon className="h-3.5 w-3.5" />
+                  Edit design
+                </Link>
+              )}
             </div>
 
             {/* Multi-select: which sizes this ad includes (toggle in/out). The
@@ -1493,8 +1497,11 @@ function EvoxPickerModal({ onClose, onPick }: { onClose: () => void; onPick: (ur
  */
 function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: string; value: string; onChange: (url: string) => void }) {
   const { accountKey } = useAccount();
-  const [colors, setColors] = useState<EvoxColor[] | null>(null);
-  const [vifnum, setVifnum] = useState<number | null>(null);
+  // EVOX returns colors PER trim, and a given trim may only carry a couple. To
+  // give the client the full palette we flatten colors across every returned
+  // trim and dedupe by color code — each swatch keeps the vifnum it came from
+  // (resolve needs vifnum + colorCode).
+  const [swatches, setSwatches] = useState<{ vifnum: number; color: EvoxColor }[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [notConfigured, setNotConfigured] = useState(false);
   const [picking, setPicking] = useState<string | null>(null);
@@ -1508,8 +1515,7 @@ function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: str
 
   useEffect(() => {
     if (!ymm) {
-      setColors(null);
-      setVifnum(null);
+      setSwatches(null);
       return;
     }
     let cancelled = false;
@@ -1525,15 +1531,23 @@ function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: str
         if (cancelled) return;
         if (j.configured === false) {
           setNotConfigured(true);
-          setColors([]);
+          setSwatches([]);
           return;
         }
-        const v = (j.vehicles ?? [])[0];
-        setVifnum(v?.vifnum ?? null);
-        setColors(v?.colors ?? []);
+        const seen = new Set<string>();
+        const list: { vifnum: number; color: EvoxColor }[] = [];
+        for (const v of j.vehicles ?? []) {
+          for (const color of v.colors ?? []) {
+            const key = color.code || color.simple || color.name;
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            list.push({ vifnum: v.vifnum, color });
+          }
+        }
+        setSwatches(list);
       })
       .catch(() => {
-        if (!cancelled) setColors([]);
+        if (!cancelled) setSwatches([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -1543,14 +1557,14 @@ function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: str
     };
   }, [ymm]);
 
-  async function pickColor(c: EvoxColor) {
-    if (vifnum == null) return;
+  async function pickColor(s: { vifnum: number; color: EvoxColor }) {
+    const c = s.color;
     setPicking(c.code);
     try {
       const r = await fetch('/api/ad-generator/evox/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vifnum, colorCode: c.code, accountKey, hint: `${vehicleName}-${c.simple || c.name || c.code}` }),
+        body: JSON.stringify({ vifnum: s.vifnum, colorCode: c.code, accountKey, hint: `${vehicleName}-${c.simple || c.name || c.code}` }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -1574,18 +1588,20 @@ function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: str
         <p className="text-xs text-[var(--muted-foreground)]">Loading colors for {vehicleName}…</p>
       ) : notConfigured ? (
         <p className="text-xs text-[var(--muted-foreground)]">Vehicle imagery isn’t available in this environment.</p>
-      ) : colors && colors.length ? (
+      ) : swatches && swatches.length ? (
         <>
           {value && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={value} alt="" className="mb-2 h-20 rounded-md border border-[var(--border)] bg-[var(--muted)]/40 object-contain p-1" />
           )}
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {colors.map((c) => (
+            {swatches.map((s) => {
+              const c = s.color;
+              return (
               <button
                 key={c.code}
                 type="button"
-                onClick={() => pickColor(c)}
+                onClick={() => pickColor(s)}
                 disabled={picking !== null}
                 title={c.name || c.code}
                 className="group relative overflow-hidden rounded-lg border border-[var(--border)] p-1.5 text-left transition-colors hover:border-[var(--primary)] disabled:opacity-60"
@@ -1606,7 +1622,8 @@ function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: str
                   <div className="absolute inset-0 flex items-center justify-center bg-[var(--card)]/70 text-[10px] font-medium text-[var(--primary)]">Applying…</div>
                 )}
               </button>
-            ))}
+              );
+            })}
           </div>
         </>
       ) : (
