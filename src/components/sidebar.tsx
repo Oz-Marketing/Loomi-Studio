@@ -181,7 +181,7 @@ function groupContainsPath(item: NavItem, prefix: string, normalizedPath: string
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { userRole, isAdmin, isAccount, accountKey, accounts } = useAccount();
+  const { userRole, isAdmin, isAccount, accountKey, accounts, accountData } = useAccount();
   const { theme, toggleTheme } = useTheme();
   const { collapsed } = useSidebarCollapse();
 
@@ -206,6 +206,22 @@ export function Sidebar() {
   const isClientRole = userRole === 'client';
   const slug = accountKey ? accountKeyToSlug(accountKey, accounts) : null;
   const inSubaccountRoute = isSubaccountRoute(pathname);
+
+  // Clients see THEIR dealership's logo, not the Loomi brand — this shell is
+  // their whole product. Pick the variant that reads on the current sidebar
+  // background (light bg → dark logo, dark bg → light logo), and fall back to
+  // the Loomi logo when the account has no logo set.
+  const clientLogo = isClientRole
+    ? theme === 'light'
+      ? accountData?.logos?.dark || accountData?.logos?.light
+      : accountData?.logos?.light || accountData?.logos?.dark
+    : null;
+  const brandEl = clientLogo ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={clientLogo} alt={accountData?.dealer || 'Account'} className="h-8 w-auto max-w-[150px] object-contain" />
+  ) : (
+    <AppLogo className="h-8 w-auto max-w-[150px] object-contain" />
+  );
 
   let navItems: NavEntry[];
   let prefix = '';
@@ -259,7 +275,7 @@ export function Sidebar() {
 
   return (
     <SidebarFrame
-      brand={<AppLogo className="h-8 w-auto max-w-[150px] object-contain" />}
+      brand={brandEl}
       account={
         // Account switcher sits under the logo (admins/non-clients). Opens
         // downward — clients don't get a switcher (Settings is in the footer).
