@@ -800,6 +800,7 @@ export default function AdGeneratorPage() {
                 onChange={setSizes}
                 options={template.sizes.map((s) => ({ value: s.id, label: s.label }))}
                 placeholder="Select sizes…"
+                searchable
               />
             </div>
 
