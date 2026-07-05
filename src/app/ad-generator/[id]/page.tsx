@@ -675,17 +675,19 @@ export default function AdGeneratorPage() {
               let shown = fields.filter(
                 (f) => !(isDual && dualVehicleMode === 'same' && (f.key === 'o2_vehicleName' || f.key === 'o2_vehicleImageUrl')),
               );
-              // Clients can only touch the OFFER(S) and the VEHICLE COLOR. The
-              // color is chosen through the vehicle image picker (…ImageUrl →
-              // EVOX swatches), so we surface that field plus the offer inputs
-              // and hide everything else — vehicle name, Legal, Copy, branding.
-              // The full ad (incl. those locked parts) still renders in the
-              // preview; clients see it, they just can't edit it.
+              // Clients can touch the OFFER(S), the VEHICLE COLOR, and the
+              // Legal fields they're responsible for (VIN / stock — the
+              // disclaimer stays read-only + auto-composed). The color is
+              // chosen through the vehicle image field (…ImageUrl → a
+              // client-only color picker). Everything else — vehicle name,
+              // Copy, branding — is hidden from the form but still rendered in
+              // the live preview; clients see it, they just can't edit it.
               if (!isManager) {
                 shown = shown.filter((f) => {
-                  if (/vehicleimageurl/i.test(f.key)) return true; // vehicle color picker
                   if (/vehiclename/i.test(f.key)) return false; // don't let clients switch the vehicle
-                  return group.startsWith('Offer'); // offer inputs only
+                  if (/vehicleimageurl/i.test(f.key)) return true; // vehicle color picker
+                  if (group === 'Legal') return true; // VIN / stock (+ read-only disclaimer)
+                  return group.startsWith('Offer'); // offer inputs
                 });
               }
               return [group, shown] as const;
@@ -701,20 +703,36 @@ export default function AdGeneratorPage() {
                   <p className="-mt-2 mb-3 text-[11px] text-[var(--muted-foreground)]">Same vehicle as Offer 1 — switch to “Two models” above to give it its own.</p>
                 )}
                 <div className="space-y-4">
-                  {shown.map((f) =>
-                    f.key === 'disclaimer' ? (
-                      <DisclaimerField
-                        key={f.key}
-                        field={f}
-                        renderData={renderData}
-                        value={data.disclaimer ?? ''}
-                        onChange={(v) => set('disclaimer', v)}
-                        readOnly={!isManager}
-                      />
-                    ) : (
-                      <Field key={f.key} field={f} value={data[f.key] ?? ''} onChange={(v) => set(f.key, v)} allowVehiclePicker={showAutomotiveTools} />
-                    ),
-                  )}
+                  {shown.map((f) => {
+                    if (f.key === 'disclaimer') {
+                      return (
+                        <DisclaimerField
+                          key={f.key}
+                          field={f}
+                          renderData={renderData}
+                          value={data.disclaimer ?? ''}
+                          onChange={(v) => set('disclaimer', v)}
+                          readOnly={!isManager}
+                        />
+                      );
+                    }
+                    // Clients don't get the full image field (URL / library /
+                    // vehicle search) — just the paint colors EVOX has for the
+                    // vehicle the offer already picked. Managers keep the full
+                    // field. `o2_vehicleImageUrl` pairs with `o2_vehicleName`.
+                    if (!isManager && /vehicleimageurl/i.test(f.key)) {
+                      const nameKey = f.key.replace(/vehicleImageUrl$/i, 'vehicleName');
+                      return (
+                        <VehicleColorPicker
+                          key={f.key}
+                          vehicleName={data[nameKey] ?? data.vehicleName ?? ''}
+                          value={data[f.key] ?? ''}
+                          onChange={(v) => set(f.key, v)}
+                        />
+                      );
+                    }
+                    return <Field key={f.key} field={f} value={data[f.key] ?? ''} onChange={(v) => set(f.key, v)} allowVehiclePicker={showAutomotiveTools} />;
+                  })}
                 </div>
               </section>
               );
@@ -1462,6 +1480,139 @@ function EvoxPickerModal({ onClose, onPick }: { onClose: () => void; onPick: (ur
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * Client-facing vehicle color picker. The vehicle itself is already decided by
+ * the chosen offer / OEM incentive (it lives in `vehicleName`), so clients
+ * never search — they just pick from the paint colors EVOX actually stocks for
+ * that vehicle. Picking one resolves the transparent PNG (re-hosted server
+ * side) and sets the image field. Until an offer names a vehicle, it shows a
+ * gentle hint instead of an empty grid.
+ */
+function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: string; value: string; onChange: (url: string) => void }) {
+  const { accountKey } = useAccount();
+  const [colors, setColors] = useState<EvoxColor[] | null>(null);
+  const [vifnum, setVifnum] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [notConfigured, setNotConfigured] = useState(false);
+  const [picking, setPicking] = useState<string | null>(null);
+
+  // Parse "2026 Honda Accord" → year / make / model (the shape the incentive
+  // apply writes). Anything that doesn't match → no vehicle yet.
+  const ymm = useMemo(() => {
+    const m = vehicleName.trim().match(/^(\d{4})\s+(\S+)\s+(.+)$/);
+    return m ? { year: Number(m[1]), make: m[2], model: m[3] } : null;
+  }, [vehicleName]);
+
+  useEffect(() => {
+    if (!ymm) {
+      setColors(null);
+      setVifnum(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setNotConfigured(false);
+    fetch('/api/ad-generator/evox/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year: ymm.year, make: ymm.make, model: ymm.model }),
+    })
+      .then((r) => r.json())
+      .then((j: { configured?: boolean; vehicles?: EvoxVehicle[] }) => {
+        if (cancelled) return;
+        if (j.configured === false) {
+          setNotConfigured(true);
+          setColors([]);
+          return;
+        }
+        const v = (j.vehicles ?? [])[0];
+        setVifnum(v?.vifnum ?? null);
+        setColors(v?.colors ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setColors([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ymm]);
+
+  async function pickColor(c: EvoxColor) {
+    if (vifnum == null) return;
+    setPicking(c.code);
+    try {
+      const r = await fetch('/api/ad-generator/evox/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vifnum, colorCode: c.code, accountKey, hint: `${vehicleName}-${c.simple || c.name || c.code}` }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      onChange(j.url);
+      toast.success('Color updated');
+    } catch (err) {
+      toast.error(`Couldn't switch color: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setPicking(null);
+    }
+  }
+
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">Vehicle color</label>
+      {!ymm ? (
+        <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">
+          Choose an offer above to load your vehicle, then pick a color.
+        </p>
+      ) : loading ? (
+        <p className="text-xs text-[var(--muted-foreground)]">Loading colors for {vehicleName}…</p>
+      ) : notConfigured ? (
+        <p className="text-xs text-[var(--muted-foreground)]">Vehicle imagery isn’t available in this environment.</p>
+      ) : colors && colors.length ? (
+        <>
+          {value && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={value} alt="" className="mb-2 h-20 rounded-md border border-[var(--border)] bg-[var(--muted)]/40 object-contain p-1" />
+          )}
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {colors.map((c) => (
+              <button
+                key={c.code}
+                type="button"
+                onClick={() => pickColor(c)}
+                disabled={picking !== null}
+                title={c.name || c.code}
+                className="group relative overflow-hidden rounded-lg border border-[var(--border)] p-1.5 text-left transition-colors hover:border-[var(--primary)] disabled:opacity-60"
+              >
+                <div className="flex h-16 items-center justify-center rounded bg-[var(--muted)]/40">
+                  {c.thumbUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.thumbUrl} alt={c.name} className="max-h-full max-w-full object-contain" />
+                  ) : (
+                    <span className="h-6 w-6 rounded-full border border-[var(--border)]" style={{ background: c.rgb ? `#${c.rgb.replace('#', '')}` : '#cbd5e1' }} />
+                  )}
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="h-3 w-3 flex-shrink-0 rounded-full border border-[var(--border)]" style={{ background: c.rgb ? `#${c.rgb.replace('#', '')}` : 'transparent' }} />
+                  <span className="truncate text-[10px] text-[var(--muted-foreground)]">{c.simple || c.name || c.code}</span>
+                </div>
+                {picking === c.code && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[var(--card)]/70 text-[10px] font-medium text-[var(--primary)]">Applying…</div>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="text-xs text-[var(--muted-foreground)]">No stock colors found for {vehicleName}.</p>
+      )}
+    </div>
   );
 }
 
