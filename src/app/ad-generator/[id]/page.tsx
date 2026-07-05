@@ -379,6 +379,18 @@ export default function AdGeneratorPage() {
 
   const set = (key: string, value: string) => setData((d) => ({ ...d, [key]: value }));
 
+  // In the client automotive flow the offer inputs live INSIDE the source panel
+  // (under "Manual entry"), not as a separate card — so pull the offer-group
+  // fields out here (minus the vehicle name/image, which the color picker owns).
+  const offerFieldsForPanel = useMemo(
+    () =>
+      groups
+        .filter(([g]) => g.startsWith('Offer'))
+        .flatMap(([, fs]) => fs)
+        .filter((f) => !/vehiclename|vehicleimageurl/i.test(f.key)),
+    [groups],
+  );
+
   async function download(targetSizeId: string) {
     setBusy(targetSizeId);
     try {
@@ -580,6 +592,15 @@ export default function AdGeneratorPage() {
                   accountKey={accountKey ?? undefined}
                   onApply={(patch) => setData((d) => ({ ...d, ...patch }))}
                 />
+              ) : !isManager ? (
+                // Clients enter the offer right here under "Manual entry" — no
+                // separate Offer card. (Managers keep the standalone Offer card
+                // below, so this is just a pointer for them.)
+                <div className="space-y-4">
+                  {offerFieldsForPanel.map((f) => (
+                    <Field key={f.key} field={f} value={data[f.key] ?? ''} onChange={(v) => set(f.key, v)} allowVehiclePicker={showAutomotiveTools} />
+                  ))}
+                </div>
               ) : (
                 <p className="text-xs text-[var(--muted-foreground)]">Enter the vehicle and offer details by hand in the cards below.</p>
               )}
@@ -687,7 +708,11 @@ export default function AdGeneratorPage() {
                   if (/vehiclename/i.test(f.key)) return false; // don't let clients switch the vehicle
                   if (/vehicleimageurl/i.test(f.key)) return true; // vehicle color picker
                   if (group === 'Legal') return true; // VIN / stock (+ read-only disclaimer)
-                  return group.startsWith('Offer'); // offer inputs
+                  // Offer inputs move INTO the OEM/Manual panel on the
+                  // automotive flow; only keep them as their own card when
+                  // there's no such panel (non-vehicle template).
+                  if (group.startsWith('Offer')) return !showAutomotiveTools;
+                  return false;
                 });
               }
               return [group, shown] as const;
@@ -722,12 +747,13 @@ export default function AdGeneratorPage() {
                     // field. `o2_vehicleImageUrl` pairs with `o2_vehicleName`.
                     if (!isManager && /vehicleimageurl/i.test(f.key)) {
                       const nameKey = f.key.replace(/vehicleImageUrl$/i, 'vehicleName');
+                      const codeKey = f.key.replace(/vehicleImageUrl$/i, 'vehicleColorCode');
                       return (
                         <VehicleColorPicker
                           key={f.key}
                           vehicleName={data[nameKey] ?? data.vehicleName ?? ''}
-                          value={data[f.key] ?? ''}
-                          onChange={(v) => set(f.key, v)}
+                          selectedCode={data[codeKey] ?? ''}
+                          onPick={(url, code) => setData((d) => ({ ...d, [f.key]: url, [codeKey]: code }))}
                         />
                       );
                     }
@@ -1487,20 +1513,40 @@ function EvoxPickerModal({ onClose, onPick }: { onClose: () => void; onPick: (ur
   );
 }
 
+/** Approximate a display swatch color from an EVOX color's NAME — this product
+ *  returns names ("Ice Silver Metallic") but no RGB, so we map keywords to a
+ *  representative hex. Falls back to RGB when present, then a neutral chip. */
+const COLOR_NAME_HEX: [RegExp, string][] = [
+  [/white|ivory|frost/i, '#eceef0'],
+  [/black|ebony|obsidian|midnight/i, '#1b1b1e'],
+  [/silver|platinum|aluminum|titanium/i, '#c3c8cc'],
+  [/gr[ae]y|graphite|magnetite|slate|charcoal|gunmetal|steel/i, '#8b9095'],
+  [/red|crimson|scarlet|cardinal|garnet|ruby/i, '#c1201f'],
+  [/blue|navy|azure|cobalt|indigo|teal/i, '#1e50a8'],
+  [/green|emerald|olive|forest|lime/i, '#2f7d4f'],
+  [/yellow|gold|amber/i, '#e3b23c'],
+  [/orange|copper|sunset/i, '#d9682a'],
+  [/brown|bronze|tan|beige|mocha|espresso|sand/i, '#7c6242'],
+  [/purple|violet|plum|magenta/i, '#6a3d9a'],
+  [/pink|rose/i, '#dd6a8f'],
+];
+function colorNameToHex(c: EvoxColor): string {
+  if (c.rgb) return `#${c.rgb.replace('#', '')}`;
+  const hay = `${c.simple} ${c.name}`;
+  for (const [re, hex] of COLOR_NAME_HEX) if (re.test(hay)) return hex;
+  return '#cbd5e1';
+}
+
 /**
  * Client-facing vehicle color picker. The vehicle itself is already decided by
  * the chosen offer / OEM incentive (it lives in `vehicleName`), so clients
- * never search — they just pick from the paint colors EVOX actually stocks for
- * that vehicle. Picking one resolves the transparent PNG (re-hosted server
- * side) and sets the image field. Until an offer names a vehicle, it shows a
- * gentle hint instead of an empty grid.
+ * never search — they pick from the paint colors EVOX stocks for that vehicle.
+ * Picking one resolves the transparent PNG (re-hosted server side) into the ad.
+ * We DON'T show the car image here — the live ad preview already reflects it.
+ * Until an offer names a vehicle, it shows a gentle hint instead of an empty grid.
  */
-function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: string; value: string; onChange: (url: string) => void }) {
+function VehicleColorPicker({ vehicleName, selectedCode, onPick }: { vehicleName: string; selectedCode: string; onPick: (url: string, colorCode: string) => void }) {
   const { accountKey } = useAccount();
-  // EVOX returns colors PER trim, and a given trim may only carry a couple. To
-  // give the client the full palette we flatten colors across every returned
-  // trim and dedupe by color code — each swatch keeps the vifnum it came from
-  // (resolve needs vifnum + colorCode).
   const [swatches, setSwatches] = useState<{ vifnum: number; color: EvoxColor }[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [notConfigured, setNotConfigured] = useState(false);
@@ -1534,11 +1580,14 @@ function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: str
           setSwatches([]);
           return;
         }
+        // Flatten colors across every returned trim, deduped by full color
+        // NAME — EVOX repeats a color across trims, and different codes can
+        // share a simple label like "Silver", so name is the clearest key.
         const seen = new Set<string>();
         const list: { vifnum: number; color: EvoxColor }[] = [];
         for (const v of j.vehicles ?? []) {
           for (const color of v.colors ?? []) {
-            const key = color.code || color.simple || color.name;
+            const key = (color.name || color.simple || color.code || '').toLowerCase();
             if (!key || seen.has(key)) continue;
             seen.add(key);
             list.push({ vifnum: v.vifnum, color });
@@ -1568,7 +1617,7 @@ function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: str
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      onChange(j.url);
+      onPick(j.url, c.code);
       toast.success('Color updated');
     } catch (err) {
       toast.error(`Couldn't switch color: ${err instanceof Error ? err.message : 'unknown error'}`);
@@ -1589,43 +1638,32 @@ function VehicleColorPicker({ vehicleName, value, onChange }: { vehicleName: str
       ) : notConfigured ? (
         <p className="text-xs text-[var(--muted-foreground)]">Vehicle imagery isn’t available in this environment.</p>
       ) : swatches && swatches.length ? (
-        <>
-          {value && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={value} alt="" className="mb-2 h-20 rounded-md border border-[var(--border)] bg-[var(--muted)]/40 object-contain p-1" />
-          )}
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {swatches.map((s) => {
-              const c = s.color;
-              return (
+        <div className="flex flex-wrap gap-2">
+          {swatches.map((s) => {
+            const c = s.color;
+            const selected = !!selectedCode && selectedCode === c.code;
+            return (
               <button
                 key={c.code}
                 type="button"
                 onClick={() => pickColor(s)}
                 disabled={picking !== null}
-                title={c.name || c.code}
-                className="group relative overflow-hidden rounded-lg border border-[var(--border)] p-1.5 text-left transition-colors hover:border-[var(--primary)] disabled:opacity-60"
+                title={c.name || c.simple || c.code}
+                className={`flex items-center gap-2 rounded-full border py-1 pl-1 pr-3 transition-colors disabled:opacity-60 ${
+                  selected ? 'border-[var(--primary)] ring-1 ring-[var(--primary)]' : 'border-[var(--border)] hover:border-[var(--primary)]'
+                }`}
               >
-                <div className="flex h-16 items-center justify-center rounded bg-[var(--muted)]/40">
-                  {c.thumbUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={c.thumbUrl} alt={c.name} className="max-h-full max-w-full object-contain" />
-                  ) : (
-                    <span className="h-6 w-6 rounded-full border border-[var(--border)]" style={{ background: c.rgb ? `#${c.rgb.replace('#', '')}` : '#cbd5e1' }} />
-                  )}
-                </div>
-                <div className="mt-1 flex items-center gap-1.5">
-                  <span className="h-3 w-3 flex-shrink-0 rounded-full border border-[var(--border)]" style={{ background: c.rgb ? `#${c.rgb.replace('#', '')}` : 'transparent' }} />
-                  <span className="truncate text-[10px] text-[var(--muted-foreground)]">{c.simple || c.name || c.code}</span>
-                </div>
-                {picking === c.code && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[var(--card)]/70 text-[10px] font-medium text-[var(--primary)]">Applying…</div>
-                )}
+                <span
+                  className="relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-black/10 shadow-inner"
+                  style={{ background: colorNameToHex(c) }}
+                >
+                  {picking === c.code && <span className="text-[9px] font-bold text-white mix-blend-difference">…</span>}
+                </span>
+                <span className="truncate text-[11px] font-medium text-[var(--foreground)]">{c.name || c.simple || c.code}</span>
               </button>
-              );
-            })}
-          </div>
-        </>
+            );
+          })}
+        </div>
       ) : (
         <p className="text-xs text-[var(--muted-foreground)]">No stock colors found for {vehicleName}.</p>
       )}
