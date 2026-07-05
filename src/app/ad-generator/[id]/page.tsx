@@ -669,16 +669,30 @@ export default function AdGeneratorPage() {
           )}
 
           {groups
-            // Clients only see OEM Incentives (its own panel above) + Vehicle /
-            // Offer(s) / Legal (+ Shared, e.g. expiration). Everything else
-            // (Copy/Headline, Background, etc.) is admin-only.
-            .filter(([group]) => isManager || group === 'Vehicle' || group === 'Legal' || group === 'Shared' || group.startsWith('Offer'))
             .map(([group, fields]) => {
               // Same-model dual: Offer 2 rides Offer 1's vehicle, so hide its
               // vehicle inputs (they're auto-synced).
-              const shown = fields.filter(
+              let shown = fields.filter(
                 (f) => !(isDual && dualVehicleMode === 'same' && (f.key === 'o2_vehicleName' || f.key === 'o2_vehicleImageUrl')),
               );
+              // Clients can only touch the OFFER(S) and the VEHICLE COLOR. The
+              // color is chosen through the vehicle image picker (…ImageUrl →
+              // EVOX swatches), so we surface that field plus the offer inputs
+              // and hide everything else — vehicle name, Legal, Copy, branding.
+              // The full ad (incl. those locked parts) still renders in the
+              // preview; clients see it, they just can't edit it.
+              if (!isManager) {
+                shown = shown.filter((f) => {
+                  if (/vehicleimageurl/i.test(f.key)) return true; // vehicle color picker
+                  if (/vehiclename/i.test(f.key)) return false; // don't let clients switch the vehicle
+                  return group.startsWith('Offer'); // offer inputs only
+                });
+              }
+              return [group, shown] as const;
+            })
+            // Drop groups that have nothing left to show (e.g. Legal for clients).
+            .filter(([, shown]) => shown.length > 0)
+            .map(([group, shown]) => {
               const sharesVehicle = isDual && dualVehicleMode === 'same' && /Offer\s*2/i.test(group);
               return (
               <section key={group} className="glass-card rounded-2xl border border-[var(--border)] p-5">

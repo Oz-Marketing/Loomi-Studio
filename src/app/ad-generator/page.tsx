@@ -90,10 +90,12 @@ export default function AdGeneratorListPage() {
   // Resolution list (incl. retired templates) — for rendering existing ads.
   const templates = useMemo(() => [...ALL_TEMPLATES, ...dbTemplates], [dbTemplates]);
   // Picker list — only OFFERED templates, scoped to this account's industry
-  // (non-automotive sees none for now).
+  // (non-automotive sees none for now). Clients pick ONLY from templates a
+  // designer published to their subaccount (dbTemplates, already scoped by the
+  // API) — never the built-in code starters.
   const pickerTemplates = useMemo(
-    () => [...AD_TEMPLATES, ...dbTemplates].filter((t) => templateInIndustry(t, accountData?.category)),
-    [dbTemplates, accountData?.category],
+    () => [...(isManager ? AD_TEMPLATES : []), ...dbTemplates].filter((t) => templateInIndustry(t, accountData?.category)),
+    [dbTemplates, accountData?.category, isManager],
   );
 
   useEffect(() => {
@@ -229,7 +231,9 @@ export default function AdGeneratorListPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            {/* Settings cog → management links (Ad Sizes, Template Builder) */}
+            {/* Settings cog → management links (Ad Sizes, Template Builder).
+                Managers only — clients get a bare create-and-export surface. */}
+            {isManager && (
             <div className="relative" ref={cogRef}>
               <button
                 type="button"
@@ -275,8 +279,12 @@ export default function AdGeneratorListPage() {
                 </div>
               )}
             </div>
+            )}
 
-            {/* New ad → from the template library, or from scratch in the builder */}
+            {/* New ad. Managers get a split menu (template library or a
+                from-scratch build); clients get a single button that opens the
+                template picker — they never touch the builder. */}
+            {isManager ? (
             <div className="relative" ref={newRef}>
               <button
                 type="button"
@@ -322,6 +330,17 @@ export default function AdGeneratorListPage() {
                 </div>
               )}
             </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setPickerOpen(true)}
+                disabled={!accountKey}
+                className="flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <PlusIcon className="w-4 h-4" />
+                New ad
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -436,7 +455,11 @@ export default function AdGeneratorListPage() {
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <h2 className="text-sm font-bold text-[var(--foreground)]">Start a new ad</h2>
-                <p className="text-xs text-[var(--muted-foreground)]">Pick a template to begin. You can edit everything after.</p>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  {isManager
+                    ? 'Pick a template to begin. You can edit everything after.'
+                    : 'Pick a template, then fill in your offer and vehicle.'}
+                </p>
               </div>
               <button onClick={() => setPickerOpen(false)} className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
                 <XMarkIcon className="h-5 w-5" />
@@ -444,19 +467,27 @@ export default function AdGeneratorListPage() {
             </div>
             {pickerTemplates.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[var(--border)] p-8 text-center">
-                <p className="text-sm text-[var(--muted-foreground)]">No templates for this account&rsquo;s industry yet.</p>
-                <button
-                  type="button"
-                  disabled={creating}
-                  onClick={() => {
-                    setPickerOpen(false);
-                    setScratchOpen(true);
-                  }}
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  <Squares2X2Icon className="h-4 w-4" />
-                  Start from scratch
-                </button>
+                {isManager ? (
+                  <>
+                    <p className="text-sm text-[var(--muted-foreground)]">No templates for this account&rsquo;s industry yet.</p>
+                    <button
+                      type="button"
+                      disabled={creating}
+                      onClick={() => {
+                        setPickerOpen(false);
+                        setScratchOpen(true);
+                      }}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    >
+                      <Squares2X2Icon className="h-4 w-4" />
+                      Start from scratch
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-sm text-[var(--muted-foreground)]">
+                    No ad templates have been published for your account yet. Your Loomi team will add this month&rsquo;s offer template here.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
