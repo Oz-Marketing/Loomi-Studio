@@ -1225,6 +1225,7 @@ model LandingPageEvent {
 // ─────────────────────────────────────────────────────
 
 model SmsBlast {
+  @@map("SmsCampaign")
   id               String    @id @default(cuid())
   name             String?
   // Per-(flow,node) wrapper key — see EmailBlast.flowNodeKey.
@@ -1275,6 +1276,7 @@ model SmsBlast {
 }
 
 model SmsBlastRecipient {
+  @@map("SmsCampaignRecipient")
   id             String      @id @default(cuid())
   campaignId     String
   campaign       SmsBlast @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -1407,6 +1409,7 @@ model Campaign {
 }
 
 model EmailBlast {
+  @@map("EmailCampaign")
   id               String    @id @default(cuid())
   name             String?
   // Set ONLY on the per-(flow,node) wrapper campaigns the flow engine
@@ -1465,6 +1468,7 @@ model EmailBlast {
 }
 
 model EmailBlastRecipient {
+  @@map("EmailCampaignRecipient")
   id         String        @id @default(cuid())
   campaignId String
   campaign   EmailBlast @relation(fields: [campaignId], references: [id], onDelete: Cascade)
