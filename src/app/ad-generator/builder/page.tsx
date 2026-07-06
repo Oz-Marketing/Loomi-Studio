@@ -551,6 +551,15 @@ export default function AdBuilderPage() {
   // Templates → Ads tab).
   const deepLinkedRef = useRef(false);
 
+  // A NEW (unsaved) template inherits the active account's scope: building
+  // inside a subaccount publishes ONLY to that subaccount; building on the
+  // Admin account (accountKey null) publishes global ("All accounts"). A loaded
+  // template keeps its own stored scope (loadTemplate sets both id + scope), so
+  // we only sync while there's no template id and we're not in ad mode.
+  useEffect(() => {
+    if (!templateId && !adId) setScopeAccount(accountKey ?? null);
+  }, [accountKey, templateId, adId]);
+
   const size = useMemo(() => doc.sizes.find((s) => s.id === sizeId) ?? doc.sizes[0], [doc, sizeId]);
 
   // Account custom fonts: drive both the dropdown and the @font-face the canvas
