@@ -7,9 +7,9 @@
  * useTemplateFilters. Optional `extraSections` lets a tab add its own facet
  * (e.g. Email's lifecycle/design Type filter).
  */
-import { FolderIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, XMarkIcon, BuildingStorefrontIcon, GlobeAltIcon } from '@heroicons/react/24/outline';
 import { getTagColor } from '@/lib/tag-colors';
-import type { TemplateFilterState, TemplateFilterFacets, StatusValue } from './use-template-filters';
+import { GLOBAL_SCOPE, type TemplateFilterState, type TemplateFilterFacets, type StatusValue } from './use-template-filters';
 
 export interface FilterRailExtraSection {
   key: string;
@@ -63,6 +63,7 @@ export function TemplateFilterRail({
   reset,
   showStatus = false,
   extraSections = [],
+  accountLabels,
 }: {
   filters: TemplateFilterState;
   setFilters: (updater: (f: TemplateFilterState) => TemplateFilterState) => void;
@@ -71,14 +72,22 @@ export function TemplateFilterRail({
   reset: () => void;
   showStatus?: boolean;
   extraSections?: FilterRailExtraSection[];
+  /** Maps an account key → display name for the Subaccount section. */
+  accountLabels?: Record<string, string>;
 }) {
   const setCategory = (value: string | null) =>
     setFilters((f) => ({ ...f, category: f.category === value ? null : value }));
   const toggleTag = (value: string) =>
     setFilters((f) => ({ ...f, tags: f.tags.includes(value) ? f.tags.filter((t) => t !== value) : [...f.tags, value] }));
   const setStatus = (value: StatusValue) => setFilters((f) => ({ ...f, status: value }));
+  const setAccount = (value: string | null) =>
+    setFilters((f) => ({ ...f, accountKey: f.accountKey === value ? null : value }));
 
-  const nothing = facets.categories.length === 0 && facets.tags.length === 0 && extraSections.length === 0 && !showStatus;
+  // Only worth showing when templates span more than one scope (e.g. Admin sees
+  // global + several subaccounts). A single bucket = nothing to filter.
+  const showAccounts = facets.accounts.length > 1;
+  const nothing =
+    facets.categories.length === 0 && facets.tags.length === 0 && extraSections.length === 0 && !showStatus && !showAccounts;
   if (nothing) return null;
 
   return (
@@ -108,6 +117,24 @@ export function TemplateFilterRail({
               {s.label}
             </Row>
           ))}
+        </Section>
+      )}
+
+      {showAccounts && (
+        <Section title="Subaccount">
+          {facets.accounts.map((a) => {
+            const isGlobal = a.value === GLOBAL_SCOPE;
+            const label = isGlobal ? 'All accounts' : accountLabels?.[a.value] ?? a.value;
+            const Icon = isGlobal ? GlobeAltIcon : BuildingStorefrontIcon;
+            return (
+              <Row key={a.value} active={filters.accountKey === a.value} onClick={() => setAccount(a.value)} count={a.count}>
+                <span className="inline-flex items-center gap-1">
+                  <Icon className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate">{label}</span>
+                </span>
+              </Row>
+            );
+          })}
         </Section>
       )}
 
