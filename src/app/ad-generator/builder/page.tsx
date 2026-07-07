@@ -74,6 +74,7 @@ import { vehicleOfferDoc, vehicleOfferPreviewData } from '@/lib/ad-generator/tem
 import { singleOfferDoc, dualOfferDoc } from '@/lib/ad-generator/templates/offer-docs';
 import { blankTemplateDoc } from '@/lib/ad-generator/doc-template';
 import { DatePicker, type DateRange } from '@/components/ui/date-picker';
+import { MultiSelect } from '@/components/ui/multi-select';
 import { DeployTemplateModal } from '@/components/ad-generator/deploy-template-modal';
 import { enrichOfferFields } from '@/lib/ad-generator/offer-text';
 import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } from '@/lib/ad-generator/layer-tree';
@@ -525,7 +526,7 @@ export default function AdBuilderPage() {
 
   // Reusable blocks (saved element clusters) available to insert here: global +
   // this account's own. `blockDraft` opens the save dialog with a built payload.
-  type BlockRow = { id: string; name: string; accountKey: string | null; doc: BlockPayload };
+  type BlockRow = { id: string; name: string; accountKey: string | null; accountKeys: string[]; doc: BlockPayload };
   const [blocks, setBlocks] = useState<BlockRow[]>([]);
   const [blockDraft, setBlockDraft] = useState<BlockPayload | null>(null);
 
@@ -3155,7 +3156,7 @@ export default function AdBuilderPage() {
                     >
                       <span className="truncate">{b.name}</span>
                       <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)]">
-                        {b.accountKey ? 'Account' : 'Global'}
+                        {b.accountKeys?.length ? `${b.accountKeys.length} acct${b.accountKeys.length > 1 ? 's' : ''}` : 'Global'}
                       </span>
                     </button>
                     <button
@@ -4052,8 +4053,10 @@ export default function AdBuilderPage() {
       {blockDraft && (
         <SaveBlockDialog
           payload={blockDraft}
-          accountKey={accountKey ?? null}
-          accountLabel={accountData?.dealer ?? 'This account'}
+          accountOptions={Object.entries(accounts)
+            .map(([key, a]) => ({ value: key, label: a.dealer || key }))
+            .sort((x, y) => x.label.localeCompare(y.label))}
+          defaultAccountKeys={accountKey ? [accountKey] : []}
           onCancel={() => setBlockDraft(null)}
           onSaved={() => {
             setBlockDraft(null);
@@ -5558,31 +5561,36 @@ function DetachedVisual({
 }
 
 /**
- * Dialog to save the current selection as a reusable block. Name + scope
- * (Global vs the current subaccount, when the builder is in one). POSTs to the
+ * Dialog to save the current selection as a reusable block. Name + scope —
+ * All accounts (global) or a multi-select of specific subaccounts. POSTs to the
  * blocks API and calls onSaved so the Insert panel refreshes.
  */
 function SaveBlockDialog({
   payload,
-  accountKey,
-  accountLabel,
+  accountOptions,
+  defaultAccountKeys,
   onCancel,
   onSaved,
 }: {
   payload: BlockPayload;
-  accountKey: string | null;
-  accountLabel: string;
+  accountOptions: { value: string; label: string }[];
+  defaultAccountKeys: string[];
   onCancel: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState('');
-  const [scope, setScope] = useState<'global' | 'account'>(accountKey ? 'account' : 'global');
+  const [scope, setScope] = useState<'global' | 'accounts'>(defaultAccountKeys.length ? 'accounts' : 'global');
+  const [selected, setSelected] = useState<string[]>(defaultAccountKeys);
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error('Give the block a name');
+      return;
+    }
+    if (scope === 'accounts' && selected.length === 0) {
+      toast.error('Pick at least one subaccount (or choose All accounts)');
       return;
     }
     setSaving(true);
@@ -5592,7 +5600,7 @@ function SaveBlockDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: trimmed,
-          accountKey: scope === 'account' ? accountKey : null,
+          accountKeys: scope === 'accounts' ? selected : [],
           doc: payload,
         }),
       });
@@ -5632,10 +5640,10 @@ function SaveBlockDialog({
           className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--input)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
         />
         <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Available to</label>
-        <div className="mb-5 flex gap-2">
+        <div className="mb-3 flex gap-2">
           {([
             { key: 'global' as const, label: 'All accounts' },
-            ...(accountKey ? [{ key: 'account' as const, label: `${accountLabel} only` }] : []),
+            { key: 'accounts' as const, label: 'Specific subaccounts' },
           ]).map((opt) => (
             <button
               key={opt.key}
@@ -5651,6 +5659,17 @@ function SaveBlockDialog({
             </button>
           ))}
         </div>
+        {scope === 'accounts' && (
+          <div className="mb-5">
+            <MultiSelect
+              value={selected}
+              onChange={setSelected}
+              options={accountOptions}
+              placeholder="Select subaccounts…"
+            />
+          </div>
+        )}
+        {scope === 'global' && <div className="mb-5" />}
         <div className="flex justify-end gap-2">
           <button
             type="button"
