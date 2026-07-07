@@ -7,7 +7,7 @@
  * useTemplateFilters. Optional `extraSections` lets a tab add its own facet
  * (e.g. Email's lifecycle/design Type filter).
  */
-import { FolderIcon, XMarkIcon, BuildingStorefrontIcon, GlobeAltIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, XMarkIcon, BuildingStorefrontIcon, GlobeAltIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { getTagColor } from '@/lib/tag-colors';
 import { GLOBAL_SCOPE, type TemplateFilterState, type TemplateFilterFacets, type StatusValue } from './use-template-filters';
 
@@ -64,6 +64,8 @@ export function TemplateFilterRail({
   showStatus = false,
   extraSections = [],
   accountLabels,
+  search,
+  onSearch,
 }: {
   filters: TemplateFilterState;
   setFilters: (updater: (f: TemplateFilterState) => TemplateFilterState) => void;
@@ -74,6 +76,10 @@ export function TemplateFilterRail({
   extraSections?: FilterRailExtraSection[];
   /** Maps an account key → display name for the Subaccount section. */
   accountLabels?: Record<string, string>;
+  /** Search box lives at the top of the rail (under the Filters label). Omit
+   *  onSearch to hide it. */
+  search?: string;
+  onSearch?: (value: string) => void;
 }) {
   const setCategory = (value: string | null) =>
     setFilters((f) => ({ ...f, category: f.category === value ? null : value }));
@@ -87,7 +93,12 @@ export function TemplateFilterRail({
   // global + several subaccounts). A single bucket = nothing to filter.
   const showAccounts = facets.accounts.length > 1;
   const nothing =
-    facets.categories.length === 0 && facets.tags.length === 0 && extraSections.length === 0 && !showStatus && !showAccounts;
+    facets.categories.length === 0 &&
+    facets.tags.length === 0 &&
+    extraSections.length === 0 &&
+    !showStatus &&
+    !showAccounts &&
+    !onSearch;
   if (nothing) return null;
 
   return (
@@ -105,6 +116,19 @@ export function TemplateFilterRail({
           </button>
         )}
       </div>
+
+      {onSearch && (
+        <div className="relative px-0.5">
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+          <input
+            type="text"
+            value={search ?? ''}
+            onChange={(e) => onSearch(e.target.value)}
+            placeholder="Search…"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] py-1.5 pl-8 pr-2 text-xs text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)]"
+          />
+        </div>
+      )}
 
       {showStatus && (
         <Section title="Status">

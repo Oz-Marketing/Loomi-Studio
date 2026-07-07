@@ -178,8 +178,6 @@ export function FormTemplatesTab({ accountKey }: { accountKey?: string }) {
     <>
       <TemplateHeaderActions onCreate={handleCreate} createLabel="New Form Template" onTagsSaved={() => void mutate()} />
       <TemplateLibraryShell
-        search={filters.search}
-        onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}
         resultCount={filtered.length}
         rail={
           <TemplateFilterRail
@@ -190,6 +188,8 @@ export function FormTemplatesTab({ accountKey }: { accountKey?: string }) {
             reset={reset}
             showStatus
             accountLabels={accountLabels}
+            search={filters.search}
+            onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}
           />
         }
       >

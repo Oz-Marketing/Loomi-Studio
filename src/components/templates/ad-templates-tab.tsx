@@ -294,8 +294,6 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
         />
       ) : (
         <TemplateLibraryShell
-          search={filters.search}
-          onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}
           resultCount={filtered.length}
           rail={
             <TemplateFilterRail
@@ -306,6 +304,8 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
               reset={reset}
               showStatus
               accountLabels={accountLabels}
+              search={filters.search}
+              onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}
             />
           }
         >

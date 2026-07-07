@@ -1003,8 +1003,6 @@ function ManagementView({
         />
       ) : (
       <TemplateLibraryShell
-        search={filters.search}
-        onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}
         resultCount={filtered.length}
         rail={
           <TemplateFilterRail
@@ -1015,6 +1013,8 @@ function ManagementView({
             reset={() => { reset(); setTypeFilter('all'); }}
             showStatus={!scoped}
             accountLabels={accountLabels}
+            search={filters.search}
+            onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}
             extraSections={[
               {
                 key: 'type',
@@ -1528,8 +1528,6 @@ function ReadOnlyView({
       )}
 
       <TemplateLibraryShell
-        search={filters.search}
-        onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}
         resultCount={filtered.length}
         rail={
           <TemplateFilterRail
@@ -1538,6 +1536,8 @@ function ReadOnlyView({
             facets={facets}
             active={active || typeFilter !== 'all'}
             reset={() => { reset(); setTypeFilter('all'); }}
+            search={filters.search}
+            onSearch={(v) => setFilters((f) => ({ ...f, search: v }))}
             extraSections={[
               {
                 key: 'type',
