@@ -221,25 +221,47 @@ function sourceValueToBinding(v: string, currentValue: string): Binding {
   return { kind: 'static', value: currentValue };
 }
 /** Build the "Shows" options for an element: static, the template's compatible
- *  fields, the computed offer tokens (text only), and brand data. */
+ *  fields (grouped by their `group` so Offer 1 / Offer 2 / Vehicle / Legal read
+ *  as clear sections), the computed offer tokens (text only), and brand data.
+ *  Labels that collide across groups (e.g. "Vehicle" in both Offer 1 and Offer 2)
+ *  are auto-suffixed with their group so the control is unambiguous open OR
+ *  collapsed. */
 function buildContentSources(el: DocElement, fields: FieldSpec[]): SearchableSelectOption[] {
   const isImage = el.type === 'image' || el.type === 'logo' || el.type === 'background';
+  const hasO2 = fields.some((f) => f.key === 'o2_offerType');
   const opts: SearchableSelectOption[] = [
     { value: 'static', label: isImage ? 'Fixed image' : 'Type it in', group: 'Custom' },
   ];
   for (const f of fields) {
     const fieldIsImage = f.type === 'image';
     if (isImage !== fieldIsImage) continue; // image elements ↔ image fields; text ↔ the rest
-    opts.push({ value: `field:${f.key}`, label: f.label || f.key, group: 'Fields' });
+    opts.push({ value: `field:${f.key}`, label: f.label || f.key, group: f.group?.trim() || 'Fields' });
   }
   if (!isImage) {
-    for (const t of OFFER_TOKENS) opts.push({ value: `field:${t.key}`, label: t.label, group: 'Offer (auto)' });
-    if (fields.some((f) => f.key === 'o2_offerType')) {
-      for (const t of OFFER_TOKENS_O2) opts.push({ value: `field:${t.key}`, label: t.label, group: 'Offer (auto)' });
-    }
+    // Computed offer text. When the template has two offers, name Offer 1's
+    // tokens explicitly so they don't read as "the" offer next to Offer 2's.
+    const offer1Tokens = hasO2
+      ? [
+          { key: '_offerLabel', label: 'Offer 1 label' },
+          { key: '_offerMain', label: 'Offer 1 amount' },
+          { key: '_offerTerms', label: 'Offer 1 terms' },
+        ]
+      : OFFER_TOKENS;
+    for (const t of offer1Tokens) opts.push({ value: `field:${t.key}`, label: t.label, group: 'Computed offer text' });
+    if (hasO2) for (const t of OFFER_TOKENS_O2) opts.push({ value: `field:${t.key}`, label: t.label, group: 'Computed offer text' });
     opts.push({ value: 'brand:dealerName', label: 'Dealer name', group: 'Brand' });
   } else {
     opts.push({ value: 'brand:logoUrl', label: 'Account logo', group: 'Brand' });
+  }
+  // Offer 1 and Offer 2 share identical field labels ("Vehicle", "Offer type").
+  // Where a label collides, suffix ONLY the second-offer twin with its group
+  // (e.g. "Vehicle · Offer 2") — offer-1/originals stay clean, and the collapsed
+  // control reads unambiguously. Suffixing both would give silly "Vehicle · Vehicle".
+  const counts = new Map<string, number>();
+  for (const o of opts) counts.set(o.label, (counts.get(o.label) ?? 0) + 1);
+  for (const o of opts) {
+    const isSecondOffer = o.value.startsWith('field:o2_') || o.value.startsWith('field:_o2_');
+    if (isSecondOffer && (counts.get(o.label) ?? 0) > 1 && o.group) o.label = `${o.label} · ${o.group}`;
   }
   return opts;
 }
