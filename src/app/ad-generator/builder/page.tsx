@@ -3363,21 +3363,33 @@ export default function AdBuilderPage() {
                     <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-6">
                       {/* faint dashed frame hinting the design area */}
                       <div className="pointer-events-none absolute inset-3 rounded-2xl border border-dashed border-[var(--primary)]/20" />
-                      <div className="pointer-events-auto relative w-full max-w-[22rem] overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--card-strong)]/95 shadow-2xl backdrop-blur-xl">
-                        <div className="flex flex-col items-center gap-2 bg-gradient-to-b from-[var(--primary)]/12 to-transparent px-6 pb-2 pt-6 text-center">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[#a855f7] text-white shadow-lg shadow-[var(--primary)]/30">
-                            <PaintBrushIcon className="h-6 w-6" />
+                      <div className="pointer-events-auto relative w-full max-w-[24rem] animate-fade-in-up">
+                        {/* Soft glow in the four element-palette colours so a blank
+                            canvas still feels alive + on-brand. */}
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute -inset-8 -z-10 opacity-70 blur-3xl"
+                          style={{
+                            background:
+                              'radial-gradient(38% 38% at 22% 18%, #3b82f655, transparent 70%), radial-gradient(38% 38% at 82% 16%, #ec489955, transparent 70%), radial-gradient(42% 42% at 78% 88%, #a855f755, transparent 70%), radial-gradient(38% 38% at 18% 86%, #f9731655, transparent 70%)',
+                          }}
+                        />
+                        <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--card-strong)]/95 shadow-2xl backdrop-blur-xl">
+                          <div className="flex flex-col items-center gap-2 bg-gradient-to-b from-[var(--primary)]/12 to-transparent px-6 pb-3 pt-7 text-center">
+                            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[#a855f7] text-white shadow-lg shadow-[var(--primary)]/30">
+                              <PaintBrushIcon className="h-7 w-7" />
+                            </div>
+                            <h3 className="text-lg font-bold text-[var(--foreground)]">Design your ad</h3>
+                            <p className="max-w-[17rem] text-xs leading-relaxed text-[var(--muted-foreground)]">
+                              Drop in your first element to start — text, image, button, or shape.
+                            </p>
                           </div>
-                          <h3 className="text-base font-bold text-[var(--foreground)]">Design your ad</h3>
-                          <p className="max-w-[16rem] text-xs leading-relaxed text-[var(--muted-foreground)]">
-                            Start with your first element — text, an image, a button, or a shape.
-                          </p>
-                        </div>
-                        <div className="px-5 pb-5 pt-3">
-                          <AdderGrid adders={adders} variant="onboarding" />
-                        </div>
-                        <div className="border-t border-[var(--border)] px-5 py-2.5 text-center text-[11px] text-[var(--muted-foreground)]">
-                          Need a different size? Open <span className="font-medium text-[var(--foreground)]">Sizes</span> from the bar below.
+                          <div className="px-5 pb-5 pt-3">
+                            <AdderGrid adders={adders} variant="onboarding" />
+                          </div>
+                          <div className="border-t border-[var(--border)] px-5 py-2.5 text-center text-[11px] text-[var(--muted-foreground)]">
+                            Need a different size? Open <span className="font-medium text-[var(--foreground)]">Sizes</span> from the bar below.
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -4535,18 +4547,6 @@ function SelectionPanel({
 
             <PanelSection title="Color & spacing">
               <div className="space-y-2.5">
-                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
-                  <span>Color</span>
-                  <ColorSwatchInput title="Text color" value={el.color && el.color !== 'brand' ? el.color : '#4f46e5'} onChange={(v) => onEl({ color: v })} />
-                </label>
-                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
-                  <span>Letter</span>
-                  <MiniNum title="Letter spacing (px)" value={el.letterSpacing ?? 0} onChange={(v) => onEl({ letterSpacing: v ? Math.round(v) : undefined })} />
-                </label>
-                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
-                  <span>Line</span>
-                  <MiniNum title="Line height" step={0.05} value={el.lineHeight ?? 1.1} onChange={(v) => onEl({ lineHeight: v || undefined })} />
-                </label>
                 {/* Button color — the pill background behind a text/button element. */}
                 <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
                   <span>Button color</span>
@@ -4563,6 +4563,18 @@ function SelectionPanel({
                     </BarBtn>
                   )}
                 </div>
+                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+                  <span>Text color</span>
+                  <ColorSwatchInput title="Text color" value={el.color && el.color !== 'brand' ? el.color : '#4f46e5'} onChange={(v) => onEl({ color: v })} />
+                </label>
+                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+                  <span>Letter</span>
+                  <MiniNum title="Letter spacing (px)" value={el.letterSpacing ?? 0} onChange={(v) => onEl({ letterSpacing: v ? Math.round(v) : undefined })} />
+                </label>
+                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+                  <span>Line</span>
+                  <MiniNum title="Line height" step={0.05} value={el.lineHeight ?? 1.1} onChange={(v) => onEl({ lineHeight: v || undefined })} />
+                </label>
               </div>
             </PanelSection>
           </>
@@ -4957,21 +4969,24 @@ type Adder = { label: string; Icon: React.ComponentType<{ className?: string }>;
  *  Shared by the Insert flyout (`panel`) and the empty-canvas onboarding
  *  (`onboarding`); `variant` only tunes density. */
 function AdderGrid({ adders, variant }: { adders: Adder[]; variant: 'panel' | 'onboarding' }) {
-  const cols = variant === 'panel' ? 'grid-cols-2' : 'grid-cols-5';
-  const tile = variant === 'panel' ? 'justify-center gap-2 py-5 text-xs' : 'gap-1.5 py-2.5 text-[10px]';
-  const icon = variant === 'panel' ? 'h-6 w-6' : 'h-5 w-5';
+  const cols = variant === 'panel' ? 'grid-cols-2' : 'grid-cols-4';
+  const tile = variant === 'panel' ? 'gap-2 py-4 text-xs' : 'gap-1.5 py-3 text-[11px]';
   return (
     <div className={`grid ${cols} gap-2`}>
       {adders.map((a) => (
         <button
           key={a.label}
           onClick={a.onAdd}
-          className={`group flex flex-col items-center rounded-xl border border-[var(--border)] px-2 font-medium text-[var(--foreground)] transition-all hover:-translate-y-0.5 hover:shadow-sm ${tile}`}
+          className={`group flex flex-col items-center justify-center rounded-xl border border-[var(--border)] px-2 font-medium text-[var(--foreground)] transition-all hover:-translate-y-0.5 hover:shadow-md ${tile}`}
           onMouseEnter={(e) => (e.currentTarget.style.borderColor = a.color)}
           onMouseLeave={(e) => (e.currentTarget.style.borderColor = '')}
         >
-          <span className="transition-colors" style={{ color: a.color }}>
-            <a.Icon className={icon} />
+          {/* Colour-coded icon chip (Text=blue, Image=pink, Button=purple, Shape=orange). */}
+          <span
+            className="flex h-9 w-9 items-center justify-center rounded-xl transition-transform group-hover:scale-110"
+            style={{ backgroundColor: `${a.color}1f`, color: a.color }}
+          >
+            <a.Icon className="h-5 w-5" />
           </span>
           {a.label}
         </button>
