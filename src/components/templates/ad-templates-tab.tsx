@@ -123,6 +123,31 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
 
   const edit = (id: string) => router.push(builderQuery({ template: id }));
 
+  // "Use this template" (subaccount): create an ad/creative from the template in
+  // the active account and open the Ad Generator form — the counterpart to the
+  // admin's "Deploy to subaccounts".
+  const useTemplate = async (t: DocTemplate) => {
+    if (!accountKey) {
+      toast.error('Select an account first');
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/ad-generator/creatives', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountKey, name: `New ${t.name}`, templateId: t.id, data: t.doc?.defaults ?? {} }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      router.push(`/ad-generator/${json.creative.id}`);
+    } catch (err) {
+      toast.error(`Couldn't create the ad: ${err instanceof Error ? err.message : 'unknown error'}`);
+      setBusy(false);
+    }
+  };
+
   // Inline taxonomy + publish edits — PATCH the row and refresh.
   const patchTemplate = async (id: string, body: Record<string, unknown>) => {
     try {
@@ -268,7 +293,11 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
     { key: 'edit', label: 'Edit', icon: PencilSquareIcon, run: () => edit(t.id) },
     { key: 'rename', label: 'Rename', icon: PencilIcon, run: () => { setRenameFor(t); setRenameValue(t.name); } },
     { key: 'clone', label: 'Clone', icon: DocumentDuplicateIcon, run: () => void clone(t) },
-    { key: 'deploy', label: 'Deploy to subaccounts', icon: RocketLaunchIcon, run: () => setDeployFor(t) },
+    // In a subaccount you USE the template (make an ad from it); at the admin
+    // level you DEPLOY it down to subaccounts.
+    accountKey
+      ? { key: 'use', label: 'Use this template', icon: SparklesIcon, run: () => void useTemplate(t) }
+      : { key: 'deploy', label: 'Deploy to subaccounts', icon: RocketLaunchIcon, run: () => setDeployFor(t) },
     t.status === 'published'
       ? { key: 'unpublish', label: 'Move to draft', icon: ArrowUturnLeftIcon, run: () => setPublished(t, false) }
       : { key: 'publish', label: 'Publish', icon: CheckCircleIcon, run: () => setPublished(t, true) },
@@ -338,7 +367,9 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
                       )
                     }
                     actions={actionsFor(t)}
-                    onClick={() => edit(t.id)}
+                    // In a subaccount, clicking a card opens the detail modal
+                    // (preview + Use / Edit); at the admin level it opens the editor.
+                    onClick={() => (accountKey ? setPreview(t) : edit(t.id))}
                     onCategoryChange={(c) => void patchTemplate(t.id, { category: c })}
                     onTagsChange={(tags) => void patchTemplate(t.id, { tags })}
                   />
@@ -365,14 +396,44 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
             <div className="overflow-hidden rounded-xl border border-[var(--border)]">
               <AdPreviewThumb template={preview.doc ? adTemplateFromDoc(preview.id, preview.doc) : undefined} data={preview.doc?.defaults ?? {}} branding={branding} height={320} />
             </div>
-            <div className="mt-3 flex justify-end gap-2">
+            {/* Ad-set info: sizes, category + tags, scope. */}
+            <div className="mt-3 space-y-2 text-xs text-[var(--muted-foreground)]">
+              {(preview.doc?.sizes?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-medium text-[var(--foreground)]">{preview.doc!.sizes.length} size{preview.doc!.sizes.length === 1 ? '' : 's'}:</span>
+                  {preview.doc!.sizes.map((s) => (
+                    <span key={s.id} className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] text-[var(--foreground)]">{s.label}</span>
+                  ))}
+                </div>
+              )}
+              {(preview.category || (preview.tags?.length ?? 0) > 0) && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {preview.category && <span className="rounded bg-[var(--primary)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[var(--primary)]">{preview.category}</span>}
+                  {(preview.tags ?? []).map((tag) => (
+                    <span key={tag} className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px]">{tag}</span>
+                  ))}
+                </div>
+              )}
+              {preview.doc?.allowOfferCountChoice && <div>Clients can choose 1 or 2 offers.</div>}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => { const t = preview; setPreview(null); edit(t.id); }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)] bg-[var(--primary)] px-3 h-9 text-sm font-medium text-white hover:bg-[var(--primary)]/90"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 h-9 text-sm font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
               >
                 <PencilSquareIcon className="h-4 w-4" />
                 Edit
               </button>
+              {accountKey && (
+                <button
+                  onClick={() => { const t = preview; setPreview(null); void useTemplate(t); }}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)] bg-[var(--primary)] px-3 h-9 text-sm font-medium text-white transition-colors hover:bg-[var(--primary)]/90 disabled:opacity-60"
+                >
+                  <SparklesIcon className="h-4 w-4" />
+                  Use this template
+                </button>
+              )}
             </div>
           </div>
         </div>,

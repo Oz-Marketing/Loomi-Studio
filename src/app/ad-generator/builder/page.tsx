@@ -3283,20 +3283,21 @@ export default function AdBuilderPage() {
           <div className="relative flex flex-shrink-0 items-center justify-end gap-2 border-b border-[var(--border)] px-3 py-2">
             {/* Zoom lives on the canvas (bottom-left); outlines + margins moved to
                 the left rail; the active size is shown on the canvas action bar. */}
-            {/* Offer-count view switch (centered) — flips the canvas + Fields panel
-                between the 1-offer and 2-offer layouts. Only when dual is enabled. */}
-            {supportsDual && (
+            {/* Offer view switch (centered) — flips the canvas + Fields panel
+                between the 1-offer and 2-offer layouts. Only when the client's
+                second offer is turned ON (settings cog). */}
+            {doc.allowOfferCountChoice && (
               <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 rounded-full border border-[var(--border)] bg-[var(--card)] p-0.5">
                 {([1, 2] as const).map((n) => (
                   <button
                     key={n}
                     onClick={() => setPreviewCount(n)}
-                    title={`Edit the ${n}-offer layout`}
+                    title={`Edit the ${n === 1 ? 'single' : 'two'}-offer layout`}
                     className={`inline-flex h-7 items-center rounded-full px-3 text-xs font-medium transition-colors ${
                       previewCount === n ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
                     }`}
                   >
-                    {n} offer{n === 1 ? '' : 's'}
+                    Offer {n}
                   </button>
                 ))}
               </div>
