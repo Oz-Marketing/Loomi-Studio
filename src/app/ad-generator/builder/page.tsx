@@ -1476,17 +1476,45 @@ export default function AdBuilderPage() {
     if (selected) setElement(selected.id, patch, `el:${selected.id}:${Object.keys(patch).sort().join(',')}`);
   };
 
-  // Z-order within the current size (z lives per-size on the box).
-  function bringForward() {
-    if (!selected || !selectedBox) return;
-    const maxZ = Object.values(layout).reduce((m, b) => Math.max(m, b.z ?? 0), 0);
-    setBox(size.id, selected.id, { ...selectedBox, z: maxZ + 1 });
-  }
-  function sendBack() {
-    if (!selected || !selectedBox) return;
-    const minZ = Object.values(layout).reduce((m, b) => Math.min(m, b.z ?? 0), 0);
-    setBox(size.id, selected.id, { ...selectedBox, z: minZ - 1 });
-  }
+  // Z-order within the current size (z lives per-size on the box). Front/back
+  // JUMP past everything; forward/backward STEP one layer by normalizing the
+  // stack to contiguous z then swapping the neighbour (ties broken by element
+  // order so a step is always deterministic). Functional setDoc so consecutive
+  // presses read fresh z.
+  const applyZ = useCallback(
+    (mode: 'front' | 'back' | 'forward' | 'backward') => {
+      if (selectedIds.length !== 1) return;
+      const id = selectedIds[0];
+      setDoc((prev) => {
+        const lay = prev.layouts[size.id] ?? {};
+        const b = lay[id];
+        if (!b) return prev;
+        if (mode === 'front' || mode === 'back') {
+          const zs = Object.values(lay).map((x) => x.z ?? 0);
+          const nz = mode === 'front' ? Math.max(...zs) + 1 : Math.min(...zs) - 1;
+          return { ...prev, layouts: { ...prev.layouts, [size.id]: { ...lay, [id]: { ...b, z: nz } } } };
+        }
+        const ids = Object.keys(lay);
+        if (ids.length < 2) return prev;
+        const elIndex = new Map(prev.elements.map((e, i) => [e.id, i] as const));
+        const order = ids.slice().sort((a, c) => {
+          const za = lay[a].z ?? 0;
+          const zc = lay[c].z ?? 0;
+          return za !== zc ? za - zc : (elIndex.get(a) ?? 0) - (elIndex.get(c) ?? 0);
+        });
+        const i = order.indexOf(id);
+        const j = i + (mode === 'forward' ? 1 : -1);
+        if (i < 0 || j < 0 || j >= order.length) return prev; // already at an end
+        [order[i], order[j]] = [order[j], order[i]];
+        const next = { ...lay };
+        order.forEach((eid, idx) => {
+          next[eid] = { ...next[eid], z: idx };
+        });
+        return { ...prev, layouts: { ...prev.layouts, [size.id]: next } };
+      }, `z:${mode}:${id}`);
+    },
+    [selectedIds, size.id],
+  );
 
   // ── template field-list operations ──
   const addField = () => {
@@ -2543,19 +2571,11 @@ export default function AdBuilderPage() {
         if (e.shiftKey) ungroupSelected();
         else groupSelected();
       } else if (key === ']' || key === '[') {
-        // Bring forward (⌘]) / send back (⌘[) — z-order within the current size.
-        // Functional setDoc so consecutive presses read fresh z, not a stale closure.
+        // Z-order: ⌘] forward one / ⌘[ back one; add ⇧ to jump to front/back.
         if (selectedIds.length !== 1) return;
         e.preventDefault();
-        const id = selectedIds[0];
-        setDoc((prev) => {
-          const lay = prev.layouts[size.id] ?? {};
-          const b = lay[id];
-          if (!b) return prev;
-          const zs = Object.values(lay).map((x) => x.z ?? 0);
-          const nz = key === ']' ? Math.max(...zs) + 1 : Math.min(...zs) - 1;
-          return { ...prev, layouts: { ...prev.layouts, [size.id]: { ...lay, [id]: { ...b, z: nz } } } };
-        });
+        const forward = key === ']';
+        applyZ(e.shiftKey ? (forward ? 'front' : 'back') : forward ? 'forward' : 'backward');
       } else if (key === 'd') {
         // Duplicate (⌘D) the single selected element.
         if (selectedIds.length !== 1) return;
@@ -2566,7 +2586,7 @@ export default function AdBuilderPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undo, redo, selectedIds, doc.elements, doc.groups, size.id, duplicateElement]);
+  }, [undo, redo, selectedIds, doc.elements, doc.groups, size.id, duplicateElement, applyZ]);
 
   // Autosave — debounced PATCH once there's a target (a saved template, or the
   // ad in ad mode). New/unsaved templates require an explicit Save first.
@@ -3746,8 +3766,10 @@ export default function AdBuilderPage() {
                   )}
                   {single && (
                     <>
-                      <Item onClick={bringForward} kbd="⌘]">Bring forward</Item>
-                      <Item onClick={sendBack} kbd="⌘[">Send back</Item>
+                      <Item onClick={() => applyZ('front')} kbd="⌘⇧]">Bring to front</Item>
+                      <Item onClick={() => applyZ('forward')} kbd="⌘]">Bring forward</Item>
+                      <Item onClick={() => applyZ('backward')} kbd="⌘[">Send backward</Item>
+                      <Item onClick={() => applyZ('back')} kbd="⌘⇧[">Send to back</Item>
                       <Item onClick={() => duplicateElement(single.id)} kbd="⌘D">Duplicate</Item>
                       <Item onClick={() => toggleLock(single.id)}>{single.locked ? 'Unlock' : 'Lock'}</Item>
                       <Item onClick={() => toggleHidden(single.id)}>{selectedBox?.hidden ? 'Show in this size' : 'Hide in this size'}</Item>
@@ -5339,7 +5361,9 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
         [`${mod} G`, 'Group selection'],
         [`${mod} ⇧ G`, 'Ungroup'],
         [`${mod} ]`, 'Bring forward'],
-        [`${mod} [`, 'Send back'],
+        [`${mod} [`, 'Send backward'],
+        [`${mod} ⇧ ]`, 'Bring to front'],
+        [`${mod} ⇧ [`, 'Send to back'],
       ],
     },
     {
