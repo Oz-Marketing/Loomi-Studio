@@ -525,6 +525,11 @@ export default function AdBuilderPage() {
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  // The element inspector and the Fields panel never share the screen (they'd
+  // overlap on the right) — selecting an element closes Fields.
+  useEffect(() => {
+    if (selectedIds.length) setFieldsOpen(false);
+  }, [selectedIds]);
   // Left rail: which panel (Elements / Layers / Industries / Sizes) is open as a
   // flyout. null = collapsed to just the icons.
   const [leftPanel, setLeftPanel] = useState<'insert' | 'layers' | null>(null);
@@ -2924,7 +2929,18 @@ export default function AdBuilderPage() {
             <RailButton label="Layers" Icon={LayersIcon} active={leftPanel === 'layers'} onClick={() => setLeftPanel((p) => (p === 'layers' ? null : 'layers'))} />
             {/* Fields — the form that drives the ad (offer/vehicle/legal inputs +
                 element bindings). Right-docked panel, so it toggles on its own. */}
-            <RailButton label="Fields" Icon={Bars3BottomLeftIcon} active={fieldsOpen} onClick={() => setFieldsOpen((v) => !v)} />
+            <RailButton
+              label="Fields"
+              Icon={Bars3BottomLeftIcon}
+              active={fieldsOpen}
+              onClick={() =>
+                setFieldsOpen((v) => {
+                  const next = !v;
+                  if (next) clearSelection(); // Fields + element inspector never share the screen
+                  return next;
+                })
+              }
+            />
             <div className="my-0.5 h-px w-6 bg-[var(--border)]" />
             {/* View guides — element outlines + safe-area margins (moved off the
                 canvas header so all the view controls sit on the rail). */}
@@ -4054,6 +4070,39 @@ function FieldsSidebar({
   onSetDefault: (i: number, val: string) => void;
 }) {
   const [expanded, setExpanded] = useState<number | null>(fields.length ? 0 : null);
+  // Group fields by their `group` (Vehicle / Offer / Legal / …) so a long kit
+  // (24–44 fields) reads as a few collapsible sections instead of a wall. Each
+  // entry keeps its original flat index so the index-based handlers still hit
+  // the right field.
+  const groups = useMemo(() => {
+    const m = new Map<string, { f: FieldSpec; i: number }[]>();
+    fields.forEach((f, i) => {
+      const g = (f.group || 'General').trim() || 'General';
+      if (!m.has(g)) m.set(g, []);
+      m.get(g)!.push({ f, i });
+    });
+    return [...m.entries()];
+  }, [fields]);
+  // A long list starts with only the first section open; a short one opens all.
+  // A single new section (from "Add field") auto-opens so it's not lost.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
+    const names = groups.map(([g]) => g);
+    return new Set(fields.length > 10 ? names.slice(0, 1) : names);
+  });
+  const prevGroupNames = useRef(new Set(groups.map(([g]) => g)));
+  useEffect(() => {
+    const cur = groups.map(([g]) => g);
+    const added = cur.filter((g) => !prevGroupNames.current.has(g));
+    if (added.length === 1) setOpenGroups((s) => new Set([...s, added[0]]));
+    prevGroupNames.current = new Set(cur);
+  }, [groups]);
+  const toggleGroup = (g: string) =>
+    setOpenGroups((s) => {
+      const next = new Set(s);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
   return (
     // Floating right-docked sidebar (no modal / backdrop) — the form that drives
     // the ad stays open beside the canvas while you design.
@@ -4068,20 +4117,42 @@ function FieldsSidebar({
         </button>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-4">
-        {fields.map((f, i) => (
-          <FieldRow
-            key={i}
-            field={f}
-            index={i}
-            expanded={expanded === i}
-            defaultValue={defaults[f.key] ?? ''}
-            onToggle={() => setExpanded(expanded === i ? null : i)}
-            onUpdate={onUpdate}
-            onRename={onRename}
-            onDelete={onDelete}
-            onSetDefault={onSetDefault}
-          />
-        ))}
+        {groups.map(([group, items]) => {
+          const open = openGroups.has(group);
+          return (
+            <div key={group} className="rounded-lg border border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => toggleGroup(group)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--muted)]/40"
+              >
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]">
+                  {open ? <ChevronDownIcon className="h-3.5 w-3.5" /> : <ChevronRightIcon className="h-3.5 w-3.5" />}
+                  {group}
+                </span>
+                <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--muted-foreground)]">{items.length}</span>
+              </button>
+              {open && (
+                <div className="space-y-2 border-t border-[var(--border)] p-2">
+                  {items.map(({ f, i }) => (
+                    <FieldRow
+                      key={i}
+                      field={f}
+                      index={i}
+                      expanded={expanded === i}
+                      defaultValue={defaults[f.key] ?? ''}
+                      onToggle={() => setExpanded(expanded === i ? null : i)}
+                      onUpdate={onUpdate}
+                      onRename={onRename}
+                      onDelete={onDelete}
+                      onSetDefault={onSetDefault}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
         {!fields.length && (
           <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">No fields yet.</p>
         )}
