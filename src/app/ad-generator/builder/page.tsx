@@ -82,7 +82,7 @@ import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
 import { useIndustries } from '@/lib/hooks/use-industries';
 import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, GradientFill, GradientStop, BlendMode, Binding } from '@/lib/ad-generator/doc-types';
 import type { FieldSpec, FieldType, AdData, AdSize } from '@/lib/ad-generator/types';
-import { addFieldKit } from '@/lib/ad-generator/vehicle-fields';
+import { addFieldKit, seedSecondOfferElements } from '@/lib/ad-generator/vehicle-fields';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/flows/builder/SearchableSelect';
 
 const CANVAS_PAD = 48; // breathing room around the ad inside the canvas pane
@@ -505,6 +505,10 @@ export default function AdBuilderPage() {
   // template), just not the blank-canvas default.
   const { doc, setDoc, undo, redo, canUndo, canRedo, reset: resetHistory } = useDocHistory(() => blankTemplateDoc('tmpl-blank', 'Untitled template'));
   const [sizeId, setSizeId] = useState(doc.sizes[0].id);
+  // Which offer count the canvas previews (1 or 2), for templates that let the
+  // client choose. Chrome shows in both; offer-block elements are dimmed when
+  // they don't belong to the previewed count. Drives `previewData._offerCount`.
+  const [previewCount, setPreviewCount] = useState<1 | 2>(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // Marquee (drag-to-select) rectangle in canvas fractions, while dragging the backdrop.
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -637,6 +641,20 @@ export default function AdBuilderPage() {
 
   const size = useMemo(() => doc.sizes.find((s) => s.id === sizeId) ?? doc.sizes[0], [doc, sizeId]);
 
+  // A template "supports dual" (client may choose 1 or 2 offers) once the
+  // designer has added a second offer — the opt-in flag, or (legacy) any `o2_`
+  // field. Gates the offer-count preview toggle + per-element "Appears in".
+  const supportsDual = useMemo(
+    () => Boolean(doc.allowOfferCountChoice) || doc.fields.some((f) => f.key.startsWith('o2_')),
+    [doc.allowOfferCountChoice, doc.fields],
+  );
+  // When a dual template loads (or a second offer is just added), preview the
+  // 2-offer layout so the designer sees the full arrangement. Fires once per
+  // false→true flip; the designer can still flip the toggle to check 1-offer.
+  useEffect(() => {
+    if (supportsDual) setPreviewCount(2);
+  }, [supportsDual]);
+
   // Account custom fonts: drive both the dropdown and the @font-face the canvas
   // needs so a chosen family actually renders.
   const customFonts = useMemo(() => accountData?.customFonts ?? [], [accountData?.customFonts]);
@@ -712,6 +730,9 @@ export default function AdBuilderPage() {
       ...vehicleOfferPreviewData,
       ...doc.defaults, // designer-set default / preview values for fields
       ...(adData ?? {}), // ad mode: the ad's real content
+      // Preview the chosen offer count so off-count offer blocks dim (see the
+      // canvas offer-count toggle). Overrides any ad/default value while editing.
+      _offerCount: String(previewCount),
       ...(effectiveFontCss ? { fontFaceCss: effectiveFontCss } : {}),
       ...(accountData?.dealer ? { dealerName: accountData.dealer } : {}),
       ...(accountData?.logos?.light ? { logoUrl: accountData.logos.light } : {}),
@@ -722,7 +743,7 @@ export default function AdBuilderPage() {
       usedGoogleFontFamilies(doc.elements, typeof base.fontFamily === 'string' ? base.fontFamily : undefined),
     );
     return googleUrl ? { ...base, googleFontsUrl: googleUrl } : base;
-  }, [accountData, effectiveFontCss, doc.defaults, doc.elements, adData]);
+  }, [accountData, effectiveFontCss, doc.defaults, doc.elements, adData, previewCount]);
 
   const html = useMemo(() => renderDoc(doc, previewData, size, { preview: true }), [doc, previewData, size]);
 
@@ -1482,12 +1503,24 @@ export default function AdBuilderPage() {
   // seeded, never clobbering existing fields (see addFieldKit).
   const addOfferFieldKit = (mode: 'single' | 'dual') => {
     const added = addFieldKit(doc, mode).fields.length - doc.fields.length;
-    if (added === 0) {
-      toast('Those offer fields are already in this template.');
+    if (mode === 'single') {
+      if (added === 0) {
+        toast('Those offer fields are already in this template.');
+        return;
+      }
+      setDoc((prev) => addFieldKit(prev, 'single'), 'offerkit:single');
+      toast.success(`Added ${added} offer field${added === 1 ? '' : 's'}`);
       return;
     }
-    setDoc((prev) => addFieldKit(prev, mode), `offerkit:${mode}`);
-    toast.success(`Added ${added} ${mode === 'dual' ? 'dual-offer' : 'offer'} field${added === 1 ? '' : 's'}`);
+    // Dual: add the o2_ fields (if any), enable the client's 1/2-offer choice,
+    // and seed a recommended second-offer element block. The designer then
+    // arranges the 2-offer layout via the canvas offer-count toggle.
+    setDoc((prev) => {
+      const seeded = seedSecondOfferElements(addFieldKit(prev, 'dual'));
+      return { ...seeded, allowOfferCountChoice: true };
+    }, 'offerkit:dual');
+    setPreviewCount(2);
+    toast.success(added > 0 ? `Added a second offer (${added} fields)` : 'Second offer enabled');
   };
   const updateFieldAt = (i: number, patch: Partial<FieldSpec>) => {
     setDoc((prev) => ({ ...prev, fields: prev.fields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)) }), `field:${i}:${Object.keys(patch).sort().join(',')}`);
@@ -3539,6 +3572,32 @@ export default function AdBuilderPage() {
                   );
                 })()}
 
+              {/* Offer-count preview toggle — only when the template lets the
+                  client choose 1 or 2 offers. Flips which offer blocks show on
+                  the canvas (off-count blocks dim); mirrors what the client sees. */}
+              {supportsDual && (
+                <div
+                  className={`absolute bottom-3 z-20 flex items-center gap-0.5 rounded-full border border-[var(--border)] bg-[var(--card-strong)]/80 p-1 backdrop-blur-md transition-[right] ${
+                    fieldsOpen || selectedIds.length > 0 ? 'right-[372px]' : 'right-4'
+                  }`}
+                >
+                  {([1, 2] as const).map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => setPreviewCount(n)}
+                      title={`Preview with ${n} offer${n === 1 ? '' : 's'}`}
+                      className={`inline-flex h-7 items-center rounded-lg px-2.5 text-xs font-medium transition-colors ${
+                        previewCount === n
+                          ? 'bg-[var(--primary)] text-white'
+                          : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      {n} offer{n === 1 ? '' : 's'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {doc.sizes.length > 0 && viewAll && (
                 <div className="absolute bottom-3 left-1/2 z-20 flex max-w-[92%] -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card-strong)]/80 py-1 pl-1.5 pr-2 backdrop-blur-md">
                   <button
@@ -3624,6 +3683,7 @@ export default function AdBuilderPage() {
                   contentSources={contentSources}
                   onContentChange={setSelectedContent}
                   accountKey={accountKey ?? undefined}
+                  supportsDual={supportsDual}
                   onEl={updEl}
                   onBox={(patch) => setBox(size.id, selected.id, { ...selectedBox, ...patch }, `box:${selected.id}:${Object.keys(patch).sort().join(',')}`)}
                   onClose={clearSelection}
@@ -3649,6 +3709,8 @@ export default function AdBuilderPage() {
         <FieldsSidebar
           fields={doc.fields}
           defaults={doc.defaults}
+          accountKey={accountKey ?? undefined}
+          brandLogos={brandLogos}
           onClose={() => setFieldsOpen(false)}
           onAdd={addField}
           onAddKit={addOfferFieldKit}
@@ -3948,6 +4010,8 @@ function FieldRow({
   index,
   expanded,
   defaultValue,
+  accountKey,
+  brandLogos,
   onToggle,
   onUpdate,
   onRename,
@@ -3958,12 +4022,15 @@ function FieldRow({
   index: number;
   expanded: boolean;
   defaultValue: string;
+  accountKey?: string;
+  brandLogos: { key: string; label: string; url: string }[];
   onToggle: () => void;
   onUpdate: (i: number, patch: Partial<FieldSpec>) => void;
   onRename: (i: number, newKey: string) => void;
   onDelete: (i: number) => void;
   onSetDefault: (i: number, val: string) => void;
 }) {
+  const [picking, setPicking] = useState(false);
   return (
     // Subtle fill so a field row lifts off the group section it sits in (they
     // otherwise share the panel background and blend together); the opened row
@@ -3999,7 +4066,47 @@ function FieldRow({
             </SelectRow>
             <LabeledInput label="Group" value={field.group ?? ''} onChange={(v) => onUpdate(index, { group: v || undefined })} />
           </div>
-          <LabeledInput label="Default / preview value" value={defaultValue} onChange={(v) => onSetDefault(index, v)} />
+          {/* Default / preview value — the fallback shown in the picker thumb,
+              builder canvas, and client form until the client fills it in. For
+              image fields this is a media picker so a designer can drop a dummy
+              jellybean; everything else is a plain text box. */}
+          {field.type === 'image' ? (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-[var(--muted-foreground)]">Default / preview image</label>
+              <div className="flex items-center gap-3">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[var(--border)] bg-[var(--muted)]/40">
+                  {defaultValue ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={defaultValue} alt="" className="h-full w-full object-contain" />
+                  ) : (
+                    <PhotoIcon className="h-5 w-5 text-[var(--muted-foreground)]" />
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPicking(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  >
+                    <ArrowUpTrayIcon className="h-4 w-4" />
+                    {defaultValue ? 'Replace' : 'Choose / upload'}
+                  </button>
+                  {defaultValue && (
+                    <button
+                      type="button"
+                      onClick={() => onSetDefault(index, '')}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-red-500/50 hover:text-red-500"
+                    >
+                      <XMarkIcon className="h-4 w-4" />
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <LabeledInput label="Default / preview value" value={defaultValue} onChange={(v) => onSetDefault(index, v)} />
+          )}
           <LabeledInput label="Placeholder" value={field.placeholder ?? ''} onChange={(v) => onUpdate(index, { placeholder: v || undefined })} />
           <LabeledInput label="Help" value={field.help ?? ''} onChange={(v) => onUpdate(index, { help: v || undefined })} />
           <div className="grid grid-cols-2 items-end gap-2">
@@ -4014,6 +4121,19 @@ function FieldRow({
           {field.type === 'select' && <SelectOptionsEditor options={field.options ?? []} onChange={(opts) => onUpdate(index, { options: opts })} />}
         </div>
       )}
+      {picking && (
+        <MediaPickerModal
+          accountKey={accountKey}
+          showCategories
+          showFolders
+          brandingMedia={brandLogos.map((l) => ({ label: `${l.label} logo`, url: l.url }))}
+          onSelect={(url) => {
+            onSetDefault(index, url);
+            setPicking(false);
+          }}
+          onClose={() => setPicking(false)}
+        />
+      )}
     </div>
   );
 }
@@ -4026,6 +4146,8 @@ function FieldRow({
 function FieldsSidebar({
   fields,
   defaults,
+  accountKey,
+  brandLogos,
   onClose,
   onAdd,
   onAddKit,
@@ -4036,6 +4158,8 @@ function FieldsSidebar({
 }: {
   fields: FieldSpec[];
   defaults: Record<string, string>;
+  accountKey?: string;
+  brandLogos: { key: string; label: string; url: string }[];
   onClose: () => void;
   onAdd: () => void;
   onAddKit: (mode: 'single' | 'dual') => void;
@@ -4116,6 +4240,8 @@ function FieldsSidebar({
                       index={i}
                       expanded={expanded === i}
                       defaultValue={defaults[f.key] ?? ''}
+                      accountKey={accountKey}
+                      brandLogos={brandLogos}
                       onToggle={() => setExpanded(expanded === i ? null : i)}
                       onUpdate={onUpdate}
                       onRename={onRename}
@@ -4154,11 +4280,15 @@ function FieldsSidebar({
             </button>
             <button
               onClick={() => onAddKit('dual')}
+              title="Add a second offer and let the client choose 1 or 2 offers"
               className="flex-1 rounded-md border border-[var(--border)] px-2 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
             >
-              Two vehicles
+              Second offer
             </button>
           </div>
+          <p className="mt-1.5 px-0.5 text-[10px] leading-snug text-[var(--muted-foreground)]">
+            “Second offer” lets the client pick 1 or 2 offers — seeds a recommended second block you can arrange with the canvas “1 / 2 offers” toggle.
+          </p>
         </div>
       </div>
     </div>
@@ -4184,6 +4314,7 @@ function SelectionPanel({
   contentSources,
   onContentChange,
   accountKey,
+  supportsDual,
   onEl,
   onBox,
   onClose,
@@ -4202,6 +4333,9 @@ function SelectionPanel({
   contentSources: SearchableSelectOption[];
   onContentChange: (value: string) => void;
   accountKey?: string;
+  /** Whether this template lets the client choose 1 or 2 offers — gates the
+   *  per-element "Appears in" (offer-count) control. */
+  supportsDual: boolean;
   onEl: (patch: Partial<DocElement>) => void;
   onBox: (patch: Partial<DocLayoutBox>) => void;
   onClose: () => void;
@@ -4306,6 +4440,34 @@ function SelectionPanel({
                 )}
               </div>
             )}
+          </PanelSection>
+        )}
+
+        {/* Appears in — for templates where the client picks 1 or 2 offers, which
+            offer count(s) show this element. Chrome stays "Both"; offer-2 blocks
+            are "2 offers". Preview each with the canvas offer-count toggle. */}
+        {supportsDual && (
+          <PanelSection title="Appears in">
+            <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
+              {([['both', 'Both', undefined], ['1', '1 offer', [1]], ['2', '2 offers', [2]]] as const).map(
+                ([val, label, counts]) => {
+                  const cur = el.offerCounts && el.offerCounts.length === 1 ? String(el.offerCounts[0]) : 'both';
+                  const active = cur === val;
+                  return (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => onEl({ offerCounts: counts ? [...counts] : undefined })}
+                      className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                        active ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                },
+              )}
+            </div>
           </PanelSection>
         )}
 
