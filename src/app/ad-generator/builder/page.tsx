@@ -59,6 +59,8 @@ import {
   PaintBrushIcon,
   RocketLaunchIcon,
   BookmarkSquareIcon,
+  VariableIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
@@ -1138,11 +1140,18 @@ export default function AdBuilderPage() {
     if (!selected) return null;
     const b = selected.binding;
     const isImage = selected.type === 'image' || selected.type === 'logo' || selected.type === 'background';
-    if (selected.type === 'shape' || !b) return { mode: 'none', value: '' };
-    const value = b.kind === 'static' ? b.value : String(previewData[b.key] ?? '');
-    if (b.kind === 'brand') return { mode: isImage ? 'image-readonly' : 'text-readonly', value, note: 'Comes from the account brand.' };
-    if (b.kind === 'field' && b.key.startsWith('_')) return { mode: 'text-readonly', value, note: 'Pulled from your offer fields — edit those in the Fields panel.' };
-    return { mode: isImage ? 'image-edit' : 'text-edit', value };
+    if (selected.type === 'shape') return { mode: 'none', value: '' };
+    if (isImage) {
+      if (!b) return { mode: 'image-edit', value: '' };
+      const value = b.kind === 'static' ? b.value : String(previewData[b.key] ?? '');
+      if (b.kind === 'brand') return { mode: 'image-readonly', value, note: 'Comes from the account brand.' };
+      return { mode: 'image-edit', value };
+    }
+    // Text/button: authored as free text with {{variables}}. Any legacy
+    // field/brand binding is surfaced as its token so it stays editable — and
+    // converts to a static token string on first edit (see setSelectedContent).
+    const text = !b ? '' : b.kind === 'static' ? b.value : `{{${b.key}}}`;
+    return { mode: 'text-edit', value: text };
   }, [selected, previewData]);
 
   // "Shows" options for the selected element's Content source picker — its
@@ -1159,8 +1168,16 @@ export default function AdBuilderPage() {
       if (!selected) return;
       const b = selected.binding;
       const id = selected.id;
-      // Typing into the content field merges into one step per element; a media
-      // swap (discrete) naturally lands outside the window, so it stays separate.
+      const isImage = selected.type === 'image' || selected.type === 'logo' || selected.type === 'background';
+      // Text/button: always author as a STATIC token string. This is the fix for
+      // the old footgun where a field-bound text element edited the FIELD's value
+      // (letting you type {{leaseTerm}} INTO leaseTerm → self-reference). A text
+      // box is now just free text with {{variables}} that resolve to live values.
+      if (!isImage) {
+        setDoc((prev) => ({ ...prev, elements: prev.elements.map((e) => (e.id === id ? { ...e, binding: { kind: 'static', value: v } } : e)) }), `content:${id}`);
+        return;
+      }
+      // Image/logo: static → the URL literal; field → the field's default.
       if (b?.kind === 'static') {
         setDoc((prev) => ({ ...prev, elements: prev.elements.map((e) => (e.id === id ? { ...e, binding: { kind: 'static', value: v } } : e)) }), `content:${id}`);
       } else if (b?.kind === 'field') {
@@ -3977,6 +3994,7 @@ export default function AdBuilderPage() {
                   onDelete={deleteSelected}
                   onClose={clearSelection}
                   shifted={fieldsOpen}
+                  supportsDual={supportsDual}
                 />
               )}
 
@@ -4338,7 +4356,7 @@ function FieldRow({
     // gets a slight outline so the active one reads clearly.
     <div
       className={`rounded-lg border bg-[var(--muted)]/40 ${
-        expanded ? 'border-[var(--muted-foreground)]/40 ring-1 ring-[var(--muted-foreground)]/20' : 'border-[var(--border)]'
+        expanded ? 'border-[var(--primary)] ring-1 ring-[var(--primary)]/30' : 'border-[var(--border)]'
       }`}
     >
       <div className="flex items-center gap-2 px-3 py-2">
@@ -4642,6 +4660,43 @@ function TokenTextArea({
     });
   };
 
+  // Variable picker (the top-right icon): insert `{{key}}` at the caret (or end),
+  // with a space if needed so it doesn't glue onto the previous word.
+  const [pickOpen, setPickOpen] = useState(false);
+  const [pickQuery, setPickQuery] = useState('');
+  const pickRef = useRef<HTMLDivElement>(null);
+  const pickMatches = options.filter((o) => {
+    const q = pickQuery.trim().toLowerCase();
+    if (!q) return true;
+    return o.value.replace(/^field:/, '').toLowerCase().includes(q) || o.label.toLowerCase().includes(q);
+  });
+  useEffect(() => {
+    if (!pickOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!pickRef.current?.contains(e.target as Node)) setPickOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [pickOpen]);
+  const insertToken = (opt: SearchableSelectOption) => {
+    const key = opt.value.replace(/^field:/, '');
+    const pos = Math.min(caret || value.length, value.length);
+    const before = value.slice(0, pos);
+    const after = value.slice(pos);
+    const injected = `${before && !/\s$/.test(before) ? ' ' : ''}{{${key}}}`;
+    onChange(before + injected + after);
+    setPickOpen(false);
+    setPickQuery('');
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      const p = pos + injected.length;
+      ta.focus();
+      ta.setSelectionRange(p, p);
+      setCaret(p);
+    });
+  };
+
   return (
     <div className="relative">
       <div
@@ -4673,8 +4728,51 @@ function TokenTextArea({
         rows={2}
         placeholder={placeholder}
         spellCheck={false}
-        className="relative w-full resize-y rounded-md border border-[var(--border)] bg-transparent px-2 py-1.5 text-xs leading-normal text-transparent caret-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)]"
+        className="relative w-full resize-y rounded-md border border-[var(--border)] bg-transparent px-2 py-1.5 pr-8 text-xs leading-normal text-transparent caret-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)]"
       />
+      {options.length > 0 && (
+        <div ref={pickRef} className="absolute right-1.5 top-1.5">
+          <button
+            type="button"
+            title="Insert a variable"
+            onClick={() => setPickOpen((o) => !o)}
+            className={`flex h-6 w-6 items-center justify-center rounded-md border transition-colors ${
+              pickOpen ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)]'
+            } bg-[var(--card)]`}
+          >
+            <VariableIcon className="h-3.5 w-3.5" />
+          </button>
+          {pickOpen && (
+            <div className="absolute right-0 top-full z-[90] mt-1 w-56 rounded-lg border border-[var(--border)] bg-[var(--card-strong)] p-1 shadow-2xl backdrop-blur-2xl">
+              <div className="relative mb-1">
+                <MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                <input
+                  autoFocus
+                  value={pickQuery}
+                  onChange={(e) => setPickQuery(e.target.value)}
+                  placeholder="Search variables…"
+                  className="w-full rounded-md border border-[var(--border)] bg-[var(--input)] py-1 pl-7 pr-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                />
+              </div>
+              <ul className="max-h-52 overflow-y-auto">
+                {pickMatches.length === 0 && <li className="px-2 py-1.5 text-xs text-[var(--muted-foreground)]">No variables</li>}
+                {pickMatches.map((o) => (
+                  <li key={o.value}>
+                    <button
+                      type="button"
+                      onClick={() => insertToken(o)}
+                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
+                    >
+                      <span className="truncate">{o.label}</span>
+                      {o.group && <span className="ml-auto shrink-0 text-[10px] text-[var(--muted-foreground)]">{o.group}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
       {showAc && (
         <ul className="absolute left-0 right-0 top-full z-[80] mt-1 max-h-52 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card-strong)] p-1 shadow-2xl backdrop-blur-2xl">
           {matches.map((o, i) => (
@@ -4717,6 +4815,7 @@ function MultiSelectPanel({
   onDelete,
   onClose,
   shifted,
+  supportsDual,
 }: {
   elements: DocElement[];
   sampleFontSize: number;
@@ -4729,9 +4828,16 @@ function MultiSelectPanel({
   onDelete: () => void;
   onClose: () => void;
   shifted: boolean;
+  supportsDual: boolean;
 }) {
   const textEls = elements.filter((e) => e.type === 'text');
   const sample = textEls[0];
+  // Shared "Appears in" (offer-count) state across the selection — null when the
+  // selected elements disagree, so no segment reads as active until you set one.
+  const offerState = (() => {
+    const states = elements.map((e) => (e.offerCounts && e.offerCounts.length === 1 ? String(e.offerCounts[0]) : 'both'));
+    return states.every((s) => s === states[0]) ? states[0] : null;
+  })();
   return (
     <div
       data-adgen-panel
@@ -4745,6 +4851,31 @@ function MultiSelectPanel({
       </div>
 
       <div className="flex flex-col divide-y divide-[var(--border)] px-3 py-0.5">
+        {/* Appears in — bulk-set the offer-count on every selected element, so a
+            whole grouped offer block can be shown/hidden at once (not per box). */}
+        {supportsDual && (
+          <PanelSection title="Appears in">
+            <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] p-0.5">
+              {([['both', 'Both', undefined], ['1', 'Offer 1', [1]], ['2', 'Offer 2', [2]]] as const).map(
+                ([val, label, counts]) => {
+                  const active = offerState === val;
+                  return (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => onElAll({ offerCounts: counts ? [...counts] : undefined })}
+                      className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                        active ? 'bg-[var(--primary)] text-white' : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                },
+              )}
+            </div>
+          </PanelSection>
+        )}
         {textEls.length > 0 ? (
           <>
             <PanelSection title={`Font · ${textEls.length} text ${textEls.length === 1 ? 'box' : 'boxes'}`}>
@@ -4902,7 +5033,8 @@ function SelectionPanel({
   const typeLabel = el.type === 'text' ? 'Text' : el.type === 'image' ? 'Image' : el.type === 'logo' ? 'Logo' : el.type === 'background' ? 'Background' : 'Shape';
   const kindColor = KIND_COLOR[elementKind(el)];
   const [picking, setPicking] = useState(false);
-  // Field/offer/brand tokens a designer can drop into static text as {{key}}.
+  const isImageEl = el.type === 'image' || el.type === 'logo' || el.type === 'background';
+  // Field/offer tokens a designer can drop into text as {{key}}.
   const insertableVars = contentSources.filter((o) => o.value.startsWith('field:'));
 
   return (
@@ -4928,11 +5060,13 @@ function SelectionPanel({
       </div>
 
       <div className="flex flex-col divide-y divide-[var(--border)] px-3 py-0.5">
-        {/* Content — pick what the element SHOWS (a form field, a computed offer
-            value, brand data, or a static literal), then edit the value below. */}
+        {/* Content — for IMAGES, pick what the element shows (a field / brand /
+            uploaded image) via "Shows". For TEXT, there's no "Shows": you write
+            free text and drop {{variables}} (the icon in the field), which
+            resolve to live values. */}
         {content && content.mode !== 'none' && (
           <PanelSection title="Content">
-            {contentSources.length > 0 && (
+            {isImageEl && contentSources.length > 0 && (
               <div className="mb-2">
                 <label className="mb-1 block text-[11px] font-medium text-[var(--muted-foreground)]">Shows</label>
                 <SearchableSelect
@@ -4946,24 +5080,8 @@ function SelectionPanel({
             {content.mode === 'text-edit' && (
               <>
                 {/* Variable-aware text: {{field}} tokens render as purple pills;
-                    typing {{ opens a field autocomplete. */}
-                <TokenTextArea value={content.value} onChange={onContentChange} options={insertableVars} placeholder="Text — type {{field}} to insert a live value" />
-                {insertableVars.length > 0 && (
-                  <div className="mt-1.5">
-                    <SearchableSelect
-                      value=""
-                      onChange={(v) => {
-                        const key = v.startsWith('field:') ? v.slice(6) : '';
-                        if (!key) return;
-                        const cur = content.value;
-                        onContentChange(`${cur}${cur && !/\s$/.test(cur) ? ' ' : ''}{{${key}}}`);
-                      }}
-                      options={insertableVars}
-                      placeholder="+ Insert field variable…"
-                      className="w-full"
-                    />
-                  </div>
-                )}
+                    typing {{ opens an autocomplete, or use the variable icon. */}
+                <TokenTextArea value={content.value} onChange={onContentChange} options={insertableVars} placeholder="Type text — add {{variables}} with the icon →" />
               </>
             )}
             {content.mode === 'text-readonly' && (
@@ -5666,6 +5784,7 @@ function SaveBlockDialog({
               onChange={setSelected}
               options={accountOptions}
               placeholder="Select subaccounts…"
+              menuZIndex={260}
             />
           </div>
         )}
