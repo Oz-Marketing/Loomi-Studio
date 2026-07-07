@@ -4575,6 +4575,8 @@ function SelectionPanel({
                   <span>Line</span>
                   <MiniNum title="Line height" step={0.05} value={el.lineHeight ?? 1.1} onChange={(v) => onEl({ lineHeight: v || undefined })} />
                 </label>
+                {/* Per-corner radius for the button pill (same control as shapes). */}
+                {el.bg && <RadiusControl el={el} onEl={onEl} />}
               </div>
             </PanelSection>
           </>

@@ -306,7 +306,8 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
   const items = el.align === 'center' ? 'center' : el.align === 'right' ? 'flex-end' : 'flex-start';
   const bg = !placeholder && el.bg ? `background:${esc(resolveColor(el.bg, brand, brand))};` : '';
   const padding = el.padding ? `padding:${el.padding}px;` : '';
-  const radius = el.radius ? `border-radius:${el.radius}px;` : '';
+  // Per-corner-aware (buttons can set each corner independently, like shapes).
+  const radius = borderRadiusCss(el);
   const styles =
     pos +
     `display:flex;flex-direction:column;justify-content:center;align-items:${items};` +
