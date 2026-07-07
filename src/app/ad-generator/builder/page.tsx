@@ -5348,7 +5348,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
         ['↑ ↓ ← →', 'Nudge 1px'],
         ['⇧ + arrows', 'Nudge 10px'],
         ['Drag', 'Move element'],
-        ['Drag handles', 'Resize (text reflows)'],
+        ['Drag handles', 'Resize'],
         ['⇧ drag', 'Lock aspect ratio'],
         [`${mod} drag`, 'Scale text font'],
       ],
