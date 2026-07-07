@@ -551,6 +551,15 @@ export default function AdBuilderPage() {
   // Templates → Ads tab).
   const deepLinkedRef = useRef(false);
 
+  // A NEW (unsaved) template inherits the active account's scope: building
+  // inside a subaccount publishes ONLY to that subaccount; building on the
+  // Admin account (accountKey null) publishes global ("All accounts"). A loaded
+  // template keeps its own stored scope (loadTemplate sets both id + scope), so
+  // we only sync while there's no template id and we're not in ad mode.
+  useEffect(() => {
+    if (!templateId && !adId) setScopeAccount(accountKey ?? null);
+  }, [accountKey, templateId, adId]);
+
   const size = useMemo(() => doc.sizes.find((s) => s.id === sizeId) ?? doc.sizes[0], [doc, sizeId]);
 
   // Account custom fonts: drive both the dropdown and the @font-face the canvas
@@ -641,6 +650,10 @@ export default function AdBuilderPage() {
   }, [accountData, effectiveFontCss, doc.defaults, doc.elements, adData]);
 
   const html = useMemo(() => renderDoc(doc, previewData, size, { preview: true }), [doc, previewData, size]);
+  // Bumped when the canvas iframe (re)loads its shell — lets the text auto-size
+  // pass re-measure once the live nodes exist (the initial mount renders after
+  // this component, so a sig-only pass would measure before the frame is ready).
+  const [frameTick, setFrameTick] = useState(0);
 
   // Patch the canvas iframe's document IN PLACE on every edit instead of swapping
   // `srcDoc` (which navigates the iframe → a white flash on every change). Replacing
@@ -1156,12 +1169,17 @@ export default function AdBuilderPage() {
   // Measured in the builder (from the live node) and stored, so the export —
   // which renders the same stored box — stays pixel-perfect.
   const fitTextBox = useCallback(
-    (elId: string, sizeId: string, baseBox: DocLayoutBox) => {
+    (elId: string, sizeId: string, baseBox: DocLayoutBox, opts?: { commitFallback?: boolean }) => {
+      // commitFallback: a resize must still commit its drag result even when we
+      // can't measure (baseBox is the drag box, not yet in the doc). The passive
+      // auto-size pass passes false — baseBox is already the stored box, so a
+      // failed/no-op measure should leave the doc untouched (never churn it).
+      const commitFallback = opts?.commitFallback ?? true;
       const idoc = iframeRef.current?.contentDocument;
       const node = idoc?.querySelector(`[data-el-id="${elId}"]`) as HTMLElement | null;
       const el = doc.elements.find((e) => e.id === elId);
       if (!idoc || !node || el?.type !== 'text') {
-        setBox(sizeId, elId, baseBox);
+        if (commitFallback) setBox(sizeId, elId, baseBox);
         return;
       }
       let bb: DOMRect;
@@ -1173,29 +1191,98 @@ export default function AdBuilderPage() {
         bb = range.getBoundingClientRect();
         lineCount = Math.max(1, new Set(rects.map((r) => Math.round(r.top))).size);
       } catch {
-        setBox(sizeId, elId, baseBox);
+        if (commitFallback) setBox(sizeId, elId, baseBox);
         return;
       }
       if (!bb.width || !bb.height) {
-        setBox(sizeId, elId, baseBox);
+        if (commitFallback) setBox(sizeId, elId, baseBox);
         return;
       }
-      const fs = baseBox.fontSize ?? 16;
-      const natH = bb.height / scale + fs * 0.24; // native px + a little breathing room
-      const newH = clamp(natH / size.height, MIN_FRAC, 1.5);
+      // Hug the box to the rendered text's line box — the Canva/Figma "auto-size"
+      // behaviour. The Range client rects already include the full line height,
+      // so the ONLY extra room we add is the element's own padding (badges/pills).
+      // No arbitrary font-size fudge, or the outline floats away from the glyphs.
+      // The measured node lives INSIDE the iframe, whose internal layout is
+      // native px — the canvas `scale` transform is on the iframe element in the
+      // parent doc and does NOT affect these rects. So use bb directly (dividing
+      // by scale inflates every hug by 1/scale — the old loose-box bug).
+      const pad = el.padding ?? 0;
+      const natH = bb.height + pad * 2;
+      // Content-driven: hug the true text height and never inflate it up to
+      // MIN_FRAC — that floor keeps empty boxes grabbable, but text auto-size is
+      // allowed to be as tight as the glyphs (still guarded against zero).
+      const newH = clamp(natH / size.height, 0.005, 1.5);
       const patch: DocLayoutBox = { ...baseBox, h: newH };
       patch.y = baseBox.y + baseBox.h / 2 - newH / 2; // keep vertical center
       if (lineCount <= 1) {
-        const natW = bb.width / scale + fs * 0.2;
-        const newW = clamp(natW / size.width, MIN_FRAC, 1.5);
+        // +1px guards the final glyph's side-bearing against the box overflow clip.
+        const natW = bb.width + pad * 2 + 1;
+        const newW = clamp(natW / size.width, 0.005, 1.5);
         if (el.align === 'center') patch.x = baseBox.x + baseBox.w / 2 - newW / 2;
         else if (el.align === 'right') patch.x = baseBox.x + baseBox.w - newW;
         patch.w = newW;
       }
+      // Already hugged (within ~0.2% of the canvas ≈ a couple px)? Skip so the
+      // passive auto-size pass can't loop or needlessly dirty the doc. A resize
+      // still commits (its baseBox is the drag box, not yet stored).
+      const near = (a: number, b: number) => Math.abs(a - b) <= 0.002;
+      const unchanged =
+        near(patch.x, baseBox.x) && near(patch.y, baseBox.y) && near(patch.w, baseBox.w) && near(patch.h, baseBox.h);
+      if (unchanged && !commitFallback) return;
       setBox(sizeId, elId, patch);
     },
-    [doc.elements, size.width, size.height, scale, setBox],
+    [doc.elements, size.width, size.height, setBox],
   );
+
+  // Latest state for the passive auto-size pass, without widening its dep array
+  // (which would fire it on unrelated edits).
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  const sizeIdRef = useRef(sizeId);
+  sizeIdRef.current = sizeId;
+  const fitTextBoxRef = useRef(fitTextBox);
+  fitTextBoxRef.current = fitTextBox;
+
+  // Signature of everything that changes a text element's rendered SIZE
+  // (content, font metrics, per-size font size, padding, alignment). Box x/y/w/h
+  // are deliberately excluded so a hug can't feed back into the signature.
+  const textAutosizeSig = useMemo(
+    () =>
+      doc.elements
+        .filter((e) => e.type === 'text')
+        .map((e) => {
+          const b = doc.layouts[sizeId]?.[e.id];
+          const content =
+            e.binding?.kind === 'static'
+              ? e.binding.value
+              : e.binding?.kind === 'field'
+                ? String(previewData[e.binding.key] ?? '')
+                : '';
+          return [e.id, content, e.fontFamily, e.fontWeight, e.letterSpacing, e.lineHeight, e.uppercase, e.align, e.padding, b?.fontSize].join('');
+        })
+        .join(''),
+    [doc.elements, doc.layouts, sizeId, previewData],
+  );
+
+  // Auto-size text to its content (Canva/Figma "auto" text) so the box always
+  // hugs the glyphs — on add, edit, font/size tweak, and initial canvas load.
+  // The `writeFrame` effect is declared earlier, so it patches the iframe first
+  // in the same commit and the live nodes are current here; fitTextBox no-ops
+  // when a box is already tight. Skipped while inline-editing (don't fight the
+  // caret) — the commit changes the signature, which re-hugs afterward.
+  useEffect(() => {
+    if (editingText) return;
+    const idoc = iframeRef.current?.contentDocument;
+    if (!idoc) return;
+    const d = docRef.current;
+    const sid = sizeIdRef.current;
+    for (const el of d.elements) {
+      if (el.type !== 'text') continue;
+      const box = d.layouts[sid]?.[el.id];
+      if (box) fitTextBoxRef.current(el.id, sid, box, { commitFallback: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textAutosizeSig, frameTick, editingText]);
 
   // In-place text editing: turn the ACTUAL rendered node inside the iframe into a
   // contenteditable so the caret sits in the real text (WYSIWYG), rather than a
@@ -1389,17 +1476,45 @@ export default function AdBuilderPage() {
     if (selected) setElement(selected.id, patch, `el:${selected.id}:${Object.keys(patch).sort().join(',')}`);
   };
 
-  // Z-order within the current size (z lives per-size on the box).
-  function bringForward() {
-    if (!selected || !selectedBox) return;
-    const maxZ = Object.values(layout).reduce((m, b) => Math.max(m, b.z ?? 0), 0);
-    setBox(size.id, selected.id, { ...selectedBox, z: maxZ + 1 });
-  }
-  function sendBack() {
-    if (!selected || !selectedBox) return;
-    const minZ = Object.values(layout).reduce((m, b) => Math.min(m, b.z ?? 0), 0);
-    setBox(size.id, selected.id, { ...selectedBox, z: minZ - 1 });
-  }
+  // Z-order within the current size (z lives per-size on the box). Front/back
+  // JUMP past everything; forward/backward STEP one layer by normalizing the
+  // stack to contiguous z then swapping the neighbour (ties broken by element
+  // order so a step is always deterministic). Functional setDoc so consecutive
+  // presses read fresh z.
+  const applyZ = useCallback(
+    (mode: 'front' | 'back' | 'forward' | 'backward') => {
+      if (selectedIds.length !== 1) return;
+      const id = selectedIds[0];
+      setDoc((prev) => {
+        const lay = prev.layouts[size.id] ?? {};
+        const b = lay[id];
+        if (!b) return prev;
+        if (mode === 'front' || mode === 'back') {
+          const zs = Object.values(lay).map((x) => x.z ?? 0);
+          const nz = mode === 'front' ? Math.max(...zs) + 1 : Math.min(...zs) - 1;
+          return { ...prev, layouts: { ...prev.layouts, [size.id]: { ...lay, [id]: { ...b, z: nz } } } };
+        }
+        const ids = Object.keys(lay);
+        if (ids.length < 2) return prev;
+        const elIndex = new Map(prev.elements.map((e, i) => [e.id, i] as const));
+        const order = ids.slice().sort((a, c) => {
+          const za = lay[a].z ?? 0;
+          const zc = lay[c].z ?? 0;
+          return za !== zc ? za - zc : (elIndex.get(a) ?? 0) - (elIndex.get(c) ?? 0);
+        });
+        const i = order.indexOf(id);
+        const j = i + (mode === 'forward' ? 1 : -1);
+        if (i < 0 || j < 0 || j >= order.length) return prev; // already at an end
+        [order[i], order[j]] = [order[j], order[i]];
+        const next = { ...lay };
+        order.forEach((eid, idx) => {
+          next[eid] = { ...next[eid], z: idx };
+        });
+        return { ...prev, layouts: { ...prev.layouts, [size.id]: next } };
+      }, `z:${mode}:${id}`);
+    },
+    [selectedIds, size.id],
+  );
 
   // ── template field-list operations ──
   const addField = () => {
@@ -2012,8 +2127,12 @@ export default function AdBuilderPage() {
     const dyF = (e.clientY - d.sy) / d.fh;
     if (d.kind === 'single') {
       let box = computeBox(d.handle, d.start, dxF, dyF);
-      // Shift = constrain to the element's original aspect ratio (all elements).
-      if (d.handle !== 'move' && e.shiftKey) box = lockAspect(d.handle, d.start, box, d.nw, d.nh);
+      // Text sizing model (Figma-style): the font size is a PANEL property. A
+      // plain drag just reshapes the frame — width sets the wrap, height auto-
+      // fits on release (fitTextBox). Holding ⌘/Ctrl SCALES the font (and locks
+      // aspect so the text scales like an object). Shift locks aspect for any el.
+      const scaleText = d.scaleFont && (e.metaKey || e.ctrlKey) && !!d.start.fontSize && d.start.h > 0;
+      if (d.handle !== 'move' && (e.shiftKey || scaleText)) box = lockAspect(d.handle, d.start, box, d.nw, d.nh);
       let gx: number | null = null;
       let gy: number | null = null;
       if (d.handle === 'move') {
@@ -2023,9 +2142,8 @@ export default function AdBuilderPage() {
         box.y = clamp(box.y + sy.off, 0, 1 - box.h);
         gx = sx.guide;
         gy = sy.guide;
-      } else if (d.scaleFont && d.start.fontSize && d.start.h > 0) {
-        // Resizing text scales the font with the box height (not just reflow).
-        box.fontSize = Math.max(4, Math.round(d.start.fontSize * (box.h / d.start.h)));
+      } else if (scaleText) {
+        box.fontSize = Math.max(4, Math.round(d.start.fontSize! * (box.h / d.start.h)));
       }
       d.live = box;
       setDragBox(box);
@@ -2453,19 +2571,11 @@ export default function AdBuilderPage() {
         if (e.shiftKey) ungroupSelected();
         else groupSelected();
       } else if (key === ']' || key === '[') {
-        // Bring forward (⌘]) / send back (⌘[) — z-order within the current size.
-        // Functional setDoc so consecutive presses read fresh z, not a stale closure.
+        // Z-order: ⌘] forward one / ⌘[ back one; add ⇧ to jump to front/back.
         if (selectedIds.length !== 1) return;
         e.preventDefault();
-        const id = selectedIds[0];
-        setDoc((prev) => {
-          const lay = prev.layouts[size.id] ?? {};
-          const b = lay[id];
-          if (!b) return prev;
-          const zs = Object.values(lay).map((x) => x.z ?? 0);
-          const nz = key === ']' ? Math.max(...zs) + 1 : Math.min(...zs) - 1;
-          return { ...prev, layouts: { ...prev.layouts, [size.id]: { ...lay, [id]: { ...b, z: nz } } } };
-        });
+        const forward = key === ']';
+        applyZ(e.shiftKey ? (forward ? 'front' : 'back') : forward ? 'forward' : 'backward');
       } else if (key === 'd') {
         // Duplicate (⌘D) the single selected element.
         if (selectedIds.length !== 1) return;
@@ -2476,7 +2586,7 @@ export default function AdBuilderPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undo, redo, selectedIds, doc.elements, doc.groups, size.id, duplicateElement]);
+  }, [undo, redo, selectedIds, doc.elements, doc.groups, size.id, duplicateElement, applyZ]);
 
   // Autosave — debounced PATCH once there's a target (a saved template, or the
   // ad in ad mode). New/unsaved templates require an explicit Save first.
@@ -3104,7 +3214,10 @@ export default function AdBuilderPage() {
                     ref={iframeRef}
                     title="Template canvas"
                     srcDoc="<!doctype html><html><head></head><body></body></html>"
-                    onLoad={writeFrame}
+                    onLoad={() => {
+                      writeFrame();
+                      setFrameTick((t) => t + 1);
+                    }}
                     style={{
                       width: size.width,
                       height: size.height,
@@ -3653,8 +3766,10 @@ export default function AdBuilderPage() {
                   )}
                   {single && (
                     <>
-                      <Item onClick={bringForward} kbd="⌘]">Bring forward</Item>
-                      <Item onClick={sendBack} kbd="⌘[">Send back</Item>
+                      <Item onClick={() => applyZ('front')} kbd="⌘⇧]">Bring to front</Item>
+                      <Item onClick={() => applyZ('forward')} kbd="⌘]">Bring forward</Item>
+                      <Item onClick={() => applyZ('backward')} kbd="⌘[">Send backward</Item>
+                      <Item onClick={() => applyZ('back')} kbd="⌘⇧[">Send to back</Item>
                       <Item onClick={() => duplicateElement(single.id)} kbd="⌘D">Duplicate</Item>
                       <Item onClick={() => toggleLock(single.id)}>{single.locked ? 'Unlock' : 'Lock'}</Item>
                       <Item onClick={() => toggleHidden(single.id)}>{selectedBox?.hidden ? 'Show in this size' : 'Hide in this size'}</Item>
@@ -5246,16 +5361,20 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
         [`${mod} G`, 'Group selection'],
         [`${mod} ⇧ G`, 'Ungroup'],
         [`${mod} ]`, 'Bring forward'],
-        [`${mod} [`, 'Send back'],
+        [`${mod} [`, 'Send backward'],
+        [`${mod} ⇧ ]`, 'Bring to front'],
+        [`${mod} ⇧ [`, 'Send to back'],
       ],
     },
     {
-      title: 'Move',
+      title: 'Move & size',
       rows: [
         ['↑ ↓ ← →', 'Nudge 1px'],
         ['⇧ + arrows', 'Nudge 10px'],
         ['Drag', 'Move element'],
         ['Drag handles', 'Resize'],
+        ['⇧ drag', 'Lock aspect ratio'],
+        [`${mod} drag`, 'Scale text font'],
       ],
     },
     {
