@@ -282,6 +282,23 @@ const TYPE_ICON: Record<DocElementType, React.ComponentType<{ className?: string
   background: SwatchIcon,
 };
 
+// Element colour coding, used everywhere an element is referenced (Insert
+// palette, canvas selection outline + handles, Layers rows, the inspector type
+// badge): Text = blue, Image = pink, Button = purple, Shape = orange. A
+// "button" is a styled text element (a text el with a background pill).
+type ElementKind = 'text' | 'image' | 'button' | 'shape';
+const KIND_COLOR: Record<ElementKind, string> = {
+  text: '#3b82f6', // blue
+  image: '#ec4899', // pink
+  button: '#a855f7', // purple
+  shape: '#f97316', // orange
+};
+function elementKind(el: { type: DocElementType; bg?: string }): ElementKind {
+  if (el.type === 'shape') return 'shape';
+  if (el.type === 'image' || el.type === 'logo' || el.type === 'background') return 'image';
+  return el.bg ? 'button' : 'text'; // text with a pill background reads as a Button
+}
+
 type SavedTemplate = {
   id: string;
   name: string;
@@ -2693,11 +2710,11 @@ export default function AdBuilderPage() {
 
   // Element adders. A "Button" is a styled text element (no separate type); a
   // background is just an Image set to Fill — so no Logo / Background adders.
-  const adders: { label: string; Icon: React.ComponentType<{ className?: string }>; onAdd: () => void }[] = [
-    { label: 'Text', Icon: TextElementIcon, onAdd: () => addElement('text') },
-    { label: 'Image', Icon: PhotoIcon, onAdd: () => addElement('image') },
-    { label: 'Button', Icon: ButtonElementIcon, onAdd: addButton },
-    { label: 'Shape', Icon: ShapeElementIcon, onAdd: () => addElement('shape') },
+  const adders: Adder[] = [
+    { label: 'Text', Icon: TextElementIcon, onAdd: () => addElement('text'), color: KIND_COLOR.text },
+    { label: 'Image', Icon: PhotoIcon, onAdd: () => addElement('image'), color: KIND_COLOR.image },
+    { label: 'Button', Icon: ButtonElementIcon, onAdd: addButton, color: KIND_COLOR.button },
+    { label: 'Shape', Icon: ShapeElementIcon, onAdd: () => addElement('shape'), color: KIND_COLOR.shape },
     // No separate "Background": a background is a full-bleed Image (photo/texture)
     // or Shape (solid/gradient) — use those + the "Fill artboard & send to back"
     // action on the element's inspector.
@@ -3118,7 +3135,9 @@ export default function AdBuilderPage() {
                           className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left ${isSel ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'}`}
                           title="Double-click to rename"
                         >
-                          <Icon className="h-4 w-4 flex-shrink-0 opacity-70" />
+                          <span className="flex-shrink-0" style={{ color: KIND_COLOR[elementKind(el)] }}>
+                            <Icon className="h-4 w-4" />
+                          </span>
                           <span className="min-w-0 flex-1 truncate text-xs font-medium">{elName(el)}</span>
                         </button>
                       )}
@@ -3412,7 +3431,11 @@ export default function AdBuilderPage() {
                     // spot). The iframe clips it away, so the builder draws its
                     // visual here in the (unclipped) overlay instead.
                     const detached = isDetached(b);
+                    // Type colour (Text=blue / Image=pink / Button=purple /
+                    // Shape=orange), exposed as `--kind` for the ring + handles.
+                    const kindColor = KIND_COLOR[elementKind(el)];
                     const boxStyle: CSSProperties = {
+                      ['--kind' as string]: kindColor,
                       left: b.x * frameW,
                       top: b.y * frameH,
                       width: b.w * frameW,
@@ -3469,9 +3492,9 @@ export default function AdBuilderPage() {
                         <span
                           className={`pointer-events-none absolute inset-0 rounded-[2px] ring-inset transition-colors ${
                             isCropping
-                              ? 'ring-2 ring-[var(--primary)]'
+                              ? 'ring-2 ring-[var(--kind)]'
                               : isSel
-                                ? 'ring-2 ring-[var(--primary)] bg-[var(--primary)]/10'
+                                ? 'ring-2 ring-[var(--kind)]'
                                 : detached
                                   ? 'ring-1 ring-dashed ring-amber-500/70 group-hover:ring-amber-500'
                                   : box.hidden
@@ -3480,17 +3503,21 @@ export default function AdBuilderPage() {
                                       ? 'ring-[1.5px] ring-dashed ring-[var(--primary)]/55 group-hover:ring-[var(--primary)]/90'
                                       : 'group-hover:ring-[1.5px] group-hover:ring-[var(--primary)]/70'
                           }`}
+                          style={isSel && !isCropping ? { backgroundColor: `${kindColor}1a` } : undefined}
                         />
                         {isSingleSel && (
                           <>
-                            <span className={`pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${detached ? 'bg-amber-500' : 'bg-[var(--primary)]'}`}>
+                            <span
+                              className={`pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${detached ? 'bg-amber-500' : ''}`}
+                              style={detached ? undefined : { backgroundColor: kindColor }}
+                            >
                               {isCropping ? 'Crop — drag to reposition' : detached ? `${elName(el)} — detached` : elName(el)}
                             </span>
                             {RESIZE_HANDLES.map((rh) => (
                               <span
                                 key={rh.h}
                                 onPointerDown={(e) => startSingleDrag(e, el.id, rh.h)}
-                                className="absolute h-2.5 w-2.5 rounded-[2px] border border-[var(--primary)] bg-[var(--card)]"
+                                className="absolute h-2.5 w-2.5 rounded-[2px] border border-[var(--kind)] bg-[var(--card)]"
                                 style={{
                                   left: `${rh.x * 100}%`,
                                   top: `${rh.y * 100}%`,
@@ -3930,9 +3957,68 @@ function LabeledInput({
         type={type ?? 'text'}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+        className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
       />
     </label>
+  );
+}
+
+/**
+ * A minimal custom dropdown styled to match `LabeledInput` (same border /
+ * `--card` background / compact size) so the Fields editor's Type control reads
+ * as one of the text fields, not a heavier native-looking select.
+ */
+function CompactSelect({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  const sel = options.find((o) => o.value === value);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--foreground)] outline-none transition-colors hover:border-[var(--primary)] focus:border-[var(--primary)]"
+      >
+        <span className="truncate">{sel?.label ?? value}</span>
+        <ChevronDownIcon className={`h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 z-50 mt-1 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card-strong)] p-1 shadow-lg backdrop-blur-2xl">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => {
+                onChange(o.value);
+                setOpen(false);
+              }}
+              className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-xs transition-colors ${
+                o.value === value ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
+              }`}
+            >
+              <span className="truncate">{o.label}</span>
+              {o.value === value && <CheckIcon className="h-3 w-3 shrink-0" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3997,7 +4083,14 @@ function FieldRow({
   onSetDefault: (i: number, val: string) => void;
 }) {
   return (
-    <div className="rounded-lg border border-[var(--border)]">
+    // Subtle fill so a field row lifts off the group section it sits in (they
+    // otherwise share the panel background and blend together); the opened row
+    // gets a slight outline so the active one reads clearly.
+    <div
+      className={`rounded-lg border bg-[var(--muted)]/40 ${
+        expanded ? 'border-[var(--muted-foreground)]/40 ring-1 ring-[var(--muted-foreground)]/20' : 'border-[var(--border)]'
+      }`}
+    >
       <div className="flex items-center gap-2 px-3 py-2">
         <button onClick={onToggle} className="flex flex-1 items-center gap-2 text-left">
           <span className="truncate text-xs font-medium text-[var(--foreground)]">{field.label || field.key}</span>
@@ -4020,7 +4113,7 @@ function FieldRow({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <SelectRow label="Type">
-              <FontSelect value={field.type} onChange={(v) => onUpdate(index, { type: v as FieldType })} options={FIELD_TYPE_OPTIONS} previewFont={false} />
+              <CompactSelect value={field.type} onChange={(v) => onUpdate(index, { type: v as FieldType })} options={FIELD_TYPE_OPTIONS} />
             </SelectRow>
             <LabeledInput label="Group" value={field.group ?? ''} onChange={(v) => onUpdate(index, { group: v || undefined })} />
           </div>
@@ -4239,6 +4332,7 @@ function SelectionPanel({
 }) {
   const fontSize = box.fontSize ?? 16;
   const typeLabel = el.type === 'text' ? 'Text' : el.type === 'image' ? 'Image' : el.type === 'logo' ? 'Logo' : el.type === 'background' ? 'Background' : 'Shape';
+  const kindColor = KIND_COLOR[elementKind(el)];
   const [picking, setPicking] = useState(false);
 
   return (
@@ -4256,7 +4350,7 @@ function SelectionPanel({
             title="Rename this layer"
             className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-sm font-semibold text-[var(--foreground)] outline-none transition-colors hover:border-[var(--border)] focus:border-[var(--primary)] focus:bg-[var(--background)]"
           />
-          <span className="shrink-0 rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">{typeLabel}</span>
+          <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: `${kindColor}1f`, color: kindColor }}>{typeLabel}</span>
         </div>
         <button type="button" onClick={onClose} title="Deselect" aria-label="Deselect" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
           <XMarkIcon className="h-4 w-4" />
@@ -4857,7 +4951,7 @@ function DetachedVisual({
   );
 }
 
-type Adder = { label: string; Icon: React.ComponentType<{ className?: string }>; onAdd: () => void };
+type Adder = { label: string; Icon: React.ComponentType<{ className?: string }>; onAdd: () => void; color: string };
 
 /** The element palette — a grid of tiles that drop an element on the canvas.
  *  Shared by the Insert flyout (`panel`) and the empty-canvas onboarding
@@ -4872,9 +4966,13 @@ function AdderGrid({ adders, variant }: { adders: Adder[]; variant: 'panel' | 'o
         <button
           key={a.label}
           onClick={a.onAdd}
-          className={`group flex flex-col items-center rounded-xl border border-[var(--border)] px-2 font-medium text-[var(--foreground)] transition-all hover:-translate-y-0.5 hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 hover:shadow-sm ${tile}`}
+          className={`group flex flex-col items-center rounded-xl border border-[var(--border)] px-2 font-medium text-[var(--foreground)] transition-all hover:-translate-y-0.5 hover:shadow-sm ${tile}`}
+          onMouseEnter={(e) => (e.currentTarget.style.borderColor = a.color)}
+          onMouseLeave={(e) => (e.currentTarget.style.borderColor = '')}
         >
-          <a.Icon className={`${icon} text-[var(--muted-foreground)] transition-colors group-hover:text-[var(--primary)]`} />
+          <span className="transition-colors" style={{ color: a.color }}>
+            <a.Icon className={icon} />
+          </span>
           {a.label}
         </button>
       ))}
