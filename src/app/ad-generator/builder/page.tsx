@@ -3002,7 +3002,7 @@ export default function AdBuilderPage() {
             <div className="pointer-events-none absolute inset-y-0 left-full z-30 ml-2 flex w-[320px] flex-col gap-4 overflow-y-auto pb-1 pr-1">
           {/* Insert — element palette. Click a tile to drop it on the canvas. */}
           {leftPanel === 'insert' && (
-          <section className="glass-card pointer-events-auto rounded-2xl border border-[var(--border)] p-4">
+          <section className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
             <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
               <PlusIcon className="h-3.5 w-3.5" />
               Insert
@@ -3015,7 +3015,7 @@ export default function AdBuilderPage() {
           {/* Layers — the stack of placed elements (top of the list = front).
               Double-click to rename · lock icon to lock · drag to reorder (z). */}
           {leftPanel === 'layers' && (
-          <section className="glass-card pointer-events-auto rounded-2xl border border-[var(--border)] p-4">
+          <section className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                 <LayersIcon className="h-3.5 w-3.5" />
@@ -4534,36 +4534,36 @@ function SelectionPanel({
             </PanelSection>
 
             <PanelSection title="Color & spacing">
-              <div className="flex flex-wrap items-center gap-4">
-                <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                  Color
+              <div className="space-y-2.5">
+                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+                  <span>Color</span>
                   <ColorSwatchInput title="Text color" value={el.color && el.color !== 'brand' ? el.color : '#4f46e5'} onChange={(v) => onEl({ color: v })} />
                 </label>
-                <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-                  Letter
+                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+                  <span>Letter</span>
                   <MiniNum title="Letter spacing (px)" value={el.letterSpacing ?? 0} onChange={(v) => onEl({ letterSpacing: v ? Math.round(v) : undefined })} />
                 </label>
-                <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-                  Line
+                <label className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+                  <span>Line</span>
                   <MiniNum title="Line height" step={0.05} value={el.lineHeight ?? 1.1} onChange={(v) => onEl({ lineHeight: v || undefined })} />
                 </label>
-              </div>
-            </PanelSection>
-
-            <PanelSection title="Pill background">
-              {el.bg ? (
-                <div className="flex items-center gap-2">
-                  <ColorSwatchInput title="Pill background" value={el.bg !== 'brand' ? el.bg : '#4f46e5'} onChange={(v) => onEl({ bg: v })} />
-                  <span className="text-xs text-[var(--muted-foreground)]">On</span>
-                  <BarBtn title="Remove pill background" onClick={() => onEl({ bg: undefined })}>
-                    <XMarkIcon className="h-4 w-4" />
-                  </BarBtn>
+                {/* Button color — the pill background behind a text/button element. */}
+                <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+                  <span>Button color</span>
+                  {el.bg ? (
+                    <div className="flex items-center gap-2">
+                      <ColorSwatchInput title="Button color" value={el.bg !== 'brand' ? el.bg : '#4f46e5'} onChange={(v) => onEl({ bg: v })} />
+                      <BarBtn title="Remove button color" onClick={() => onEl({ bg: undefined })}>
+                        <XMarkIcon className="h-4 w-4" />
+                      </BarBtn>
+                    </div>
+                  ) : (
+                    <BarBtn title="Add a button background" onClick={() => onEl({ bg: 'brand', radius: el.radius ?? 999, padding: el.padding ?? 14 })}>
+                      <span className="px-1 text-[10px] font-semibold leading-none">Add</span>
+                    </BarBtn>
+                  )}
                 </div>
-              ) : (
-                <BarBtn title="Add pill background" onClick={() => onEl({ bg: 'brand', radius: el.radius ?? 999, padding: el.padding ?? 14 })}>
-                  <span className="text-[10px] font-semibold leading-none">Pill</span>
-                </BarBtn>
-              )}
+              </div>
             </PanelSection>
           </>
         )}
