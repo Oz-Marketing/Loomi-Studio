@@ -298,7 +298,7 @@ const FIELD_TYPE_OPTIONS: FontSelectOption[] = [
   { value: 'date', label: 'Date' },
   { value: 'select', label: 'Select' },
   { value: 'color', label: 'Color' },
-  { value: 'image', label: 'Image URL' },
+  { value: 'image', label: 'Image' },
 ];
 type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
