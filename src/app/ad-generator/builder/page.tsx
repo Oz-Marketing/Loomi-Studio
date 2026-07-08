@@ -4663,7 +4663,16 @@ function FieldsSidebar({
           );
         })}
         {!fields.length && (
-          <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-center text-xs text-[var(--muted-foreground)]">No fields yet.</p>
+          <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-5 text-center">
+            <p className="text-xs text-[var(--muted-foreground)]">No fields yet.</p>
+            <button
+              onClick={onAdd}
+              className="mt-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+            >
+              <PlusIcon className="h-4 w-4" />
+              Add field
+            </button>
+          </div>
         )}
       </div>
       <div className="m-4 mt-0 space-y-2">
