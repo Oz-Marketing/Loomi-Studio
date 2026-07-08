@@ -307,6 +307,9 @@ const IMAGE_SOURCE_OPTIONS: FontSelectOption[] = [
   { value: 'evox', label: 'Vehicle image (EVOX)' },
   { value: 'both', label: 'Both — manual + vehicle' },
 ];
+// The catch-all form section. A field with no explicit group resolves here, so
+// no field is ever "ungrouped"; it's a normal renamable/deletable section.
+const DEFAULT_GROUP = 'General';
 type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 const RESIZE_HANDLES: { h: Handle; x: number; y: number; cursor: string }[] = [
@@ -1741,17 +1744,27 @@ export default function AdBuilderPage() {
   );
 
   // ── template field-list operations ──
-  // Add a field, optionally into a specific group (from a group's own "+ Add field").
+  // Every field ALWAYS belongs to a real group — there is no "ungrouped" limbo.
+  // A field with no explicit group resolves to the "General" catch-all section
+  // (`DEFAULT_GROUP`), which is a normal, renamable/deletable section like any
+  // other. Add a field into a specific group (a section's "+ Add field"), or —
+  // for the bare "Field" button — into the last section (or a fresh General).
   const addField = (group?: string) => {
-    setDoc((prev) => ({ ...prev, fields: [...prev.fields, { key: `field_${rid()}`, label: 'New field', type: 'text', ...(group ? { group } : {}) }] }));
+    setDoc((prev) => {
+      const groups = currentGroups(prev);
+      const target = group?.trim() || groups[groups.length - 1] || DEFAULT_GROUP;
+      const fieldGroups = groups.includes(target) ? groups : [...groups, target];
+      return { ...prev, fieldGroups, fields: [...prev.fields, { key: `field_${rid()}`, label: 'New field', type: 'text', group: target }] };
+    });
   };
   // ── Field groups (designer-defined form sections; ordered on the doc) ──
-  // Current ordered group list: explicit `fieldGroups`, else derived from fields.
+  // Ordered group list: explicit `fieldGroups`, unioned with any group present
+  // on a field — an ungrouped field counts under the "General" section, so it's
+  // never orphaned. Mirrors the FieldsSidebar's `orderedNames` (indices match).
   const currentGroups = (d: TemplateDoc): string[] => {
-    if (d.fieldGroups?.length) return d.fieldGroups.slice();
-    const seen: string[] = [];
-    for (const f of d.fields) { const g = f.group?.trim(); if (g && !seen.includes(g)) seen.push(g); }
-    return seen;
+    const base = (d.fieldGroups ?? []).slice();
+    for (const f of d.fields) { const g = f.group?.trim() || DEFAULT_GROUP; if (!base.includes(g)) base.push(g); }
+    return base;
   };
   const addFieldGroup = () => {
     setDoc((prev) => {
@@ -1763,20 +1776,27 @@ export default function AdBuilderPage() {
     return;
   };
   const renameFieldGroup = (oldName: string, next: string) => {
-    const nn = next.trim();
+    const finalName = next.trim() || oldName;
     setDoc((prev) => {
-      const groups = [...new Set(currentGroups(prev).map((g) => (g === oldName ? nn || g : g)))];
-      const fields = prev.fields.map((f) => (f.group === oldName ? { ...f, group: nn || undefined } : f));
+      const groups = [...new Set(currentGroups(prev).map((g) => (g === oldName ? finalName : g)))];
+      // Assign a real name — including previously-ungrouped fields that resolved
+      // to the General section when it's being renamed.
+      const fields = prev.fields.map((f) => ((f.group?.trim() || DEFAULT_GROUP) === oldName ? { ...f, group: finalName } : f));
       return { ...prev, fieldGroups: groups, fields };
     }, `renamegroup:${oldName}`);
   };
   const deleteFieldGroup = (name: string) => {
-    setDoc((prev) => ({
-      ...prev,
-      fieldGroups: currentGroups(prev).filter((g) => g !== name),
-      // Keep the fields — they just become ungrouped (fall into "General").
-      fields: prev.fields.map((f) => (f.group === name ? { ...f, group: undefined } : f)),
-    }));
+    setDoc((prev) => {
+      const remaining = currentGroups(prev).filter((g) => g !== name);
+      const hasFields = prev.fields.some((f) => (f.group?.trim() || DEFAULT_GROUP) === name);
+      // A section's fields are never orphaned — re-home them into the General
+      // catch-all (or, when General itself is deleted, the next section / a fresh
+      // General). Deleting an empty section just removes it.
+      const target = hasFields ? (name === DEFAULT_GROUP ? (remaining[0] ?? DEFAULT_GROUP) : DEFAULT_GROUP) : undefined;
+      const fieldGroups = target && !remaining.includes(target) ? [...remaining, target] : remaining;
+      const fields = prev.fields.map((f) => ((f.group?.trim() || DEFAULT_GROUP) === name ? { ...f, group: target } : f));
+      return { ...prev, fieldGroups, fields };
+    });
   };
   const moveFieldGroup = (from: number, to: number) => {
     setDoc((prev) => {
@@ -1792,19 +1812,22 @@ export default function AdBuilderPage() {
   // group's end). Reorders `doc.fields` so within-group order is preserved.
   const moveFieldToGroup = (key: string, group: string | undefined, beforeKey?: string) => {
     setDoc((prev) => {
+      const g = group?.trim() || DEFAULT_GROUP; // never leave a field ungrouped
       const fields = [...prev.fields];
       const idx = fields.findIndex((f) => f.key === key);
       if (idx < 0) return prev;
       const [moved] = fields.splice(idx, 1);
-      moved.group = group || undefined;
+      moved.group = g;
       let insertAt = -1;
       if (beforeKey) insertAt = fields.findIndex((f) => f.key === beforeKey);
       if (insertAt < 0) {
         // Land at the end of the target group (after its last field).
-        for (let i = 0; i < fields.length; i++) if ((fields[i].group || undefined) === (group || undefined)) insertAt = i + 1;
+        for (let i = 0; i < fields.length; i++) if ((fields[i].group?.trim() || DEFAULT_GROUP) === g) insertAt = i + 1;
       }
       if (insertAt < 0) fields.push(moved); else fields.splice(insertAt, 0, moved);
-      return { ...prev, fields };
+      const groups = currentGroups(prev);
+      const fieldGroups = groups.includes(g) ? groups : [...groups, g];
+      return { ...prev, fields, fieldGroups };
     });
   };
   // Enable / disable the client's second offer (toggled from the settings cog).
@@ -4893,19 +4916,19 @@ function FieldsSidebar({
   const startFieldDrag = (key: string) => { dragFieldRef.current = key; dragGroupRef.current = null; setDragField(key); };
   const endDrag = () => { dragGroupRef.current = null; dragFieldRef.current = null; setDragGroup(null); setDragField(null); };
 
-  // Ordered section list: the designer-defined groups, plus any group that only
-  // exists on a field (back-compat), then an implicit "General" bucket for
-  // ungrouped fields (rendered last, not editable). Each field keeps its flat
-  // index into `fields` so the index-based handlers still hit the right one.
-  const GENERAL = 'General';
+  // Ordered section list: the designer-defined groups, unioned with any group
+  // present on a field — an ungrouped field resolves to the "General" section,
+  // so every field has a real, editable home (no separate ungrouped bucket).
+  // Mirrors the parent's `currentGroups` so index-based handlers line up. Each
+  // field keeps its flat index into `fields` so the handlers hit the right one.
+  const GENERAL = DEFAULT_GROUP;
   const orderedNames = useMemo(() => {
     const base = fieldGroups.slice();
-    for (const f of fields) { const g = f.group?.trim(); if (g && !base.includes(g)) base.push(g); }
+    for (const f of fields) { const g = f.group?.trim() || GENERAL; if (!base.includes(g)) base.push(g); }
     return base;
   }, [fieldGroups, fields]);
   const rows = useMemo(() => fields.map((f, i) => ({ f, i })).filter(({ f }) => !(hideSecondOffer && f.key.startsWith('o2_'))), [fields, hideSecondOffer]);
-  const itemsFor = (name: string | null) => rows.filter(({ f }) => (f.group?.trim() || '') === (name ?? ''));
-  const ungrouped = itemsFor(null);
+  const itemsFor = (name: string) => rows.filter(({ f }) => (f.group?.trim() || GENERAL) === name);
   // Auto-open a newly-added group so it isn't lost.
   const prevNames = useRef(new Set(orderedNames));
   useEffect(() => {
@@ -5010,7 +5033,7 @@ function FieldsSidebar({
                 <button type="button" onClick={() => { setRenamingGroup(group); setRenameDraft(group); }} title="Rename section" className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
                   <PencilSquareIcon className="h-3.5 w-3.5" />
                 </button>
-                <button type="button" onClick={() => onDeleteGroup(group)} title="Delete section (keeps its fields, ungrouped)" className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500">
+                <button type="button" onClick={() => onDeleteGroup(group)} title="Delete section (its fields move to another section)" className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500">
                   <TrashIcon className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -5031,23 +5054,7 @@ function FieldsSidebar({
           );
         })}
 
-        {/* Ungrouped fields — an implicit "General" section (not renamable/deletable). */}
-        {ungrouped.length > 0 && (
-          <div
-            className="rounded-lg border border-[var(--border)]"
-            onDragOver={(e) => { if (dragFieldRef.current) e.preventDefault(); }}
-            onDrop={() => { if (dragFieldRef.current) onMoveField(dragFieldRef.current, undefined, undefined); endDrag(); }}
-          >
-            <button type="button" onClick={() => toggleGroup(GENERAL)} className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left">
-              {openGroups.has(GENERAL) ? <ChevronDownIcon className="h-3.5 w-3.5" /> : <ChevronRightIcon className="h-3.5 w-3.5" />}
-              <span className="flex-1 truncate text-xs font-semibold text-[var(--muted-foreground)]">General <span className="font-normal">(ungrouped)</span></span>
-              <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--muted-foreground)]">{ungrouped.length}</span>
-            </button>
-            {openGroups.has(GENERAL) && <div className="space-y-2 border-t border-[var(--border)] p-2">{ungrouped.map(({ f, i }) => renderFieldRow(f, i))}</div>}
-          </div>
-        )}
-
-        {orderedNames.length === 0 && ungrouped.length === 0 && (
+        {orderedNames.length === 0 && (
           <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-5 text-center">
             <p className="text-xs text-[var(--muted-foreground)]">No fields yet. Create a section, then add fields to it.</p>
           </div>
@@ -5063,7 +5070,7 @@ function FieldsSidebar({
         </button>
         <button
           onClick={() => onAdd()}
-          title="Add an ungrouped field"
+          title="Add a field (into the last section, or a new General section)"
           className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
         >
           <PlusIcon className="h-3.5 w-3.5" />
