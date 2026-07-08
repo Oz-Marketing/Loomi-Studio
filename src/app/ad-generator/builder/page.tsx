@@ -78,6 +78,7 @@ import { blankTemplateDoc } from '@/lib/ad-generator/doc-template';
 import { DatePicker, type DateRange } from '@/components/ui/date-picker';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { CategoryEditorPopover } from '@/components/templates/taxonomy-controls';
+import { Tooltip } from '@/app/app/tools/_shared/Tooltip';
 import { DeployTemplateModal } from '@/components/ad-generator/deploy-template-modal';
 import { enrichOfferFields } from '@/lib/ad-generator/offer-text';
 import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } from '@/lib/ad-generator/layer-tree';
@@ -4264,16 +4265,38 @@ export default function AdBuilderPage() {
   );
 }
 
-function SelectRow({ label, children }: { label: string; children: React.ReactNode }) {
+/** A `?` info icon with a Loomi tooltip — used to clarify builder controls. */
+function InfoTip({ text }: { text: React.ReactNode }) {
+  return (
+    <Tooltip label={text}>
+      <QuestionMarkCircleIcon
+        className="h-3.5 w-3.5 cursor-help text-[var(--muted-foreground)]/70 transition-colors hover:text-[var(--foreground)]"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </Tooltip>
+  );
+}
+
+/** A form-control label + optional `?` hint tooltip. */
+function HintLabel({ label, hint, className = '' }: { label: string; hint?: React.ReactNode; className?: string }) {
+  return (
+    <span className={`mb-1 flex items-center gap-1 text-[var(--muted-foreground)] ${className}`}>
+      {label}
+      {hint && <InfoTip text={hint} />}
+    </span>
+  );
+}
+
+function SelectRow({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1 block text-[var(--muted-foreground)]">{label}</label>
+      <HintLabel label={label} hint={hint} />
       {children}
     </div>
   );
 }
 
-function ToggleRow({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+function ToggleRow({ label, hint, on, onClick }: { label: string; hint?: React.ReactNode; on: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -4281,7 +4304,7 @@ function ToggleRow({ label, on, onClick }: { label: string; on: boolean; onClick
         on ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]'
       }`}
     >
-      <span>{label}</span>
+      <span className="flex items-center gap-1">{label}{hint && <InfoTip text={hint} />}</span>
       <span className={`h-3.5 w-3.5 rounded-sm border ${on ? 'border-[var(--primary)] bg-[var(--primary)]' : 'border-[var(--border)]'}`} />
     </button>
   );
@@ -4290,18 +4313,20 @@ function ToggleRow({ label, on, onClick }: { label: string; on: boolean; onClick
 
 function LabeledInput({
   label,
+  hint,
   value,
   onChange,
   type,
 }: {
   label: string;
+  hint?: React.ReactNode;
   value: string;
   onChange: (v: string) => void;
   type?: string;
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[var(--muted-foreground)]">{label}</span>
+      <HintLabel label={label} hint={hint} />
       <input
         type={type ?? 'text'}
         value={value}
@@ -4417,6 +4442,7 @@ function FieldRow({
   defaultValue,
   accountKey,
   brandLogos,
+  allFields,
   onToggle,
   onUpdate,
   onRename,
@@ -4429,6 +4455,8 @@ function FieldRow({
   defaultValue: string;
   accountKey?: string;
   brandLogos: { key: string; label: string; url: string }[];
+  /** Sibling fields — for the "Show only when" conditional-visibility picker. */
+  allFields: FieldSpec[];
   onToggle: () => void;
   onUpdate: (i: number, patch: Partial<FieldSpec>) => void;
   onRename: (i: number, newKey: string) => void;
@@ -4436,6 +4464,8 @@ function FieldRow({
   onSetDefault: (i: number, val: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  // The field that gates this one's visibility (for the "Show only when" UI).
+  const condField = field.visibleWhen ? allFields.find((f) => f.key === field.visibleWhen!.field) : undefined;
   return (
     // Subtle fill so a field row lifts off the group section it sits in (they
     // otherwise share the panel background and blend together); the opened row
@@ -4446,15 +4476,22 @@ function FieldRow({
       }`}
     >
       <div className="flex items-center gap-2 px-3 py-2">
-        <button onClick={onToggle} className="flex flex-1 items-center gap-2 text-left">
-          <span className="truncate text-xs font-medium text-[var(--foreground)]">{field.label || field.key}</span>
-          <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">{field.type}</span>
-          {field.copy && <span className="rounded bg-[var(--primary)]/10 px-1 text-[9px] font-medium text-[var(--primary)]">AI</span>}
+        <button onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <span className="shrink-0 truncate text-xs font-medium text-[var(--foreground)]">{field.label || field.key}</span>
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">{field.type}</span>
+          {field.copy && <span className="shrink-0 rounded bg-[var(--primary)]/10 px-1 text-[9px] font-medium text-[var(--primary)]">AI</span>}
         </button>
+        {/* Subtle peek at the default/preview value so a designer can scan values
+            without expanding each row (image fields skip it — the value is a URL). */}
+        {field.type !== 'image' && defaultValue.trim() && (
+          <span className="max-w-[45%] shrink truncate text-right text-[11px] text-[var(--muted-foreground)]/80" title={defaultValue}>
+            {defaultValue}
+          </span>
+        )}
         <button
           onClick={() => onDelete(index)}
           title="Delete field"
-          className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500"
+          className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500"
         >
           <TrashIcon className="h-3.5 w-3.5" />
         </button>
@@ -4462,14 +4499,14 @@ function FieldRow({
       {expanded && (
         <div className="space-y-2 border-t border-[var(--border)] px-3 py-3 text-xs">
           <div className="grid grid-cols-2 gap-2">
-            <LabeledInput label="Label" value={field.label} onChange={(v) => onUpdate(index, { label: v })} />
-            <LabeledInput label="Key" value={field.key} onChange={(v) => onRename(index, v)} />
+            <LabeledInput label="Label" hint="What the client sees above this field in the form." value={field.label} onChange={(v) => onUpdate(index, { label: v })} />
+            <LabeledInput label="Key" hint="The internal id used in {{variable}} tokens and element bindings (e.g. {{leaseTerm}}). Must be unique — renaming updates every reference automatically." value={field.key} onChange={(v) => onRename(index, v)} />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <SelectRow label="Type">
+            <SelectRow label="Type" hint="How the client fills this field: plain text, number, a date picker, a color, an image picker, or a dropdown (select).">
               <CompactSelect value={field.type} onChange={(v) => onUpdate(index, { type: v as FieldType })} options={FIELD_TYPE_OPTIONS} />
             </SelectRow>
-            <LabeledInput label="Group" value={field.group ?? ''} onChange={(v) => onUpdate(index, { group: v || undefined })} />
+            <LabeledInput label="Group" hint="Optional. Groups this field with others under a heading in the form + Fields panel (e.g. “Offer”, “Vehicle”, “Legal”). Fields sharing a Group name collapse into one section; blank = “General”." value={field.group ?? ''} onChange={(v) => onUpdate(index, { group: v || undefined })} />
           </div>
           {/* Default / preview value — the fallback shown in the picker thumb,
               builder canvas, and client form until the client fills it in. For
@@ -4510,18 +4547,52 @@ function FieldRow({
               </div>
             </div>
           ) : (
-            <LabeledInput label="Default / preview value" value={defaultValue} onChange={(v) => onSetDefault(index, v)} />
+            <LabeledInput label="Default / preview value" hint="Shown in the preview + client form until the client edits it — great for mock data (e.g. “36”). A {{token}} here resolves against the other fields." value={defaultValue} onChange={(v) => onSetDefault(index, v)} />
           )}
-          <LabeledInput label="Placeholder" value={field.placeholder ?? ''} onChange={(v) => onUpdate(index, { placeholder: v || undefined })} />
-          <LabeledInput label="Help" value={field.help ?? ''} onChange={(v) => onUpdate(index, { help: v || undefined })} />
+          <LabeledInput label="Placeholder" hint="Faint hint text inside the empty input on the client form (not a real value)." value={field.placeholder ?? ''} onChange={(v) => onUpdate(index, { placeholder: v || undefined })} />
+          <LabeledInput label="Help" hint="A one-line note shown under this field on the client form to guide what they enter." value={field.help ?? ''} onChange={(v) => onUpdate(index, { help: v || undefined })} />
+          {/* Conditional visibility — show this field only when another field has
+              a given value (e.g. Lease fields only when Offer type = Lease). The
+              client form + AI copy already honor this via `isFieldVisible`. */}
+          <div>
+            <HintLabel label="Show only when" hint="Make this field appear only when another field has a specific value — e.g. show the Lease fields only when Offer type is Lease. Leave “Always show” to always display it." />
+            <div className="grid grid-cols-2 gap-2">
+              <CompactSelect
+                value={field.visibleWhen?.field ?? ''}
+                onChange={(fk) =>
+                  onUpdate(index, {
+                    visibleWhen: fk ? { field: fk, in: field.visibleWhen?.field === fk ? field.visibleWhen.in : [] } : undefined,
+                  })
+                }
+                options={[{ value: '', label: 'Always show' }, ...allFields.filter((f) => f.key !== field.key && f.key).map((f) => ({ value: f.key, label: f.label || f.key }))]}
+              />
+              {field.visibleWhen?.field &&
+                (condField?.type === 'select' && condField.options?.length ? (
+                  <MultiSelect
+                    value={field.visibleWhen.in}
+                    onChange={(vals) => onUpdate(index, { visibleWhen: { field: field.visibleWhen!.field, in: vals } })}
+                    options={condField.options.map((o) => ({ value: o.value, label: o.label }))}
+                    placeholder="any value"
+                  />
+                ) : (
+                  <input
+                    value={field.visibleWhen.in.join(', ')}
+                    onChange={(e) => onUpdate(index, { visibleWhen: { field: field.visibleWhen!.field, in: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) } })}
+                    placeholder="value(s), comma-separated"
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                  />
+                ))}
+            </div>
+          </div>
           <div className="grid grid-cols-2 items-end gap-2">
             <LabeledInput
               label="Max length"
+              hint="Optional character cap — a fit hint for on-canvas text and a limit the AI copywriter respects."
               type="number"
               value={field.maxLength != null ? String(field.maxLength) : ''}
               onChange={(v) => onUpdate(index, { maxLength: v ? Number(v) : undefined })}
             />
-            <ToggleRow label="AI may write" on={!!field.copy} onClick={() => onUpdate(index, { copy: field.copy ? undefined : true })} />
+            <ToggleRow label="AI may write" hint="Let the AI copywriter fill this field. Use for marketing copy (headline, tagline) — never for data/price/legal, which the AI must not change." on={!!field.copy} onClick={() => onUpdate(index, { copy: field.copy ? undefined : true })} />
           </div>
           {field.type === 'select' && <SelectOptionsEditor options={field.options ?? []} onChange={(opts) => onUpdate(index, { options: opts })} />}
         </div>
@@ -4650,6 +4721,7 @@ function FieldsSidebar({
                       defaultValue={defaults[f.key] ?? ''}
                       accountKey={accountKey}
                       brandLogos={brandLogos}
+                      allFields={fields}
                       onToggle={() => setExpanded(expanded === i ? null : i)}
                       onUpdate={onUpdate}
                       onRename={onRename}
