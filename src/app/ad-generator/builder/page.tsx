@@ -77,6 +77,7 @@ import { singleOfferDoc, dualOfferDoc } from '@/lib/ad-generator/templates/offer
 import { blankTemplateDoc } from '@/lib/ad-generator/doc-template';
 import { DatePicker, type DateRange } from '@/components/ui/date-picker';
 import { MultiSelect } from '@/components/ui/multi-select';
+import { CategoryEditorPopover } from '@/components/templates/taxonomy-controls';
 import { DeployTemplateModal } from '@/components/ad-generator/deploy-template-modal';
 import { enrichOfferFields } from '@/lib/ad-generator/offer-text';
 import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } from '@/lib/ad-generator/layer-tree';
@@ -233,6 +234,11 @@ function sourceValueToBinding(v: string, currentValue: string): Binding {
 function buildContentSources(el: DocElement, fields: FieldSpec[]): SearchableSelectOption[] {
   const isImage = el.type === 'image' || el.type === 'logo' || el.type === 'background';
   const hasO2 = fields.some((f) => f.key === 'o2_offerType');
+  // Only surface the computed offer tokens when the template actually has the
+  // offer question set — otherwise a blank/non-offer template lists Offer
+  // label/amount/terms that resolve to nothing (confusing). They ride in with
+  // the "Vehicle Offer" category starter (or the offer field kit).
+  const hasOffer = fields.some((f) => f.key === 'offerType');
   const opts: SearchableSelectOption[] = [
     { value: 'static', label: isImage ? 'Fixed image' : 'Type it in', group: 'Custom' },
   ];
@@ -242,17 +248,20 @@ function buildContentSources(el: DocElement, fields: FieldSpec[]): SearchableSel
     opts.push({ value: `field:${f.key}`, label: f.label || f.key, group: f.group?.trim() || 'Fields' });
   }
   if (!isImage) {
-    // Computed offer text. When the template has two offers, name Offer 1's
-    // tokens explicitly so they don't read as "the" offer next to Offer 2's.
-    const offer1Tokens = hasO2
-      ? [
-          { key: '_offerLabel', label: 'Offer 1 label' },
-          { key: '_offerMain', label: 'Offer 1 amount' },
-          { key: '_offerTerms', label: 'Offer 1 terms' },
-        ]
-      : OFFER_TOKENS;
-    for (const t of offer1Tokens) opts.push({ value: `field:${t.key}`, label: t.label, group: 'Computed offer text' });
-    if (hasO2) for (const t of OFFER_TOKENS_O2) opts.push({ value: `field:${t.key}`, label: t.label, group: 'Computed offer text' });
+    // Computed offer text — only when the template has the offer question set
+    // (otherwise these tokens resolve to nothing). Name Offer 1's tokens
+    // explicitly when a second offer exists.
+    if (hasOffer) {
+      const offer1Tokens = hasO2
+        ? [
+            { key: '_offerLabel', label: 'Offer 1 label' },
+            { key: '_offerMain', label: 'Offer 1 amount' },
+            { key: '_offerTerms', label: 'Offer 1 terms' },
+          ]
+        : OFFER_TOKENS;
+      for (const t of offer1Tokens) opts.push({ value: `field:${t.key}`, label: t.label, group: 'Computed offer text' });
+      if (hasO2) for (const t of OFFER_TOKENS_O2) opts.push({ value: `field:${t.key}`, label: t.label, group: 'Computed offer text' });
+    }
     opts.push({ value: 'brand:dealerName', label: 'Dealer name', group: 'Brand' });
   } else {
     opts.push({ value: 'brand:logoUrl', label: 'Account logo', group: 'Brand' });
@@ -579,12 +588,10 @@ export default function AdBuilderPage() {
   // Figma-style alignment guides shown while dragging (fractions, or null).
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Template Fields is a LEFT-docked panel (same shell as the element inspector),
+  // so it can be open at the same time as the element/block settings panel on the
+  // right. It shares the left slot with Insert/Layers (one at a time).
   const [fieldsOpen, setFieldsOpen] = useState(false);
-  // The element inspector and the Fields panel never share the screen (they'd
-  // overlap on the right) — selecting an element closes Fields.
-  useEffect(() => {
-    if (selectedIds.length) setFieldsOpen(false);
-  }, [selectedIds]);
   // Left rail: which panel (Elements / Layers / Industries / Sizes) is open as a
   // flyout. null = collapsed to just the icons.
   const [leftPanel, setLeftPanel] = useState<'insert' | 'layers' | null>(null);
@@ -608,8 +615,21 @@ export default function AdBuilderPage() {
   const [addSizeOpen, setAddSizeOpen] = useState(false);
   // Sizes popover on the canvas action bar (replaces the old left-rail Sizes panel).
   const [sizesOpen, setSizesOpen] = useState(false);
-  // Template settings popover in the header cog (Industries + Save as new).
+  // Template settings popover in the header cog (Category + Industries + Save as new).
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const categoryPopRef = useRef<HTMLDivElement | null>(null);
+  // Category → starter field-set registry (designer-managed; "Vehicle Offer"
+  // ships seeded with the offer question set). Drives the Category picker's
+  // options + seeding a category's fields when picked.
+  type CategoryStarter = { name: string; fields: FieldSpec[]; defaults: Record<string, string> };
+  const [categoryStarters, setCategoryStarters] = useState<CategoryStarter[]>([]);
+  useEffect(() => {
+    fetch('/api/ad-generator/category-starters')
+      .then((r) => (r.ok ? r.json() : { starters: [] }))
+      .then((j: { starters?: CategoryStarter[] }) => setCategoryStarters(j.starters ?? []))
+      .catch(() => setCategoryStarters([]));
+  }, []);
   // Publish popover — Draft / live-now / scheduled window.
   const [publishOpen, setPublishOpen] = useState(false);
   const publishRef = useRef<HTMLDivElement>(null);
@@ -1729,6 +1749,51 @@ export default function AdBuilderPage() {
       setDoc((prev) => ({ ...prev, allowOfferCountChoice: false }), 'dual:off');
       setPreviewCount(1);
       toast('Second offer disabled');
+    }
+  };
+  // Set the template's Category and — if that category has a starter field set —
+  // seed its fields (merge-missing, never overwrites the designer's fields). This
+  // is how "Vehicle Offer" fills the offer questions; other categories seed
+  // whatever starter a designer has saved for them (or nothing).
+  const applyCategory = (name: string | null) => {
+    const starter = name ? categoryStarters.find((s) => s.name === name) : null;
+    setDoc((prev) => {
+      const next: TemplateDoc = { ...prev, category: name ?? undefined };
+      if (starter?.fields?.length) {
+        const have = new Set(prev.fields.map((f) => f.key));
+        const add = starter.fields.filter((f) => !have.has(f.key));
+        if (add.length) next.fields = [...prev.fields, ...add];
+        const defaults = { ...prev.defaults };
+        for (const [k, v] of Object.entries(starter.defaults ?? {})) if (!(k in defaults)) defaults[k] = v;
+        next.defaults = defaults;
+      }
+      return next;
+    }, 'category');
+    if (starter?.fields?.length) toast.success(`Seeded ${starter.name} fields`);
+    setCategoryOpen(false);
+  };
+  // Save the current template's fields as the starter for its category, so future
+  // templates in that category start pre-filled. Designer-managed; managers only.
+  const saveCategoryStarter = async () => {
+    const name = doc.category?.trim();
+    if (!name) {
+      toast.error('Pick a category first');
+      return;
+    }
+    try {
+      const res = await fetch('/api/ad-generator/category-starters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, fields: doc.fields, defaults: doc.defaults }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `HTTP ${res.status}`);
+      setCategoryStarters((prev) => {
+        const rest = prev.filter((s) => s.name !== name);
+        return [...rest, { name, fields: doc.fields, defaults: doc.defaults }].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      toast.success(`Saved as the "${name}" starter`);
+    } catch (err) {
+      toast.error(`Couldn't save starter: ${err instanceof Error ? err.message : 'unknown error'}`);
     }
   };
   const updateFieldAt = (i: number, patch: Partial<FieldSpec>) => {
@@ -2959,6 +3024,45 @@ export default function AdBuilderPage() {
                 <>
                   <div className="fixed inset-0 z-[90]" onClick={() => setSettingsOpen(false)} />
                   <div className="absolute right-0 top-11 z-[100] w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
+                    {/* Category — free-form (shared taxonomy). A category can carry a
+                        starter field set; picking it seeds those fields. "Vehicle
+                        Offer" ships seeded with the offer questions. */}
+                    <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Category</h3>
+                    <p className="mb-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
+                      Picking a category with a saved starter fills in its fields (e.g. “Vehicle Offer” seeds the offer questions).
+                    </p>
+                    <div className="relative mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setCategoryOpen((v) => !v)}
+                        className="flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--primary)]"
+                      >
+                        <span className={doc.category ? '' : 'text-[var(--muted-foreground)]'}>{doc.category || 'No category'}</span>
+                        <ChevronDownIcon className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                      </button>
+                      {categoryOpen && (
+                        <CategoryEditorPopover
+                          popoverRef={categoryPopRef}
+                          allCategories={[...new Set([...categoryStarters.map((s) => s.name), ...(doc.category ? [doc.category] : [])])].sort()}
+                          current={doc.category ?? null}
+                          onSelect={(cat) => applyCategory(cat)}
+                          onCreate={(cat) => applyCategory(cat)}
+                          onClear={() => applyCategory(null)}
+                        />
+                      )}
+                    </div>
+                    {doc.category && (
+                      <button
+                        type="button"
+                        onClick={saveCategoryStarter}
+                        className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                        title={`Save this template's fields as the default starter for "${doc.category}"`}
+                      >
+                        <BookmarkSquareIcon className="h-3.5 w-3.5" />
+                        Save fields as “{doc.category}” starter
+                      </button>
+                    )}
+                    <div className="mb-3 border-t border-[var(--border)]" />
                     <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Industries</h3>
                     <p className="mb-3 text-[11px] leading-snug text-[var(--muted-foreground)]">
                       Which accounts can use this template. None selected → only vehicle-offer accounts (Automotive, Powersports).
@@ -2981,7 +3085,7 @@ export default function AdBuilderPage() {
                         );
                       })}
                     </div>
-                    <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">Assign a category &amp; tags on the template card in the Templates library.</p>
+                    <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">Assign tags on the template card in the Templates library.</p>
 
                     {/* Second offer — lets the client choose 1 or 2 offers. Enabling
                         seeds the second-offer fields + a starter block; the 1/2 view
@@ -3079,10 +3183,10 @@ export default function AdBuilderPage() {
                 Background). Lives in the rail alongside Layers so adding never
                 collides with an open panel. Sizes are managed on the canvas
                 action bar (bottom); view guides (outlines / margins) live here. */}
-            <RailButton label="Insert" Icon={PlusIcon} primary active={leftPanel === 'insert'} onClick={() => setLeftPanel((p) => (p === 'insert' ? null : 'insert'))} />
-            <RailButton label="Layers" Icon={LayersIcon} active={leftPanel === 'layers'} onClick={() => setLeftPanel((p) => (p === 'layers' ? null : 'layers'))} />
-            {/* Fields — the form that drives the ad (offer/vehicle/legal inputs +
-                element bindings). Right-docked panel, so it toggles on its own. */}
+            <RailButton label="Insert" Icon={PlusIcon} primary active={leftPanel === 'insert'} onClick={() => { setLeftPanel((p) => (p === 'insert' ? null : 'insert')); setFieldsOpen(false); }} />
+            <RailButton label="Layers" Icon={LayersIcon} active={leftPanel === 'layers'} onClick={() => { setLeftPanel((p) => (p === 'layers' ? null : 'layers')); setFieldsOpen(false); }} />
+            {/* Fields — the form that drives the ad. Left-docked (shares the left
+                slot with Insert/Layers); coexists with the right settings panel. */}
             <RailButton
               label="Fields"
               Icon={Bars3BottomLeftIcon}
@@ -3090,7 +3194,7 @@ export default function AdBuilderPage() {
               onClick={() =>
                 setFieldsOpen((v) => {
                   const next = !v;
-                  if (next) clearSelection(); // Fields + element inspector never share the screen
+                  if (next) setLeftPanel(null); // Fields takes the left slot from Insert/Layers
                   return next;
                 })
               }
@@ -3963,7 +4067,7 @@ export default function AdBuilderPage() {
                   onBox={(patch) => setBox(size.id, selected.id, { ...selectedBox, ...patch }, `box:${selected.id}:${Object.keys(patch).sort().join(',')}`)}
                   onClose={clearSelection}
                   onFillArtboard={() => fillArtboardAndSendBack(selected.id)}
-                  shifted={fieldsOpen}
+                  shifted={false}
                   cropping={cropModal?.id === selected.id}
                   onToggleCrop={() => {
                     const url = resolveBindingUrl(selected);
@@ -3993,7 +4097,7 @@ export default function AdBuilderPage() {
                   onSaveAsBlock={saveSelectionAsBlock}
                   onDelete={deleteSelected}
                   onClose={clearSelection}
-                  shifted={fieldsOpen}
+                  shifted={false}
                   supportsDual={supportsDual}
                 />
               )}
@@ -4527,7 +4631,7 @@ function FieldsSidebar({
   return (
     // Floating right-docked sidebar (no modal / backdrop) — the form that drives
     // the ad stays open beside the canvas while you design.
-    <div data-adgen-panel className="fixed right-4 top-20 bottom-4 z-40 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl">
+    <div data-adgen-panel className="fixed left-16 top-20 bottom-4 z-40 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl">
       <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] p-4">
         <div>
           <h2 className="text-sm font-bold text-[var(--foreground)]">Template fields</h2>
