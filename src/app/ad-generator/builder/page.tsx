@@ -4521,6 +4521,9 @@ function FieldRow({
   // Whether the "Show only when" section is shown in the editor — on if the field
   // already has a condition, or the designer picks "Conditional field" in the ⋯ menu.
   const [showConditional, setShowConditional] = useState(!!field.visibleWhen);
+  // Advanced options collapsed by default — these forms get long; show only the
+  // high-level fields (Label / Type / Default) until the designer opts in.
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
@@ -4586,16 +4589,11 @@ function FieldRow({
       </div>
       {expanded && (
         <div className="space-y-2 border-t border-[var(--border)] px-3 py-3 text-xs">
+          {/* Basic — the high-level fields filled most often. */}
           <div className="grid grid-cols-2 gap-2">
             <LabeledInput label="Label" hint="What the client sees above this field in the form." value={field.label} onChange={(v) => onUpdate(index, { label: v })} />
-            <LabeledInput label="Key" hint="The internal id used in {{variable}} tokens and element bindings (e.g. {{leaseTerm}}). Must be unique — renaming updates every reference automatically." value={field.key} onChange={(v) => onRename(index, v)} />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
             <SelectRow label="Type" hint="How the client fills this field: plain text, number, a date picker, a color, an image picker, or a dropdown (select).">
               <CompactSelect value={field.type} onChange={(v) => onUpdate(index, { type: v as FieldType })} options={FIELD_TYPE_OPTIONS} />
-            </SelectRow>
-            <SelectRow label="Group" hint="Groups this field with others under a heading in the form + Fields panel (e.g. “Offer”, “Vehicle”, “Legal”). Pick an existing group or create one; blank = “General”.">
-              <GroupPicker value={field.group} options={groupOptions} onChange={(g) => onUpdate(index, { group: g })} />
             </SelectRow>
           </div>
           {/* Default / preview value — the fallback shown in the picker thumb,
@@ -4639,8 +4637,7 @@ function FieldRow({
           ) : (
             <LabeledInput label="Default / preview value" hint="Shown in the preview + client form until the client edits it — great for mock data (e.g. “36”). A {{token}} here resolves against the other fields." value={defaultValue} onChange={(v) => onSetDefault(index, v)} />
           )}
-          <LabeledInput label="Placeholder" hint="Faint hint text inside the empty input on the client form (not a real value)." value={field.placeholder ?? ''} onChange={(v) => onUpdate(index, { placeholder: v || undefined })} />
-          <LabeledInput label="Help" hint="A one-line note shown under this field on the client form to guide what they enter." value={field.help ?? ''} onChange={(v) => onUpdate(index, { help: v || undefined })} />
+          {field.type === 'select' && <SelectOptionsEditor options={field.options ?? []} onChange={(opts) => onUpdate(index, { options: opts })} />}
           {/* Conditional visibility — opt-in via the ⋯ menu. Shows this field only
               when another field has a given value (e.g. Lease fields only when
               Offer type = Lease). Honored by the client form + AI via isFieldVisible. */}
@@ -4688,17 +4685,38 @@ function FieldRow({
               )}
             </div>
           )}
-          <div className="grid grid-cols-2 items-end gap-2">
-            <LabeledInput
-              label="Max length"
-              hint="Optional character cap — a fit hint for on-canvas text and a limit the AI copywriter respects."
-              type="number"
-              value={field.maxLength != null ? String(field.maxLength) : ''}
-              onChange={(v) => onUpdate(index, { maxLength: v ? Number(v) : undefined })}
-            />
-            <ToggleRow label="AI may write" hint="Let the AI copywriter fill this field. Use for marketing copy (headline, tagline) — never for data/price/legal, which the AI must not change." on={!!field.copy} onClick={() => onUpdate(index, { copy: field.copy ? undefined : true })} />
-          </div>
-          {field.type === 'select' && <SelectOptionsEditor options={field.options ?? []} onChange={(opts) => onUpdate(index, { options: opts })} />}
+          {/* Advanced — technical / optional bits, hidden until opened so the
+              common case (Label / Type / Default) stays short. */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex w-full items-center justify-between rounded-md py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          >
+            <span className="flex items-center gap-1.5"><Cog6ToothIcon className="h-3.5 w-3.5" />Advanced options</span>
+            {showAdvanced ? <ChevronDownIcon className="h-3.5 w-3.5" /> : <ChevronRightIcon className="h-3.5 w-3.5" />}
+          </button>
+          {showAdvanced && (
+            <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-2.5">
+              <div className="grid grid-cols-2 gap-2">
+                <LabeledInput label="Key" hint="The internal id used in {{variable}} tokens and element bindings (e.g. {{leaseTerm}}). Must be unique — renaming updates every reference automatically." value={field.key} onChange={(v) => onRename(index, v)} />
+                <SelectRow label="Group" hint="Groups this field with others under a heading in the form + Fields panel (e.g. “Offer”, “Vehicle”, “Legal”). Pick an existing group or create one; blank = “General”.">
+                  <GroupPicker value={field.group} options={groupOptions} onChange={(g) => onUpdate(index, { group: g })} />
+                </SelectRow>
+              </div>
+              <LabeledInput label="Placeholder" hint="Faint hint text inside the empty input on the client form (not a real value)." value={field.placeholder ?? ''} onChange={(v) => onUpdate(index, { placeholder: v || undefined })} />
+              <LabeledInput label="Help" hint="A one-line note shown under this field on the client form to guide what they enter." value={field.help ?? ''} onChange={(v) => onUpdate(index, { help: v || undefined })} />
+              <div className="grid grid-cols-2 items-end gap-2">
+                <LabeledInput
+                  label="Max length"
+                  hint="Optional character cap — a fit hint for on-canvas text and a limit the AI copywriter respects."
+                  type="number"
+                  value={field.maxLength != null ? String(field.maxLength) : ''}
+                  onChange={(v) => onUpdate(index, { maxLength: v ? Number(v) : undefined })}
+                />
+                <ToggleRow label="AI may write" hint="Let the AI copywriter fill this field. Use for marketing copy (headline, tagline) — never for data/price/legal, which the AI must not change." on={!!field.copy} onClick={() => onUpdate(index, { copy: field.copy ? undefined : true })} />
+              </div>
+            </div>
+          )}
         </div>
       )}
       {picking && (
