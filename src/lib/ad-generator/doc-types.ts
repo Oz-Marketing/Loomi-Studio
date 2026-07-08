@@ -249,6 +249,11 @@ export interface TemplateDoc {
   /** Form fields the user fills — reuses FieldSpec (copy / maxLength /
    *  visibleWhen all carry straight over from the code-template work). */
   fields: FieldSpec[];
+  /** Designer-defined form sections (ordered), by name. Each field's `group`
+   *  points at one of these; a group can exist with no fields yet. Drives the
+   *  Fields-panel sections AND the client form's grouped layout. Absent on
+   *  legacy docs → derived from the fields' `group` values. */
+  fieldGroups?: string[];
   background?: DocBackground;
   /** Optional safe-area margin the designer sets to mark consistent padding. A
    *  builder-only guide (never exported) the alignment snapping treats as an

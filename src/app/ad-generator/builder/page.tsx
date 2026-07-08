@@ -62,6 +62,7 @@ import {
   VariableIcon,
   MagnifyingGlassIcon,
   EllipsisVerticalIcon,
+  PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 import { BranchIcon } from '@/components/icons/branch';
 import { useAccount } from '@/contexts/account-context';
@@ -1733,8 +1734,71 @@ export default function AdBuilderPage() {
   );
 
   // ── template field-list operations ──
-  const addField = () => {
-    setDoc((prev) => ({ ...prev, fields: [...prev.fields, { key: `field_${rid()}`, label: 'New field', type: 'text' }] }));
+  // Add a field, optionally into a specific group (from a group's own "+ Add field").
+  const addField = (group?: string) => {
+    setDoc((prev) => ({ ...prev, fields: [...prev.fields, { key: `field_${rid()}`, label: 'New field', type: 'text', ...(group ? { group } : {}) }] }));
+  };
+  // ── Field groups (designer-defined form sections; ordered on the doc) ──
+  // Current ordered group list: explicit `fieldGroups`, else derived from fields.
+  const currentGroups = (d: TemplateDoc): string[] => {
+    if (d.fieldGroups?.length) return d.fieldGroups.slice();
+    const seen: string[] = [];
+    for (const f of d.fields) { const g = f.group?.trim(); if (g && !seen.includes(g)) seen.push(g); }
+    return seen;
+  };
+  const addFieldGroup = () => {
+    setDoc((prev) => {
+      const groups = currentGroups(prev);
+      let name = 'New group';
+      for (let n = 2; groups.includes(name); n++) name = `New group ${n}`;
+      return { ...prev, fieldGroups: [...groups, name] };
+    });
+    return;
+  };
+  const renameFieldGroup = (oldName: string, next: string) => {
+    const nn = next.trim();
+    setDoc((prev) => {
+      const groups = [...new Set(currentGroups(prev).map((g) => (g === oldName ? nn || g : g)))];
+      const fields = prev.fields.map((f) => (f.group === oldName ? { ...f, group: nn || undefined } : f));
+      return { ...prev, fieldGroups: groups, fields };
+    }, `renamegroup:${oldName}`);
+  };
+  const deleteFieldGroup = (name: string) => {
+    setDoc((prev) => ({
+      ...prev,
+      fieldGroups: currentGroups(prev).filter((g) => g !== name),
+      // Keep the fields — they just become ungrouped (fall into "General").
+      fields: prev.fields.map((f) => (f.group === name ? { ...f, group: undefined } : f)),
+    }));
+  };
+  const moveFieldGroup = (from: number, to: number) => {
+    setDoc((prev) => {
+      const groups = currentGroups(prev);
+      if (from < 0 || to < 0 || from >= groups.length || to >= groups.length || from === to) return prev;
+      const next = [...groups];
+      const [m] = next.splice(from, 1);
+      next.splice(to, 0, m);
+      return { ...prev, fieldGroups: next };
+    });
+  };
+  // Move a field (by key) into `group`, positioned before `beforeKey` (else at the
+  // group's end). Reorders `doc.fields` so within-group order is preserved.
+  const moveFieldToGroup = (key: string, group: string | undefined, beforeKey?: string) => {
+    setDoc((prev) => {
+      const fields = [...prev.fields];
+      const idx = fields.findIndex((f) => f.key === key);
+      if (idx < 0) return prev;
+      const [moved] = fields.splice(idx, 1);
+      moved.group = group || undefined;
+      let insertAt = -1;
+      if (beforeKey) insertAt = fields.findIndex((f) => f.key === beforeKey);
+      if (insertAt < 0) {
+        // Land at the end of the target group (after its last field).
+        for (let i = 0; i < fields.length; i++) if ((fields[i].group || undefined) === (group || undefined)) insertAt = i + 1;
+      }
+      if (insertAt < 0) fields.push(moved); else fields.splice(insertAt, 0, moved);
+      return { ...prev, fields };
+    });
   };
   // Enable / disable the client's second offer (toggled from the settings cog).
   // ON: add the offer/vehicle question set (single + o2_ sets, deduped), seed a
@@ -4090,6 +4154,7 @@ export default function AdBuilderPage() {
               {fieldsOpen && (
                 <FieldsSidebar
                   fields={doc.fields}
+                  fieldGroups={currentGroups(doc)}
                   defaults={doc.defaults}
                   accountKey={accountKey ?? undefined}
                   brandLogos={brandLogos}
@@ -4100,6 +4165,11 @@ export default function AdBuilderPage() {
                   onRename={renameFieldKeyAt}
                   onDelete={deleteFieldAt}
                   onSetDefault={setDefaultAt}
+                  onAddGroup={addFieldGroup}
+                  onRenameGroup={renameFieldGroup}
+                  onDeleteGroup={deleteFieldGroup}
+                  onMoveGroup={moveFieldGroup}
+                  onMoveField={moveFieldToGroup}
                 />
               )}
 
@@ -4745,8 +4815,20 @@ function FieldRow({
  * element bindings read. Renaming a key cascades to bindings; deleting a field
  * detaches any element bound to it.
  */
+/** Small 6-dot drag handle. */
+function GripDots({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 10 16" className={className} fill="currentColor" aria-hidden="true">
+      <circle cx="2.5" cy="3" r="1.1" /><circle cx="7.5" cy="3" r="1.1" />
+      <circle cx="2.5" cy="8" r="1.1" /><circle cx="7.5" cy="8" r="1.1" />
+      <circle cx="2.5" cy="13" r="1.1" /><circle cx="7.5" cy="13" r="1.1" />
+    </svg>
+  );
+}
+
 function FieldsSidebar({
   fields,
+  fieldGroups,
   defaults,
   accountKey,
   brandLogos,
@@ -4757,8 +4839,15 @@ function FieldsSidebar({
   onRename,
   onDelete,
   onSetDefault,
+  onAddGroup,
+  onRenameGroup,
+  onDeleteGroup,
+  onMoveGroup,
+  onMoveField,
 }: {
   fields: FieldSpec[];
+  /** Ordered, designer-defined group names (may include empty groups). */
+  fieldGroups: string[];
   defaults: Record<string, string>;
   accountKey?: string;
   brandLogos: { key: string; label: string; url: string }[];
@@ -4766,118 +4855,207 @@ function FieldsSidebar({
    *  shows the fields relevant to the layout you're editing. */
   hideSecondOffer: boolean;
   onClose: () => void;
-  onAdd: () => void;
+  onAdd: (group?: string) => void;
   onUpdate: (i: number, patch: Partial<FieldSpec>) => void;
   onRename: (i: number, newKey: string) => void;
   onDelete: (i: number) => void;
   onSetDefault: (i: number, val: string) => void;
+  onAddGroup: () => void;
+  onRenameGroup: (oldName: string, next: string) => void;
+  onDeleteGroup: (name: string) => void;
+  onMoveGroup: (from: number, to: number) => void;
+  onMoveField: (key: string, group: string | undefined, beforeKey?: string) => void;
 }) {
   // All field rows start collapsed — the designer opens the one they want.
-  const [expanded, setExpanded] = useState<number | null>(null);
-  // Group fields by their `group` (Vehicle / Offer / Legal / …) so a long kit
-  // (24–44 fields) reads as a few collapsible sections instead of a wall. Each
-  // entry keeps its original flat index so the index-based handlers still hit
-  // the right field. In the 1-offer view, the second-offer fields are hidden.
-  const groups = useMemo(() => {
-    const m = new Map<string, { f: FieldSpec; i: number }[]>();
-    fields.forEach((f, i) => {
-      if (hideSecondOffer && f.key.startsWith('o2_')) return;
-      const g = (f.group || 'General').trim() || 'General';
-      if (!m.has(g)) m.set(g, []);
-      m.get(g)!.push({ f, i });
-    });
-    return [...m.entries()];
-  }, [fields, hideSecondOffer]);
-  // All sections start collapsed — the panel opens as a clean scannable list.
-  // A newly-added section (from "Add field") still auto-opens so it's not lost.
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
-  const prevGroupNames = useRef(new Set(groups.map(([g]) => g)));
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  // Drag source is tracked in refs (read synchronously in onDrop, unaffected by
+  // React's async state) + mirrored to state for the drag visual.
+  const [dragGroup, setDragGroup] = useState<number | null>(null);
+  const [dragField, setDragField] = useState<string | null>(null);
+  const dragGroupRef = useRef<number | null>(null);
+  const dragFieldRef = useRef<string | null>(null);
+  const startGroupDrag = (gi: number) => { dragGroupRef.current = gi; dragFieldRef.current = null; setDragGroup(gi); };
+  const startFieldDrag = (key: string) => { dragFieldRef.current = key; dragGroupRef.current = null; setDragField(key); };
+  const endDrag = () => { dragGroupRef.current = null; dragFieldRef.current = null; setDragGroup(null); setDragField(null); };
+
+  // Ordered section list: the designer-defined groups, plus any group that only
+  // exists on a field (back-compat), then an implicit "General" bucket for
+  // ungrouped fields (rendered last, not editable). Each field keeps its flat
+  // index into `fields` so the index-based handlers still hit the right one.
+  const GENERAL = 'General';
+  const orderedNames = useMemo(() => {
+    const base = fieldGroups.slice();
+    for (const f of fields) { const g = f.group?.trim(); if (g && !base.includes(g)) base.push(g); }
+    return base;
+  }, [fieldGroups, fields]);
+  const rows = useMemo(() => fields.map((f, i) => ({ f, i })).filter(({ f }) => !(hideSecondOffer && f.key.startsWith('o2_'))), [fields, hideSecondOffer]);
+  const itemsFor = (name: string | null) => rows.filter(({ f }) => (f.group?.trim() || '') === (name ?? ''));
+  const ungrouped = itemsFor(null);
+  // Auto-open a newly-added group so it isn't lost.
+  const prevNames = useRef(new Set(orderedNames));
   useEffect(() => {
-    const cur = groups.map(([g]) => g);
-    const added = cur.filter((g) => !prevGroupNames.current.has(g));
+    const added = orderedNames.filter((g) => !prevNames.current.has(g));
     if (added.length === 1) setOpenGroups((s) => new Set([...s, added[0]]));
-    prevGroupNames.current = new Set(cur);
-  }, [groups]);
+    prevNames.current = new Set(orderedNames);
+  }, [orderedNames]);
   const toggleGroup = (g: string) =>
-    setOpenGroups((s) => {
-      const next = new Set(s);
-      if (next.has(g)) next.delete(g);
-      else next.add(g);
-      return next;
-    });
+    setOpenGroups((s) => { const next = new Set(s); if (next.has(g)) next.delete(g); else next.add(g); return next; });
+
+  const renderFieldRow = (f: FieldSpec, i: number) => (
+    <div
+      key={f.key}
+      onDragOver={(e) => { if (dragFieldRef.current) e.preventDefault(); }}
+      onDrop={(e) => { e.stopPropagation(); const src = dragFieldRef.current; if (src && src !== f.key) onMoveField(src, f.group, f.key); endDrag(); }}
+      className={`flex items-start gap-1 rounded-lg ${dragField && dragField !== f.key ? 'ring-1 ring-[var(--primary)]/40' : ''}`}
+    >
+      <span
+        draggable
+        onDragStart={(e) => { e.stopPropagation(); startFieldDrag(f.key); }}
+        onDragEnd={endDrag}
+        title="Drag to reorder / move to another group"
+        className="mt-2.5 shrink-0 cursor-grab text-[var(--muted-foreground)]/60 hover:text-[var(--foreground)] active:cursor-grabbing"
+      >
+        <GripDots className="h-3.5 w-2" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <FieldRow
+          field={f}
+          index={i}
+          expanded={expanded === f.key}
+          defaultValue={defaults[f.key] ?? ''}
+          accountKey={accountKey}
+          brandLogos={brandLogos}
+          allFields={fields}
+          onToggle={() => setExpanded(expanded === f.key ? null : f.key)}
+          onUpdate={onUpdate}
+          onRename={onRename}
+          onDelete={onDelete}
+          onSetDefault={onSetDefault}
+        />
+      </div>
+    </div>
+  );
+
   return (
-    // Floating right-docked sidebar (no modal / backdrop) — the form that drives
-    // the ad stays open beside the canvas while you design.
+    // Left-docked panel inside the canvas — the form that drives the ad stays
+    // open beside the canvas while you design.
     <div data-adgen-panel className="absolute left-4 top-4 bottom-4 z-[70] flex w-[340px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl">
       <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] p-4">
         <div>
           <h2 className="text-sm font-bold text-[var(--foreground)]">Template fields</h2>
-          <p className="text-xs text-[var(--muted-foreground)]">The form users fill — and what AI copy + element bindings read.</p>
+          <p className="text-xs text-[var(--muted-foreground)]">The form users fill — organize them into sections that carry to the client form.</p>
         </div>
         <button onClick={onClose} title="Close" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
           <XMarkIcon className="h-5 w-5" />
         </button>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-4">
-        {groups.map(([group, items]) => {
+        {orderedNames.map((group, gi) => {
           const open = openGroups.has(group);
+          const items = itemsFor(group);
+          const renaming = renamingGroup === group;
           return (
-            <div key={group} className="rounded-lg border border-[var(--border)]">
-              <button
-                type="button"
-                onClick={() => toggleGroup(group)}
-                className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--muted)]/40"
-              >
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]">
-                  {open ? <ChevronDownIcon className="h-3.5 w-3.5" /> : <ChevronRightIcon className="h-3.5 w-3.5" />}
-                  {group}
+            <div
+              key={group}
+              className={`rounded-lg border ${dragGroup === gi ? 'opacity-50' : ''} border-[var(--border)]`}
+              onDragOver={(e) => { if (dragGroupRef.current !== null || dragFieldRef.current) e.preventDefault(); }}
+              onDrop={() => {
+                if (dragGroupRef.current !== null) onMoveGroup(dragGroupRef.current, gi);
+                else if (dragFieldRef.current) onMoveField(dragFieldRef.current, group, undefined);
+                endDrag();
+              }}
+            >
+              <div className="flex items-center gap-1 px-2 py-2">
+                <span
+                  draggable
+                  onDragStart={() => startGroupDrag(gi)}
+                  onDragEnd={endDrag}
+                  title="Drag to reorder section"
+                  className="shrink-0 cursor-grab text-[var(--muted-foreground)]/60 hover:text-[var(--foreground)] active:cursor-grabbing"
+                >
+                  <GripDots className="h-4 w-2.5" />
                 </span>
-                <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--muted-foreground)]">{items.length}</span>
-              </button>
+                <button type="button" onClick={() => toggleGroup(group)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                  {open ? <ChevronDownIcon className="h-3.5 w-3.5 shrink-0" /> : <ChevronRightIcon className="h-3.5 w-3.5 shrink-0" />}
+                  {renaming ? (
+                    <input
+                      autoFocus
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { onRenameGroup(group, renameDraft); setRenamingGroup(null); } if (e.key === 'Escape') setRenamingGroup(null); }}
+                      onBlur={() => { onRenameGroup(group, renameDraft); setRenamingGroup(null); }}
+                      className="min-w-0 flex-1 rounded border border-[var(--primary)] bg-[var(--input)] px-1 py-0.5 text-xs font-semibold text-[var(--foreground)] outline-none"
+                    />
+                  ) : (
+                    <span className="truncate text-xs font-semibold text-[var(--foreground)]">{group}</span>
+                  )}
+                </button>
+                <span className="shrink-0 rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--muted-foreground)]">{items.length}</span>
+                <button type="button" onClick={() => { setRenamingGroup(group); setRenameDraft(group); }} title="Rename section" className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
+                  <PencilSquareIcon className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" onClick={() => onDeleteGroup(group)} title="Delete section (keeps its fields, ungrouped)" className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500">
+                  <TrashIcon className="h-3.5 w-3.5" />
+                </button>
+              </div>
               {open && (
                 <div className="space-y-2 border-t border-[var(--border)] p-2">
-                  {items.map(({ f, i }) => (
-                    <FieldRow
-                      key={i}
-                      field={f}
-                      index={i}
-                      expanded={expanded === i}
-                      defaultValue={defaults[f.key] ?? ''}
-                      accountKey={accountKey}
-                      brandLogos={brandLogos}
-                      allFields={fields}
-                      onToggle={() => setExpanded(expanded === i ? null : i)}
-                      onUpdate={onUpdate}
-                      onRename={onRename}
-                      onDelete={onDelete}
-                      onSetDefault={onSetDefault}
-                    />
-                  ))}
+                  {items.map(({ f, i }) => renderFieldRow(f, i))}
+                  {items.length === 0 && <p className="px-1 py-1 text-[11px] text-[var(--muted-foreground)]">No fields in this section yet.</p>}
+                  <button
+                    onClick={() => onAdd(group)}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  >
+                    <PlusIcon className="h-3.5 w-3.5" />
+                    Add field to {group}
+                  </button>
                 </div>
               )}
             </div>
           );
         })}
-        {!fields.length && (
-          <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-5 text-center">
-            <p className="text-xs text-[var(--muted-foreground)]">No fields yet.</p>
-            <button
-              onClick={onAdd}
-              className="mt-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
-            >
-              <PlusIcon className="h-4 w-4" />
-              Add field
+
+        {/* Ungrouped fields — an implicit "General" section (not renamable/deletable). */}
+        {ungrouped.length > 0 && (
+          <div
+            className="rounded-lg border border-[var(--border)]"
+            onDragOver={(e) => { if (dragFieldRef.current) e.preventDefault(); }}
+            onDrop={() => { if (dragFieldRef.current) onMoveField(dragFieldRef.current, undefined, undefined); endDrag(); }}
+          >
+            <button type="button" onClick={() => toggleGroup(GENERAL)} className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left">
+              {openGroups.has(GENERAL) ? <ChevronDownIcon className="h-3.5 w-3.5" /> : <ChevronRightIcon className="h-3.5 w-3.5" />}
+              <span className="flex-1 truncate text-xs font-semibold text-[var(--muted-foreground)]">General <span className="font-normal">(ungrouped)</span></span>
+              <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--muted-foreground)]">{ungrouped.length}</span>
             </button>
+            {openGroups.has(GENERAL) && <div className="space-y-2 border-t border-[var(--border)] p-2">{ungrouped.map(({ f, i }) => renderFieldRow(f, i))}</div>}
+          </div>
+        )}
+
+        {orderedNames.length === 0 && ungrouped.length === 0 && (
+          <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-5 text-center">
+            <p className="text-xs text-[var(--muted-foreground)]">No fields yet. Create a section, then add fields to it.</p>
           </div>
         )}
       </div>
-      <div className="m-4 mt-0 space-y-2">
+      <div className="m-4 mt-0 flex gap-2">
         <button
-          onClick={onAdd}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          onClick={onAddGroup}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
         >
           <PlusIcon className="h-3.5 w-3.5" />
-          Add field
+          New section
+        </button>
+        <button
+          onClick={() => onAdd()}
+          title="Add an ungrouped field"
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+          Field
         </button>
       </div>
     </div>

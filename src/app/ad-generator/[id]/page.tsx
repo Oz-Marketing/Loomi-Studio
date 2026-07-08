@@ -399,8 +399,12 @@ export default function AdGeneratorPage() {
       if (!m.has(g)) m.set(g, []);
       m.get(g)!.push(f);
     }
-    return [...m.entries()];
-  }, [template, data]);
+    // Order sections by the template's designer-defined group order so the
+    // client form matches the builder; any extra groups keep first-seen order.
+    const order = docSnapshot?.fieldGroups ?? [];
+    const rank = (g: string) => { const i = order.indexOf(g); return i < 0 ? order.length + 1 : i; };
+    return [...m.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
+  }, [template, data, docSnapshot]);
 
   const set = (key: string, value: string) => setData((d) => ({ ...d, [key]: value }));
 
