@@ -4810,13 +4810,18 @@ function DontShowAgainCheckbox({ onChange }: { onChange: (v: boolean) => void })
 /** A single input control for the form preview — mirrors how the creative form
  *  renders each field type (label + help + placeholder), so a designer sees the
  *  shape at a glance. Interactive only to test conditional visibility. */
-function PreviewControl({ field, value, onChange }: { field: FieldSpec; value: string; onChange: (v: string) => void }) {
+function PreviewControl({ field, value, onChange, internalBadge }: { field: FieldSpec; value: string; onChange: (v: string) => void; internalBadge?: boolean }) {
   const inputCls = 'w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]';
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
-        {field.label || field.key}
-        {field.help && <span className="ml-1 font-normal text-[var(--muted-foreground)]">— {field.help}</span>}
+    <div className={internalBadge ? 'rounded-lg border border-dashed border-[var(--border)] bg-[var(--muted)]/20 p-2' : ''}>
+      <label className="mb-1 flex flex-wrap items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
+        <span>{field.label || field.key}</span>
+        {internalBadge && (
+          <span className="inline-flex items-center gap-1 rounded bg-[var(--muted)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+            <EyeSlashIcon className="h-2.5 w-2.5" />Internal
+          </span>
+        )}
+        {field.help && <span className="w-full font-normal text-[var(--muted-foreground)]">{field.help}</span>}
       </label>
       {field.type === 'textarea' ? (
         <textarea value={value} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} rows={2} className={inputCls} />
@@ -4847,6 +4852,7 @@ function FormPreview({ fields, fieldGroups, defaults }: { fields: FieldSpec[]; f
   const [vals, setVals] = useState<Record<string, string>>({});
   const data = useMemo(() => ({ ...defaults, ...vals }), [defaults, vals]);
   const setVal = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
+  const internalCount = useMemo(() => fields.filter((f) => !isClientField(f)).length, [fields]);
   const groups = useMemo(() => {
     const m = new Map<string, FieldSpec[]>();
     for (const f of fields) {
@@ -4876,7 +4882,11 @@ function FormPreview({ fields, fieldGroups, defaults }: { fields: FieldSpec[]; f
       </div>
       <div className="flex-1 space-y-5 overflow-y-auto p-4">
         <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
-          {view === 'client' ? 'What a client sees and fills in.' : 'Every field, including internal ones only you fill in.'}
+          {view === 'client'
+            ? internalCount > 0
+              ? `What a client sees and fills in — ${internalCount} internal field${internalCount === 1 ? '' : 's'} hidden here.`
+              : 'What a client fills in. Every field is client-facing right now — set a field’s “Filled by” to Internal to hide it from clients.'
+            : 'Every field. Dashed rows tagged “Internal” are hidden from clients (only you fill them in).'}
         </p>
         {groups.length === 0 ? (
           <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-6 text-center text-xs text-[var(--muted-foreground)]">
@@ -4888,7 +4898,7 @@ function FormPreview({ fields, fieldGroups, defaults }: { fields: FieldSpec[]; f
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">{group}</h3>
               <div className="space-y-3">
                 {fs.map((f) => (
-                  <PreviewControl key={f.key} field={f} value={vals[f.key] ?? defaults[f.key] ?? ''} onChange={(v) => setVal(f.key, v)} />
+                  <PreviewControl key={f.key} field={f} value={vals[f.key] ?? defaults[f.key] ?? ''} onChange={(v) => setVal(f.key, v)} internalBadge={view === 'full' && !isClientField(f)} />
                 ))}
               </div>
             </section>
