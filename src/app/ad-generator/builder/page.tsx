@@ -300,6 +300,13 @@ const FIELD_TYPE_OPTIONS: FontSelectOption[] = [
   { value: 'color', label: 'Color' },
   { value: 'image', label: 'Image' },
 ];
+// Where an image field's picture comes from — lets a designer wire any image
+// field to the vehicle-image API (EVOX) or keep it manual, per field.
+const IMAGE_SOURCE_OPTIONS: FontSelectOption[] = [
+  { value: 'manual', label: 'Manual (upload / library)' },
+  { value: 'evox', label: 'Vehicle image (EVOX)' },
+  { value: 'both', label: 'Both — manual + vehicle' },
+];
 type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 const RESIZE_HANDLES: { h: Handle; x: number; y: number; cursor: string }[] = [
@@ -4710,6 +4717,11 @@ function FieldRow({
             </div>
           ) : (
             <LabeledInput label="Default / preview value" hint="Shown in the preview + client form until the client edits it — great for mock data (e.g. “36”). A {{token}} here resolves against the other fields." value={defaultValue} onChange={(v) => onSetDefault(index, v)} />
+          )}
+          {field.type === 'image' && (
+            <SelectRow label="Source" hint="Where the picture comes from. Manual: the client uploads or picks from the media library. Vehicle image (EVOX): the client picks a vehicle + paint color from the vehicle-image library. Both: offer the manual inputs and the vehicle picker.">
+              <CompactSelect value={field.imageSource ?? 'manual'} onChange={(v) => onUpdate(index, { imageSource: v as 'manual' | 'evox' | 'both' })} options={IMAGE_SOURCE_OPTIONS} />
+            </SelectRow>
           )}
           {field.type === 'select' && <SelectOptionsEditor options={field.options ?? []} onChange={(opts) => onUpdate(index, { options: opts })} />}
           {/* Conditional visibility — opt-in via the ⋯ menu. Shows this field only

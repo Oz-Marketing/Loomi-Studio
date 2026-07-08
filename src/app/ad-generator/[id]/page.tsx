@@ -771,6 +771,8 @@ export default function AdGeneratorPage() {
                 shown = shown.filter((f) => {
                   if (/vehiclename/i.test(f.key)) return false; // don't let clients switch the vehicle
                   if (/vehicleimageurl/i.test(f.key)) return true; // vehicle color picker
+                  // Designer-enabled vehicle-image fields are explicitly client-facing.
+                  if (f.type === 'image' && (f.imageSource === 'evox' || f.imageSource === 'both')) return true;
                   if (group === 'Legal') return true; // VIN / stock (+ read-only disclaimer)
                   // Offer inputs move INTO the OEM/Manual panel on the
                   // automotive flow; only keep them as their own card when
@@ -1377,6 +1379,13 @@ function ImageField({ field, value, onChange, allowVehiclePicker, evoxSeed }: { 
   const { accountKey } = useAccount();
   const [open, setOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  // Source is designer-declared per field. `evox` shows only the vehicle
+  // picker; `both` shows manual inputs + the picker; `manual` (default) shows
+  // just the manual inputs. Legacy automotive templates still get EVOX via
+  // `allowVehiclePicker` even when the field predates the `imageSource` flag.
+  const src = field.imageSource ?? 'manual';
+  const evoxAllowed = allowVehiclePicker || src === 'evox' || src === 'both';
+  const manualAllowed = src !== 'evox';
   return (
     <div>
       <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">
@@ -1384,31 +1393,36 @@ function ImageField({ field, value, onChange, allowVehiclePicker, evoxSeed }: { 
         {field.help && <span className="ml-1 font-normal text-[var(--muted-foreground)]">— {field.help}</span>}
       </label>
       <div className="flex gap-2">
-        <input
-          type="text"
-          value={value}
-          placeholder={field.placeholder || 'Image URL'}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
-        />
-        <button
-          type="button"
-          onClick={() => setLibraryOpen(true)}
-          title="Pick from the media library"
-          className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)]"
-        >
-          <PhotoIcon className="h-4 w-4" />
-          Library
-        </button>
-        {/* EVOX vehicle photography — automotive vehicle offers only. */}
-        {allowVehiclePicker && (
+        {manualAllowed && (
+          <input
+            type="text"
+            value={value}
+            placeholder={field.placeholder || 'Image URL'}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+          />
+        )}
+        {manualAllowed && (
+          <button
+            type="button"
+            onClick={() => setLibraryOpen(true)}
+            title="Pick from the media library"
+            className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)]"
+          >
+            <PhotoIcon className="h-4 w-4" />
+            Library
+          </button>
+        )}
+        {/* EVOX vehicle photography — designer-enabled per field (or legacy
+            automotive templates). Full-width when it's the only picker. */}
+        {evoxAllowed && (
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)]"
+            className={`flex flex-shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)] ${manualAllowed ? '' : 'w-full flex-shrink'}`}
           >
             <TruckIcon className="h-4 w-4" />
-            Vehicle
+            {manualAllowed ? 'Vehicle' : 'Choose vehicle image'}
           </button>
         )}
       </div>

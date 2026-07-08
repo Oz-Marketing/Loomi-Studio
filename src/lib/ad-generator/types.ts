@@ -50,6 +50,15 @@ export interface FieldSpec {
    * data-driven templates (a binding can hold the same condition).
    */
   visibleWhen?: { field: string; in: string[] };
+  /**
+   * For `image` fields: where the picture comes from. `manual` (default) =
+   * upload / media library / URL. `evox` = the client picks a vehicle + paint
+   * color from EVOX (jellybean photography); the manual inputs are hidden.
+   * `both` = offer manual inputs AND the EVOX picker. Lets a designer wire any
+   * image field to the vehicle-image API without hardcoding the `vehicleImageUrl`
+   * key — the designer picks API vs manual per field.
+   */
+  imageSource?: 'manual' | 'evox' | 'both';
 }
 
 export type AdData = Record<string, string>;
