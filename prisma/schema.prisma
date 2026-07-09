@@ -1,0 +1,1862 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────
+// Auth & Users
+// ─────────────────────────────────────────────────────
+
+model User {
+  id          String    @id @default(cuid())
+  name        String
+  title       String?
+  email       String    @unique
+  password    String
+  avatarUrl   String?
+  role        String    @default("client") // developer | super_admin | admin | client
+  department  String? // "Design" | "Account Management" | "Development" | "Leadership" | "Marketing" | "Sales" | "Operations"
+  accountKeys String    @default("[]") // JSON array of assigned account keys
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  invites  UserInvite[]
+  accounts Account[] // accounts where this user is the rep
+
+  templatesCreated   Template[]                  @relation("TemplateCreatedBy")
+  templatesUpdated   Template[]                  @relation("TemplateUpdatedBy")
+  templatesPublished Template[]                  @relation("TemplatePublishedBy")
+  templateVersions   TemplateVersion[]           @relation("TemplateVersionCreatedBy")
+  dashboardLayouts   DashboardLayoutPreference[]
+
+  metaPacerOwnerAds            MetaAdsPacerAd[]          @relation("MetaPacerOwner")
+  metaPacerDesignerAds         MetaAdsPacerAd[]          @relation("MetaPacerDesigner")
+  metaPacerAccountRepAds       MetaAdsPacerAd[]          @relation("MetaPacerAccountRep")
+  metaPacerDesignNotesAuthored MetaAdsPacerDesignNote[]  @relation("MetaPacerDesignNoteAuthor")
+  metaPacerActivityAuthored    MetaAdsPacerActivityLog[] @relation("MetaPacerActivityAuthor")
+  metaPacerAccountNotes        MetaAdsPacerAccountNote[] @relation("MetaPacerAccountNoteAuthor")
+  metaPacerBudgetLogs          MetaAdsPacerBudgetLog[]   @relation("MetaPacerBudgetLogAuthor")
+  notifications                Notification[]
+  notificationPreferences      NotificationPreference[]
+}
+
+model UserInvite {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  sentAt    DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+model DashboardLayoutPreference {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       String
+  mode       String
+  scopeKey   String
+  orderJson  String   @default("[]")
+  hiddenJson String   @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, role, mode, scopeKey])
+  @@index([userId, updatedAt])
+}
+
+// ─────────────────────────────────────────────────────
+// Accounts (formerly rooftops.json)
+// ─────────────────────────────────────────────────────
+
+model Account {
+  id                        String    @id @default(cuid())
+  key                       String    @unique // "youngHonda", "smithToyota"
+  slug                      String?   @unique // URL-safe kebab-case: "young-honda"
+  dealer                    String // "Young Honda"
+  category                  String? // "Automotive", "Healthcare", etc.
+  oem                       String? // single OEM key
+  oems                      String? // JSON array of OEM keys for multi-brand dealers
+  email                     String?
+  phone                     String?
+  salesPhone                String?
+  servicePhone              String?
+  partsPhone                String?
+  address                   String?
+  city                      String?
+  state                     String?
+  postalCode                String?
+  website                   String?
+  timezone                  String?
+  logos                     String? // JSON: { light, dark, white?, black? }
+  branding                  String? // JSON: { colors: { primary, secondary, ... }, fonts: { heading, body } }
+  customValues              String? // JSON: Record<string, { name, value }>
+  // Markup rate used by Meta Ads Pacer budget math: actual spend =
+  // client gross × markup. Falls back to the global default (0.77) when
+  // null. Settable per-account so stores with non-standard markups don't
+  // need code changes.
+  markup                    Float?
+  // Sending identity for Loomi-native email sends. When null, falls back to
+  // SMTP_FROM / global defaults. Configure per-subaccount once DKIM/SPF for
+  // sendingDomain is set up in the client's DNS.
+  senderEmail               String?
+  senderName                String?
+  sendingDomain             String?
+  replyToEmail              String?
+  // Per-sub-account SendGrid API key (AES-256-GCM encrypted at rest via
+  // src/lib/crypto/encryption.ts). When present, the worker sends through
+  // SendGrid instead of falling back to SMTP. sendgridFromDomain stores the
+  // verified sender domain so we can warn at send time if senderEmail isn't
+  // authenticated.
+  sendgridApiKey            String?
+  sendgridFromDomain        String?
+  // Per-sub-account Twilio credentials. accountSid + authToken are
+  // encrypted at rest with the same helper as the SendGrid key. The
+  // worker prefers messagingServiceSid (Twilio's recommendation for
+  // scaled sending — handles A2P 10DLC registration + sticky sender +
+  // automatic phone-number failover) and falls back to the single
+  // phoneNumber when no service is configured.
+  twilioAccountSid          String?
+  twilioAuthToken           String?
+  twilioPhoneNumber         String?
+  twilioMessagingServiceSid String?
+  // Facebook (Meta) ad account this sub-account's campaigns live under, e.g.
+  // "act_1234567890". Used by the Meta Ads Pacer's Sync-from-Facebook job to
+  // pull spend. The access token itself is a single agency-wide System User
+  // token in env (META_SYSTEM_USER_TOKEN), not per-account.
+  metaAdAccountId           String?
+  // Reporting margin (percent, 0–100) applied to Meta media-cost fields in the
+  // Ads report: billed = actual / (1 - margin/100). Ported from Oz Dealer
+  // Tools' per-org `facebook_ads_margin`. Distinct from `markup` above (the
+  // Pacer's spend multiplier). null / 0 = bill cost at face value.
+  facebookAdsMargin         Float?
+  // StackAdapt (OTT/CTV) advertiser this sub-account reports on, plus its
+  // reporting margin (percent, same markup math as facebookAdsMargin). The
+  // StackAdapt GraphQL API key is a single agency-wide key in env
+  // (STACKADAPT_API_KEY), not per-account. Ported from Oz Dealer Tools'
+  // per-org stackadapt_advertiser_id / stackadapt_margin.
+  stackadaptAdvertiserId    String?
+  stackadaptMargin          Float?
+  // Google Ads customer this sub-account reports on (digits, dashes stripped),
+  // plus its reporting margin (percent, same markup math as the others). The
+  // Google Ads API credentials (developer token + OAuth) are agency-wide in env.
+  // Ported from Oz Dealer Tools' per-org google_ads_customer_id / google_ads_margin.
+  googleAdsCustomerId       String?
+  googleAdsMargin           Float?
+  // GoHighLevel email reporting: a per-sub-account Private Integration Token
+  // (AES-256-GCM encrypted at rest via src/lib/crypto/encryption.ts) + the GHL
+  // locationId it reports on. The /emails/schedule API returns delivery counts
+  // only — engagement (opens/clicks) requires a marketplace OAuth app, not a
+  // PIT. Ported from Oz Dealer Tools' per-org ghl_api_key / ghl_location_id.
+  ghlApiKey                 String?
+  ghlLocationId             String?
+  // IANA timezone of the Meta ad account (e.g. "America/New_York"), cached
+  // from the Marketing API on each sync. Meta resets the daily budget at
+  // midnight in THIS zone, so the Pacer's time-left math runs against it.
+  // Authoritative for pacing; distinct from the hand-entered `timezone`
+  // business field above. Falls back to `timezone` (if a valid IANA zone),
+  // then America/Denver, when unset.
+  metaTimezone              String?
+  accountRepId              String?
+  accountRep                User?     @relation(fields: [accountRepId], references: [id], onDelete: SetNull)
+  // Marker for the one-time bootstrap that seeds Loomi's six lifecycle
+  // audiences (service overdue, lease ending, etc.) into automotive
+  // accounts. Set once on first visit to /contacts/segments. Powersports
+  // and other categories stay null and never get seeded.
+  lifecyclePresetsSeededAt  DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  emails                   AccountEmail[]
+  audiences                Audience[]
+  contacts                 Contact[]
+  contactLists             ContactList[]
+  contactCustomFields      ContactCustomField[]
+  loomiFlows               LoomiFlow[]
+  forms                    Form[]
+  crmDestinations          CrmDestination[]
+  landingPages             LandingPage[]
+  landingPageTemplates     AccountLandingPageTemplate[]
+  accountDomains           AccountDomain[]
+  snippets                 AccountSnippet[]
+  mediaAssets              MediaAsset[]
+  metaAdsPacerPlan         MetaAdsPacerPlan?
+  metaAdsPacerAccountNotes MetaAdsPacerAccountNote[]
+  metaAdsPacerBudgetLogs   MetaAdsPacerBudgetLog[]
+
+  @@index([accountRepId])
+}
+
+// ─────────────────────────────────────────────────────
+// Template Library
+// ─────────────────────────────────────────────────────
+
+model Template {
+  id                String    @id @default(cuid())
+  slug              String    @unique // "service-reminder", "modern-dark"
+  // null = shared library template, non-null = owned by a specific subaccount
+  // (created in / cloned to that subaccount). Subaccount-owned templates are
+  // only visible inside their subaccount.
+  accountKey        String?
+  title             String // "Service Reminder", "Modern Dark"
+  type              String // "lifecycle" | "design"
+  category          String? // "service", "sales", "loyalty", etc.
+  content           String // full raw HTML template source
+  preheader         String?
+  published         Boolean   @default(false)
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  updatedByUserId   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  createdByUser   User?                   @relation("TemplateCreatedBy", fields: [createdByUserId], references: [id])
+  updatedByUser   User?                   @relation("TemplateUpdatedBy", fields: [updatedByUserId], references: [id])
+  publishedByUser User?                   @relation("TemplatePublishedBy", fields: [publishedByUserId], references: [id])
+  versions        TemplateVersion[]
+  tags            TemplateTagAssignment[]
+  emails          AccountEmail[]
+
+  @@index([published])
+  @@index([accountKey])
+}
+
+model TemplateVersion {
+  id              String   @id @default(cuid())
+  templateId      String
+  template        Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  content         String // snapshot of full HTML at this version
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  createdByUser User? @relation("TemplateVersionCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([templateId])
+}
+
+// ─────────────────────────────────────────────────────
+// Template Tags
+// ─────────────────────────────────────────────────────
+
+model TemplateTag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  assignments TemplateTagAssignment[]
+}
+
+model TemplateTagAssignment {
+  id         String      @id @default(cuid())
+  templateId String
+  template   Template    @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  tagId      String
+  tag        TemplateTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, tagId])
+}
+
+// ─────────────────────────────────────────────────────
+// Account Emails (template instances per account)
+// ─────────────────────────────────────────────────────
+
+model AccountEmail {
+  id         String       @id @default(cuid())
+  accountKey String
+  account    Account      @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  templateId String
+  template   Template     @relation(fields: [templateId], references: [id])
+  name       String // "Service Reminder - Young Honda"
+  content    String? // null = use library template, non-null = customized copy
+  status     String       @default("draft") // draft | active | archived
+  // Set when status transitions to 'archived'. Drives the global
+  // 30-day purge job — rows where archivedAt < now − 30d get hard-
+  // deleted by the daily worker task. Null on non-archived rows.
+  archivedAt DateTime?
+  folderId   String?
+  folder     EmailFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([accountKey])
+  @@index([templateId])
+  @@index([status, archivedAt])
+}
+
+// ─────────────────────────────────────────────────────
+// Email Folders
+// ─────────────────────────────────────────────────────
+
+model EmailFolder {
+  id         String   @id @default(cuid())
+  name       String
+  accountKey String? // null = global folder
+  createdAt  DateTime @default(now())
+
+  emails AccountEmail[]
+
+  @@unique([name, accountKey])
+}
+
+// ─────────────────────────────────────────────────────
+// Audiences (saved contact filters)
+// ─────────────────────────────────────────────────────
+
+model Audience {
+  id               String   @id @default(cuid())
+  name             String
+  description      String?
+  accountKey       String?
+  account          Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  createdByUserId  String?
+  filters          String // JSON: FilterDefinition
+  icon             String?
+  color            String?
+  sortOrder        Int      @default(0)
+  providerMetadata String? // JSON map for provider-specific audience refs
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([name, accountKey])
+  @@index([accountKey])
+}
+
+// ─────────────────────────────────────────────────────
+// Contacts (Loomi-native; canonical source for the filter engine + UI).
+//
+// Schema mirrors the Contact shape the filter engine + UI already
+// expect (see src/lib/smart-list-types.ts FILTERABLE_FIELDS). Two
+// Json relief valves keep the schema stable as CSV imports surface
+// dealer-specific data: customFields for arbitrary key/value pairs,
+// dnd for {email,sms} opt-outs.
+//
+// Uniqueness is enforced via partial indexes (see migration SQL) so
+// rows missing email or phone don't collide with other email-less /
+// phone-less rows. At-least-one-of-(email,phone) is enforced at the
+// API layer rather than via CHECK constraint, to keep bulk import
+// dry-runs flexible.
+// ─────────────────────────────────────────────────────
+
+model Contact {
+  id         String  @id @default(cuid())
+  accountKey String
+  account    Account @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+
+  email     String?
+  phone     String?
+  firstName String?
+  lastName  String?
+  fullName  String?
+
+  address1   String?
+  city       String?
+  state      String?
+  postalCode String?
+  country    String?
+
+  source    String?
+  tags      Json      @default("[]")
+  dateAdded DateTime?
+
+  vehicleYear    String?
+  vehicleMake    String?
+  vehicleModel   String?
+  vehicleVin     String?
+  vehicleMileage String?
+
+  lastServiceDate DateTime?
+  nextServiceDate DateTime?
+  leaseEndDate    DateTime?
+  warrantyEndDate DateTime?
+  purchaseDate    DateTime?
+
+  // Date of Birth is a first-class column (unlike the automotive
+  // lifecycle fields, which live in customFields) because the birthday
+  // flow trigger matches on month/day across the whole roster — a
+  // queryable column avoids scanning the customFields JSON blob.
+  dateOfBirth     DateTime?
+
+  // Catch-all for CSV columns the canonical schema doesn't cover.
+  // Stored as a flat string-keyed JSON object; the filter UI ignores
+  // it for now but the API surfaces it on the contact detail page.
+  customFields Json?
+
+  // Minimal DND state: { email?: bool, sms?: bool } — Email and SMS
+  // are the only channels Loomi sends on.
+  dnd Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listMemberships ContactListMembership[]
+  formSubmissions FormSubmission[]
+
+  @@unique([accountKey, email])
+  @@unique([accountKey, phone])
+  @@index([accountKey])
+  @@index([accountKey, dateAdded])
+  // Makes the keyset (id-cursor) contact scans in the trigger resolvers a
+  // pure index range scan instead of an accountKey-filter-then-sort.
+  @@index([accountKey, id])
+  // Lets the birthday resolver's `dateOfBirth IS NOT NULL` prune instead
+  // of scanning every contact in the account.
+  @@index([accountKey, dateOfBirth])
+  // GIN index on the customFields jsonb blob so filter queries against
+  // declared custom field keys (e.g. `customFields @> '{"tier":"gold"}'`,
+  // `customFields ? 'lifetime_value'`) don't fall back to a full table
+  // scan once dealer datasets push past low five-figures per account.
+  // `jsonb_path_ops` is the smaller, faster variant for containment-only
+  // queries — the filter engine never needs the full `jsonb_ops` operator
+  // set, and dropping it shrinks the index significantly.
+  @@index([customFields(ops: JsonbPathOps)], type: Gin)
+}
+
+// ─────────────────────────────────────────────────────
+// Contact Lists (static, manually-curated contact rosters).
+//
+// Unlike Audiences (filter-driven, dynamic), lists are an explicit
+// roster you populate by CSV upload or by picking contacts. Membership
+// is stored in an explicit join table so a contact can belong to many
+// lists and we can keep a per-membership addedAt timestamp.
+// ─────────────────────────────────────────────────────
+
+model ContactList {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  accountKey      String
+  account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships ContactListMembership[]
+  forms       Form[]
+
+  @@unique([accountKey, name])
+  @@index([accountKey])
+}
+
+model ContactListMembership {
+  listId    String
+  contactId String
+  addedAt   DateTime @default(now())
+
+  list    ContactList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  contact Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([listId, contactId])
+  @@index([listId])
+  @@index([contactId])
+}
+
+// ─────────────────────────────────────────────────────
+// Contact Custom Fields
+//
+// Account-extensible properties stored as JSON on Contact.customFields,
+// declared as first-class rows so the filter engine, CSV importer, and
+// contact UI can treat them as real fields with a type + operators.
+//
+// One model, two roles via nullable accountKey:
+//   - accountKey = null → admin blueprint. Lives outside any sub-account
+//     and serves as a deployable template. Lets us ship "Automotive
+//     defaults" (last_purchase_date, last_service_date, ...) once and
+//     push to every automotive sub-account.
+//   - accountKey set    → sub-account-owned instance. The only kind the
+//     filter engine + CSV importer ever read against contacts.
+//
+// Mirrors the LoomiFlow parentTemplate pattern: when a blueprint is
+// deployed, we duplicate the row, set parentBlueprintId on the copy,
+// and timestamp lastSyncedAt. The settings UI can then surface "Update
+// available" when parent.updatedAt > instance.lastSyncedAt.
+//
+// The actual values live on Contact.customFields (Json) keyed by `key`.
+// Adding/removing this row never rewrites contact rows — orphan keys
+// stay in customFields and are simply ignored by the filter engine
+// until the field is re-declared. That's deliberate: easy to recover
+// from accidental deletes.
+// ─────────────────────────────────────────────────────
+
+model ContactCustomField {
+  id          String   @id @default(cuid())
+  // null = admin blueprint (no sub-account owns it). Non-null = sub-
+  // account-owned field. The (accountKey, key) uniqueness pair below
+  // works for both — Postgres treats NULL as distinct, so multiple
+  // blueprints with the same key need to be guarded at the API layer
+  // (we already validate this in the blueprint create handler).
+  accountKey  String?
+  account     Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+
+  // Snake_case identifier used as the JSON property name in
+  // Contact.customFields. Lower-cased + validated [a-z0-9_]+ at the
+  // API layer. Renaming a key DOES NOT rewrite existing contact rows
+  // — handle data migrations explicitly.
+  key         String
+
+  // Display name shown wherever a human sees the field.
+  label       String
+
+  // Optional helper text shown beneath the input on the contact-detail
+  // edit form.
+  description String?
+
+  // 'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect'.
+  // Drives operator selection in the filter builder + input rendering
+  // in the contact form + value coercion in the CSV importer.
+  type        String
+
+  // For 'select' / 'multiselect': JSON array of { value, label } pairs.
+  // Null for other types.
+  options     Json?
+
+  // Optional grouping label shown in the filter dropdown
+  // ("Service", "Lifecycle Extras", etc.). Defaults to "Custom" in
+  // the UI when null.
+  category    String?
+
+  // PII flag — surfaces a lock icon in admin UIs and (in future)
+  // redacts the value in audit logs / non-elevated views.
+  isPii       Boolean  @default(false)
+
+  // For ordering within the settings tab + filter dropdown.
+  sortOrder   Int      @default(0)
+
+  // Blueprint lineage. When an admin deploys a blueprint to a sub-
+  // account we copy the row and set parentBlueprintId on the new
+  // instance so we can: (a) badge "from blueprint X", (b) compute
+  // adoption (how many sub-accounts use this blueprint), (c) push
+  // label/options/type updates to stale instances. Self-referential
+  // SetNull-on-delete so deleting a blueprint leaves orphaned
+  // instances rather than cascade-deleting them.
+  parentBlueprintId String?
+  parentBlueprint   ContactCustomField?  @relation("BlueprintInstances", fields: [parentBlueprintId], references: [id], onDelete: SetNull)
+  instances         ContactCustomField[] @relation("BlueprintInstances")
+
+  // Last time the instance was synced from its blueprint. Compared
+  // against parentBlueprint.updatedAt to surface "Update available"
+  // in the sub-account settings tab. Null on standalone fields +
+  // on the blueprints themselves.
+  lastSyncedAt DateTime?
+
+  // Industry tag on blueprints (e.g. "Automotive", "Healthcare").
+  // Lets the admin UI offer "Apply all Automotive blueprints to every
+  // Automotive sub-account" as a one-click bulk action. Null = ungrouped.
+  industryTag String?
+
+  // CSV header aliases for the auto-mapper. JSON string[] — e.g.
+  // ["lastPurchase", "purchasedate", "soldon"]. Merged with the
+  // canonical HEADER_ALIASES at import time, but only for sub-accounts
+  // that have this custom field declared. Empty array = no auto-mapping.
+  csvAliases  Json     @default("[]")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([accountKey, key])
+  @@index([accountKey])
+  @@index([parentBlueprintId])
+  @@index([industryTag])
+}
+
+// ─────────────────────────────────────────────────────
+// Loomi Flows (native flow definitions managed in Loomi)
+// ─────────────────────────────────────────────────────
+
+model LoomiFlow {
+  id               String    @id @default(cuid())
+  name             String
+  description      String?
+  status           String    @default("draft") // draft | active | paused | archived
+  accountKey       String?
+  account          Account?  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  createdByUserId  String?
+  sourceAudienceId String?
+  sourceFilter     String?
+  metadata         String?
+  // Template lineage. When an admin deploys a template to a sub-account
+  // we duplicate the template and set parentTemplateId on the new
+  // instance so we can: (a) show "deployed from template X" on the
+  // instance, (b) compute adoption (which accounts have this template),
+  // (c) re-push template updates onto stale instances. Null on
+  // standalone flows + on the templates themselves. Self-referential
+  // relation with SetNull on delete so deleting a template leaves
+  // orphaned instances rather than cascading.
+  parentTemplateId String?
+  parentTemplate   LoomiFlow?  @relation("FlowTemplateInstances", fields: [parentTemplateId], references: [id], onDelete: SetNull)
+  instances        LoomiFlow[] @relation("FlowTemplateInstances")
+  // JSON-serialised flow-level defaults: re-entry policy, quiet
+  // hours, goal/exit-on-conversion condition, max-enrollment
+  // duration, DND handling. Shape lives in `FlowSettings` in
+  // services/loomi-flows.ts. Optional — missing/null means "use
+  // defaults" everywhere downstream.
+  settings         String?
+  publishedAt      DateTime?
+  archivedAt       DateTime?
+  // Last time the instance's graph was sync'd from its parent
+  // template. Compared against parent.updatedAt to surface an
+  // "Update available" banner. Null on flows that don't have a parent.
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  nodes       LoomiFlowNode[]
+  edges       LoomiFlowEdge[]
+  triggers    LoomiFlowTrigger[]
+  enrollments LoomiFlowEnrollment[]
+
+  @@index([accountKey])
+  @@index([status])
+  @@index([createdAt])
+  @@index([parentTemplateId])
+  @@index([status, archivedAt])
+}
+
+// One drawing-canvas node in a flow's graph. `config` is JSON sized to
+// the node's `type` (email → { templateId, subject? }, wait → { ms },
+// condition → { predicate }, split → { weights: number[] }, exit → {}).
+model LoomiFlowNode {
+  id        String    @id @default(cuid())
+  flowId    String
+  flow      LoomiFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  type      String // trigger | email | wait | condition | split | exit
+  config    String    @default("{}")
+  x         Float     @default(0)
+  y         Float     @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([flowId])
+}
+
+// Directed edge between two nodes. `branch` labels the outgoing port
+// for fan-out nodes: "yes"/"no" for condition, "a"/"b"/... for split,
+// null for linear next-step. The execution engine reads `branch` to
+// pick which downstream node to advance into after evaluating a node.
+model LoomiFlowEdge {
+  id         String    @id @default(cuid())
+  flowId     String
+  flow       LoomiFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  fromNodeId String
+  toNodeId   String
+  branch     String?
+  createdAt  DateTime  @default(now())
+
+  @@index([flowId])
+  @@index([fromNodeId])
+}
+
+// Trigger config attached to a flow. Multiple triggers can be enabled
+// per flow (e.g. list + audience + manual). The trigger poll worker
+// enumerates `list` and `audience` triggers; `manual` is API-driven;
+// `event` is webhook-driven (deferred until event ingestion lands).
+model LoomiFlowTrigger {
+  id        String    @id @default(cuid())
+  flowId    String
+  flow      LoomiFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  type      String // list | audience | manual | event
+  config    String    @default("{}")
+  enabled   Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([flowId])
+  @@index([type, enabled])
+}
+
+// One row per (flow, contact) — a contact's run through the flow's
+// graph. `currentNodeId` is the next node to execute; `nextRunAt` is
+// when the execution worker should pick it up. The (flowId, contactId)
+// uniqueness prevents double-enrolling the same contact concurrently.
+model LoomiFlowEnrollment {
+  id            String    @id @default(cuid())
+  flowId        String
+  flow          LoomiFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  contactId     String
+  triggerId     String?
+  status        String    @default("active") // active | completed | exited | failed
+  currentNodeId String?
+  nextRunAt     DateTime?
+  enrolledAt    DateTime  @default(now())
+  completedAt   DateTime?
+  metadata      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  steps LoomiFlowEnrollmentStep[]
+
+  @@unique([flowId, contactId])
+  @@index([status, nextRunAt])
+  @@index([flowId, status])
+  @@index([contactId])
+  // Serves excludeEnrolledToday's {flowId, contactId in [...], enrolledAt
+  // >= todayStart} once-per-day re-entry guard.
+  @@index([flowId, enrolledAt])
+}
+
+// Step-execution audit trail per enrollment. One row each time a node
+// is executed; useful for analytics, debugging, and follow-up engagement
+// queries (link emailRecipientId → EmailEvent for opens/clicks).
+model LoomiFlowEnrollmentStep {
+  id               String              @id @default(cuid())
+  enrollmentId     String
+  enrollment       LoomiFlowEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  nodeId           String
+  status           String // sent | skipped | failed | branched | waited | exited
+  emailRecipientId String?
+  branch           String?
+  executedAt       DateTime            @default(now())
+  metadata         String?
+
+  @@index([enrollmentId])
+  @@index([nodeId])
+}
+
+// ─────────────────────────────────────────────────────
+// Websites — Forms
+//
+// Drag-and-drop form builder. `schema` stores a v1 FormTemplate
+// (block-based JSON, defined in src/lib/forms/types.ts). Submissions
+// upsert into the Contact model and can fire `form_submission`
+// LoomiFlowTriggers via the formId stored in trigger config JSON.
+// ─────────────────────────────────────────────────────
+
+model Form {
+  id              String       @id @default(cuid())
+  // Nullable: a system/library form template has no owning account
+  // (accountKey = null). Live forms and sub-account templates always
+  // carry an accountKey.
+  accountKey      String?
+  account         Account?     @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  name            String
+  // Public URL slug — served at /f/[slug]. Globally unique so iframe
+  // embeds resolve without an account prefix.
+  slug            String       @unique
+  status          String       @default("draft") // draft | published
+  // v1 FormTemplate JSON: { version, settings, blocks[] }.
+  schema          Json
+  // Post-submit destination — when set, the public form redirects
+  // here. Otherwise we show `successMessage` inline.
+  redirectUrl     String?
+  successMessage  String?
+  // Optional ContactList to attach upserted contacts to on submit.
+  // Uses the same no-overwrite semantics as importContacts(listId).
+  listId          String?
+  list            ContactList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+  // When true, each submission is forwarded as an ADF lead to the
+  // account's configured CRM destination(s) (Tekion / VinSolutions).
+  // When false (default) leads are kept in Loomi only.
+  forwardToCrm    Boolean      @default(false)
+  // When true, this row is a reusable template (authored from the Forms
+  // tab of /templates) rather than a live form. Templates are excluded
+  // from the normal forms list and from public /f/[slug] serving;
+  // "Save as template" clones a form's schema into a new isTemplate row.
+  isTemplate      Boolean      @default(false)
+  submissionCount Int          @default(0)
+  createdByUserId String?
+  publishedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  submissions FormSubmission[]
+
+  @@index([accountKey])
+  @@index([accountKey, status])
+  @@index([accountKey, isTemplate])
+}
+
+model FormSubmission {
+  id        String   @id @default(cuid())
+  formId    String
+  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  // Set when the submission matched/created a Contact (email or phone
+  // present and accepted by the upsert). Null for anonymous submissions
+  // where neither identifier was supplied.
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  // Raw field-id → value map captured from the submit POST. The Form's
+  // schema is the source of truth for what these field ids mean.
+  data      Json
+  ipAddress String?
+  userAgent String?
+  referrer  String?
+  // Landing-page attribution. Set when the submission came from a
+  // form embedded on a Loomi LP — both the LP's id and the slug at
+  // submission time are stored (slug is denormalized so reports
+  // survive a slug rename). Null for direct /f/<slug> submissions
+  // where no LP context was attached.
+  lpId      String?
+  lp        LandingPage? @relation(fields: [lpId], references: [id], onDelete: SetNull)
+  lpSlug    String?
+  // First-touch UTM tags captured from the LP's `loomi_lp_utm`
+  // cookie when the submission fires. Lets marketing answer "what
+  // campaign generated this lead" without joining back through the
+  // LP event stream.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+  createdAt DateTime @default(now())
+
+  @@index([formId, createdAt])
+  @@index([contactId])
+  @@index([lpId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────
+// Websites — Forms → CRM lead routing
+//
+// Forwards leads to a customer's CRM and records the outcome on
+// CrmDelivery. Two delivery shapes, keyed off `provider`:
+//
+//   • ADF email (tekion / vinsolutions) — the automotive-industry standard
+//     lead format. The lead is emailed (via the account's sending identity)
+//     to the CRM's intake address(es) in `leadEmails`.
+//   • HubSpot API (hubspot) — the contact is upserted into HubSpot over its
+//     REST API using an encrypted Private App token; `leadEmails` is unused.
+//
+// Each account configures one CrmDestination per provider. Deliveries are
+// triggered two ways: a form submission with `Form.forwardToCrm` enabled
+// (submit.ts), or a contact reaching a `push_to_crm` node in a flow
+// (loomi-flows.ts). Either path enqueues one pg-boss job per delivery; the
+// worker (deliver.ts) does the provider-specific send.
+// ─────────────────────────────────────────────────────
+
+model CrmDestination {
+  id              String   @id @default(cuid())
+  accountKey      String
+  account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  // CRM platform — drives the card label, the delivery method, and any
+  // provider-specific quirks.
+  provider        String // tekion | vinsolutions | hubspot
+  // The CRM's ADF lead-intake email address(es) (dealer-specific, issued by
+  // the CRM). Stored as a JSON array of strings; each lead is emailed to every
+  // address, so one provider can fan out to multiple intake inboxes. Unused for
+  // API providers (hubspot) — those leave it at the default empty list.
+  //
+  // @map keeps the PHYSICAL column named `leadEmail` (its pre-rename name) so
+  // `prisma db push` — which can't detect renames and would otherwise DROP the
+  // old column + ADD a fresh one, blanking every connected dealer on deploy —
+  // sees no column change. Existing single-address values stay in place and
+  // parseLeadEmails() reads them as a one-element list.
+  leadEmails      String   @default("[]") @map("leadEmail")
+  // ── API providers (hubspot) ──
+  // accessToken is the HubSpot Private App token, encrypted at rest with the
+  // same AES-256-GCM helper as sendgridApiKey (never returned to the client).
+  // portalId is the HubSpot account id (informational — for building record
+  // links). config holds optional per-provider settings: field mapping and an
+  // optional { pipelineId, stageId } to also create a deal on push.
+  accessToken     String?
+  portalId        String?
+  config          Json?
+  enabled         Boolean  @default(true)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  deliveries CrmDelivery[]
+
+  // One destination per CRM per account — each provider is a single
+  // "connect" in the integrations grid (Tekion card, VinSolutions card,
+  // HubSpot card).
+  @@unique([accountKey, provider])
+  @@index([accountKey, enabled])
+}
+
+model CrmDelivery {
+  id            String         @id @default(cuid())
+  destinationId String
+  destination   CrmDestination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  // What triggered this delivery: "form" (a form submission) or "flow" (a
+  // push_to_crm node). Drives which id below identifies the lead.
+  source        String         @default("form")
+  // FormSubmission.id this delivery is for (source="form"). No relation —
+  // submissions can be pruned independently and we don't want a cascade to
+  // wipe the log. Null for flow-triggered pushes, which carry contactId
+  // instead.
+  submissionId  String?
+  // Contact.id this delivery is for (source="flow"). No relation, same
+  // reasoning as submissionId. Null for form-triggered ADF deliveries, which
+  // resolve the contact from the submission.
+  contactId     String?
+  // The single intake address this delivery targets (ADF providers only). A
+  // submission fans out to one CrmDelivery per address on the destination, so
+  // a retry only re-sends to the address that actually failed (no duplicates
+  // to the ones that succeeded). Null for API providers (hubspot) and for
+  // legacy rows created before the fan-out (those fall back to emailing all of
+  // the destination's addresses).
+  recipientEmail String?
+  status        String         @default("pending") // pending | sent | failed
+  attempts      Int            @default(0)
+  // Provider message id: the email send id (SendGrid X-Message-Id / SMTP
+  // messageId) for ADF, or the created/updated HubSpot contact id for hubspot.
+  // Kept for tracing a lead through to the CRM.
+  messageId     String?
+  lastError     String?
+  createdAt     DateTime       @default(now())
+  sentAt        DateTime?
+
+  @@index([destinationId, createdAt])
+  @@index([submissionId])
+  @@index([contactId])
+}
+
+// ─────────────────────────────────────────────────────
+// Landing Pages (block-based, public-rendered)
+//
+// Mirrors the Form model — same lifecycle (draft → published), same
+// /<short-path>/[slug] public routing pattern (here: /lp/[slug]), same
+// block-based JSON schema (defined in src/lib/landing-pages/types.ts).
+// Differs from Form in that submissions aren't owned at this level —
+// LPs can embed an existing Form via the EmbeddedForm block, and that
+// embedded form owns its own submissions.
+// ─────────────────────────────────────────────────────
+
+model LandingPage {
+  id              String   @id @default(cuid())
+  // Nullable: a system/library LP template has no owning account
+  // (accountKey = null). Live LPs and sub-account templates always
+  // carry an accountKey.
+  accountKey      String?
+  account         Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  name            String
+  // When true, this row is a reusable template (authored from the
+  // Landing Pages tab of /templates), edited in place by the LP editor,
+  // and excluded from public /lp/[slug] serving + the LP list.
+  isTemplate      Boolean  @default(false)
+  // Public URL slug — served at /lp/[slug]. Globally unique so links
+  // resolve without an account prefix (same approach as Form.slug).
+  slug            String   @unique
+  status          String   @default("draft") // draft | published
+  // v1 LandingPageTemplate JSON: { version, settings, blocks[] }.
+  // Block types are dedicated marketing primitives (hero, features,
+  // testimonial, faq, etc.) plus a form_embed block that references a
+  // Form by id.
+  schema          Json
+  // Optional SEO/share metadata. Falls back to the page's first heading
+  // + a generated description when null.
+  seoTitle        String?
+  seoDescription  String?
+  ogImageUrl      String?
+  // When true, the public page emits `<meta robots="noindex, nofollow">`
+  // AND the LP is excluded from /lp-sitemap.xml. Useful for password-
+  // protected drafts, internal-only campaigns, or pages we don't want
+  // search engines surfacing.
+  noindex         Boolean  @default(false)
+  // Per-LP browser tab icon URL. When null, the page inherits the
+  // studio's default favicon. Plumbed into Next.js Metadata.icons so
+  // the rendered <link rel="icon"> tag picks this up automatically.
+  faviconUrl      String?
+  // Tracking / analytics injection — surfaced as the "Tracking"
+  // section in the LP settings modal. The canonical pixel IDs are
+  // rendered server-side as the vendor's standard snippet (Meta,
+  // Google) so dealers don't need to paste raw HTML for the
+  // common cases. customHeadHtml + customBodyEndHtml are escape
+  // hatches for anything the curated fields don't cover. Each is
+  // length-capped at the validation layer (~10KB) to keep payloads
+  // sane without giving the impression we're sanitizing — admins
+  // can inject whatever they want on their own LP.
+  metaPixelId       String?
+  ga4MeasurementId  String?
+  gtmContainerId    String?
+  customHeadHtml    String?  @db.Text
+  customBodyEndHtml String?  @db.Text
+  createdByUserId String?
+  publishedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  events          LandingPageEvent[]
+  submissions     FormSubmission[]
+  // Reverse of AccountDomain.homeLandingPage — the AccountDomains
+  // (zero or more) configured to serve this LP at their root path.
+  asHomeForDomains AccountDomain[] @relation("AccountDomainHome")
+
+  @@index([accountKey])
+  @@index([accountKey, status])
+  @@index([accountKey, isTemplate])
+}
+
+// ─────────────────────────────────────────────────────
+// Account-level Reusable Snippets (header / footer / disclaimer)
+// ─────────────────────────────────────────────────────
+//
+// A reusable bundle of LP blocks an account can reference from
+// multiple LandingPages. Edit once, every LP that references it
+// re-renders with the new content on the next request.
+//
+// Storage: `schema` is { version: 1, blocks: Block[] } — same Block
+// shape as LandingPage but without the LP-level `settings` (snippets
+// don't carry their own canvas background / max-width; they render
+// inline within their host LP). Snippet blocks themselves can NOT
+// contain other snippet refs — cycle detection happens at the
+// validation layer.
+//
+// `kind` is purely cosmetic: it lets the picker group snippets by
+// intent (header / footer / disclaimer) without enforcing any
+// schema-level distinction. Generic is the catch-all.
+
+model AccountSnippet {
+  id              String   @id @default(cuid())
+  accountKey      String
+  account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  name            String
+  // header | footer | disclaimer | generic — UI grouping only.
+  kind            String   @default("generic")
+  // Same JSON shape as LandingPage.schema but without `settings`.
+  // Block ids must be unique within a snippet (independent of the LPs
+  // that reference it).
+  schema          Json
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([accountKey])
+  @@index([accountKey, kind])
+}
+
+// ─────────────────────────────────────────────────────
+// Account-level Custom Domains
+// ─────────────────────────────────────────────────────
+//
+// A customer wires their own subdomain (e.g. `offers.dealership.com`)
+// to point at our infra via CNAME. We resolve the hostname at request
+// time in middleware + the public LP route — visitors get LPs at
+// `<hostname>/<slug>`, fully branded as the dealer's own subdomain.
+//
+// Verification: when a domain is added we issue a random token. The
+// customer drops a TXT record at `_loomi.<hostname>` matching the
+// token; the Verify endpoint resolves DNS and marks `verifiedAt`. The
+// CNAME for traffic to actually reach us is checked implicitly at
+// runtime (unverified hostnames just 404).
+//
+// The optional `homeLandingPageId` lets a domain designate one LP as
+// the root-path "home" — `<hostname>/` serves that page, while
+// `<hostname>/<slug>` continues to resolve any other LP under the
+// same account.
+
+model AccountDomain {
+  id                  String   @id @default(cuid())
+  accountKey          String
+  account             Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  // Always stored lowercase, no scheme, no path. Middleware compares
+  // against the lowercased `Host` header at request time.
+  hostname            String   @unique
+  // Random opaque token shown to the customer + checked at the
+  // `_loomi.<hostname>` TXT record. Rotated on demand if compromised.
+  verificationToken   String
+  verifiedAt          DateTime?
+  // Optional: which LP serves the root path on this domain. Null =
+  // no `/` route; visitors hitting `/` get a 404 unless they include
+  // a slug path. Restricted to LPs in the same account at the
+  // application layer (Prisma doesn't enforce cross-FK constraints).
+  homeLandingPageId   String?
+  homeLandingPage     LandingPage? @relation("AccountDomainHome", fields: [homeLandingPageId], references: [id], onDelete: SetNull)
+  // Cloudflare-for-SaaS integration. When CLOUDFLARE_API_TOKEN is
+  // configured the verifyAccountDomain service registers the hostname
+  // with CF on success — they validate the customer's CNAME, issue
+  // an SSL cert, and route traffic to our fallback origin. The id
+  // they return is stored here so we can poll status + clean up on
+  // delete. Null until verification (or always null if CF isn't
+  // configured — DNS-only mode still works for dev / self-hosted).
+  cloudflareCustomHostnameId String?
+  // Last-known SSL status from CF: 'pending' (still validating /
+  // issuing cert), 'active' (cert installed, traffic routes),
+  // 'failed' (CF couldn't validate the CNAME or issue the cert),
+  // null (CF integration not configured or not yet called).
+  cloudflareSslStatus String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([accountKey])
+}
+
+// ─────────────────────────────────────────────────────
+// Account-saved Landing Page Templates
+// ─────────────────────────────────────────────────────
+//
+// Dealer-saved templates that show up in the "New Landing Page"
+// modal next to the built-in presets. A template is a snapshot of
+// an LP's schema at save time — once saved it's independent of the
+// source LP, so editing or deleting the source doesn't propagate.
+// The optional `sourceLpId` field is informational only (no FK
+// enforcement) so the template survives the source LP being deleted.
+
+model AccountLandingPageTemplate {
+  id              String   @id @default(cuid())
+  accountKey      String
+  account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  name            String
+  description     String?
+  // LandingPageContent JSON — same shape as LandingPage.schema.
+  // Deep-cloned when a new LP is built from this template so the
+  // template stays a stable snapshot.
+  schema          Json
+  // Informational pointer to the LP this template was saved from.
+  // Not an FK — we want the template to outlive the source LP.
+  sourceLpId      String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([accountKey, createdAt])
+}
+
+// ─────────────────────────────────────────────────────
+// Landing Page Events
+// ─────────────────────────────────────────────────────
+//
+// Visitor-side analytics events for published landing pages — page
+// views, scroll milestones, CTA clicks, and form submissions. Mirrors
+// the email-stats webhook pattern (CampaignEmailStats): write rows
+// as they happen, aggregate into a daily roll-up table later when the
+// dashboard view needs them.
+//
+// Authentication: public POST endpoint (visitors are anonymous), so
+// the API hashes the IP before storage and rate-limits via the anonId
+// cookie. Slug is denormalized so analytics queries that filter by
+// URL don't need a join.
+
+model LandingPageEvent {
+  id          String      @id @default(cuid())
+  pageId      String
+  page        LandingPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  slug        String // denormalized — published URL slug at the time of the event
+  // Event taxonomy:
+  //   view         — page mount (one per session per page)
+  //   cta_click    — element with [data-loomi-track="cta"] clicked
+  //   form_submit  — embedded form successfully submitted
+  //   scroll_25    — 25% scroll depth reached (first time in session)
+  //   scroll_50    — 50%
+  //   scroll_75    — 75%
+  //   scroll_100   — bottom reached
+  type        String
+  // Cookie-managed identifiers. Both nullable so server-issued events
+  // (rare) and pre-cookie requests still persist.
+  sessionId   String? // 30-min sliding session — counts unique visits
+  anonId      String? // 1-year browser cookie — counts unique visitors
+  referrer    String?
+  userAgent   String?
+  ipHash      String? // sha256(ip + daily salt) — privacy-preserving counter
+  // UTM tags captured at first-touch and persisted via cookie. Each
+  // event re-stamps current cookie state so we can attribute scroll +
+  // CTA + submit back to the source even when the URL no longer has
+  // them.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+  // Event-specific extras: { ctaLabel, ctaHref, formId, scrollDepth, etc. }
+  meta        Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([pageId, createdAt])
+  @@index([pageId, type, createdAt])
+  @@index([slug, createdAt])
+}
+
+// ─────────────────────────────────────────────────────
+// SMS Campaigns (bulk + scheduled outbound)
+// ─────────────────────────────────────────────────────
+
+model SmsCampaign {
+  id               String    @id @default(cuid())
+  name             String?
+  // Per-(flow,node) wrapper key — see EmailCampaign.flowNodeKey.
+  flowNodeKey      String?   @unique
+  message          String
+  status           String    @default("queued") // queued | scheduled | processing | completed | partial | failed | canceled
+  scheduledFor     DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdByUserId  String?
+  createdByRole    String?
+  sourceAudienceId String?
+  sourceFilter     String?
+  // Static list audience. Mirrors EmailCampaign.sourceListId so the
+  // multi-channel recipients step can persist a list selection on both
+  // rails. At most one of (sourceListId, sourceAudienceId+sourceFilter,
+  // sourceContactIds) is meaningful — the recipients UI enforces
+  // exclusivity.
+  sourceListId     String?
+  // Manual selection — JSON-stringified array of Contact IDs. When set,
+  // the schedule step enumerates these contacts directly and skips
+  // list/segment resolution. Mirrors EmailCampaign.sourceContactIds.
+  sourceContactIds String?
+  accountKeys      String    @default("[]") // JSON array of account keys
+  totalRecipients  Int       @default(0)
+  sentCount        Int       @default(0)
+  failedCount      Int       @default(0)
+  metadata         String?
+  error            String?
+  // Set when the campaign is archived via /archive. The daily purge
+  // job hard-deletes rows where archivedAt < now − 30d. Null on live
+  // (non-archived) rows.
+  archivedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  recipients SmsCampaignRecipient[]
+
+  @@index([status, scheduledFor])
+  @@index([createdAt])
+  @@index([archivedAt])
+}
+
+model SmsCampaignRecipient {
+  id             String      @id @default(cuid())
+  campaignId     String
+  campaign       SmsCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId      String
+  accountKey     String
+  phone          String?
+  fullName       String?
+  status         String      @default("pending") // pending | sent | failed | skipped
+  messageId      String?
+  conversationId String?
+  sentAt         DateTime?
+  error          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  events SmsEvent[]
+
+  @@unique([campaignId, contactId, accountKey])
+  @@index([campaignId, status])
+  @@index([accountKey, status])
+}
+
+// One row per Twilio status-callback / inbound webhook entry. Status
+// callbacks for the same Twilio Message SID arrive multiple times as
+// the message moves through states (queued → sent → delivered), so
+// the de-dup key is (sid, eventType) rather than sid alone.
+// recipientId is nullable so inbound STOP messages and out-of-band
+// sends still get logged for audit.
+model SmsEvent {
+  id               String                @id @default(cuid())
+  campaignId       String?
+  recipientId      String?
+  recipient        SmsCampaignRecipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  accountKey       String?
+  eventType        String // queued | sent | delivered | undelivered | failed | received | stop | unsub
+  twilioMessageSid String?
+  from             String?
+  to               String?
+  body             String?
+  errorCode        String?
+  errorMessage     String?
+  raw              String // full webhook payload (form-encoded → JSON serialised)
+  timestamp        DateTime
+  createdAt        DateTime              @default(now())
+
+  @@index([campaignId, eventType])
+  @@index([recipientId])
+  @@index([accountKey, eventType])
+  @@index([twilioMessageSid])
+  @@index([timestamp])
+}
+
+// Sub-account scoped phone suppression list. Inbound STOP keywords
+// auto-populate this from the Twilio inbound webhook; the campaign
+// scheduler filters suppressed phones to status='skipped' before
+// queueing the send.
+model SmsSuppression {
+  id         String   @id @default(cuid())
+  accountKey String
+  phone      String
+  reason     String // stop | unsub | undelivered | manual
+  source     String   @default("twilio") // twilio | manual
+  raw        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([accountKey, phone])
+  @@index([phone])
+}
+
+// ─────────────────────────────────────────────────────
+// Email Campaigns (bulk + scheduled outbound)
+// ─────────────────────────────────────────────────────
+
+model EmailCampaign {
+  id               String    @id @default(cuid())
+  name             String?
+  // Set ONLY on the per-(flow,node) wrapper campaigns the flow engine
+  // creates ("Flow:<id>/Node:<id>"). Unique so concurrent first-sends
+  // upsert to one row instead of racing two duplicate wrappers. Null on
+  // all normal campaigns (Postgres treats nulls as distinct).
+  flowNodeKey      String?   @unique
+  subject          String
+  previewText      String?
+  htmlContent      String
+  textContent      String?
+  sourceType       String    @default("template-library") // template-library | drag-drop | html
+  status           String    @default("queued") // queued | scheduled | processing | completed | partial | failed | canceled
+  scheduledFor     DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdByUserId  String?
+  createdByRole    String?
+  sourceAudienceId String?
+  sourceFilter     String?
+  // Static list audience. When set, the worker pulls recipients from
+  // ContactListMembership instead of evaluating sourceFilter. At most
+  // one of (sourceListId, sourceAudienceId+sourceFilter, sourceContactIds)
+  // is meaningful for a given campaign — the recipients UI enforces this
+  // exclusivity.
+  sourceListId     String?
+  // Manual selection — JSON-stringified array of Contact IDs. When set,
+  // the worker enumerates these contacts directly and skips list/segment
+  // resolution. Used by the Contacts tab in the recipients picker for
+  // ad-hoc canary/test sends to specific people.
+  sourceContactIds String?
+  accountKeys      String    @default("[]") // JSON array of account keys
+  totalRecipients  Int       @default(0)
+  sentCount        Int       @default(0)
+  failedCount      Int       @default(0)
+  metadata         String?
+  error            String?
+  // Set when the campaign is archived via /archive. The daily purge
+  // job hard-deletes rows where archivedAt < now − 30d. Null on live
+  // (non-archived) rows.
+  archivedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  recipients EmailCampaignRecipient[]
+
+  @@index([status, scheduledFor])
+  @@index([createdAt])
+  @@index([archivedAt])
+}
+
+model EmailCampaignRecipient {
+  id         String        @id @default(cuid())
+  campaignId String
+  campaign   EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId  String
+  accountKey String
+  email      String?
+  fullName   String?
+  status     String        @default("pending") // pending | sent | failed | skipped
+  messageId  String?
+  sentAt     DateTime?
+  error      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  events EmailEvent[]
+
+  @@unique([campaignId, contactId, accountKey])
+  @@index([campaignId, status])
+  @@index([accountKey, status])
+}
+
+// One row per SendGrid Event Webhook entry. We retain the raw payload
+// so we can rebuild parsed columns if the schema evolves. recipientId
+// is nullable to accommodate events for SendGrid traffic that wasn't
+// produced by a Loomi campaign (e.g. transactional sends by the client
+// through the same API key) — they're still logged for audit.
+model EmailEvent {
+  id          String                  @id @default(cuid())
+  campaignId  String?
+  recipientId String?
+  recipient   EmailCampaignRecipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  accountKey  String?
+  eventType   String // delivered | open | click | bounce | dropped | spamreport | unsubscribe | deferred | processed
+  sgEventId   String                  @unique // SendGrid's sg_event_id; the idempotency key
+  sgMessageId String?
+  email       String?
+  timestamp   DateTime
+  url         String? // populated for click events
+  reason      String? // populated for bounce / dropped
+  userAgent   String?
+  ip          String?
+  raw         String // full event payload as JSON for forensics
+  createdAt   DateTime                @default(now())
+
+  @@index([campaignId, eventType])
+  @@index([recipientId])
+  @@index([accountKey, eventType])
+  @@index([sgMessageId])
+  @@index([timestamp])
+}
+
+// Persistent per-account suppression list. The recipient resolver pulls
+// these emails out of every campaign batch before send. Bounce + spam
+// reports auto-populate from the webhook; unsubscribe + manual entries
+// flow through other surfaces.
+model EmailSuppression {
+  id         String   @id @default(cuid())
+  accountKey String
+  email      String
+  reason     String // bounce | spamreport | unsubscribe | manual
+  source     String   @default("sendgrid") // sendgrid | manual
+  raw        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([accountKey, email])
+  @@index([email])
+}
+
+// ─────────────────────────────────────────────────────
+// Changelog
+// ─────────────────────────────────────────────────────
+
+model ChangelogEntry {
+  id          String   @id @default(cuid())
+  title       String
+  content     String // Plain text body describing the change
+  type        String   @default("improvement") // feature | improvement | fix
+  publishedAt DateTime @default(now())
+  createdBy   String? // user name or "Claude"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([publishedAt])
+}
+
+// ─────────────────────────────────────────────────────
+// S3 Media Assets (supplementary storage alongside ESP)
+// ─────────────────────────────────────────────────────
+
+model MediaAsset {
+  id           String   @id @default(cuid())
+  accountKey   String? // null = admin-level (Loomi media library)
+  account      Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  s3Key        String // "media/_admin/{id}/{filename}" or "media/{accountKey}/{id}/{filename}"
+  filename     String
+  mimeType     String
+  size         Int // bytes
+  width        Int? // image-only
+  height       Int? // image-only
+  thumbnailKey String? // "media/_admin/{id}/thumb.webp"
+  altText      String? // accessible alt text for images — used as the default alt= when inserting <img> from the picker, editable across the media library
+  category     String? // "brand" | "ad-creative" | "oem" | "general"
+  tags         String? // JSON string[] for future DAM filtering
+  uploadedBy   String? // User ID
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([s3Key])
+  @@index([accountKey, createdAt])
+  @@index([accountKey, category])
+}
+
+// ─────────────────────────────────────────────────────
+// Meta Ads Pacer
+// ─────────────────────────────────────────────────────
+
+model MetaAdsPacerPlan {
+  id              String   @id @default(cuid())
+  accountKey      String   @unique
+  account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  baseBudgetGoal  String? // legacy account-wide default (replaced by MetaAdsPacerPeriodBudget per-month entries)
+  addedBudgetGoal String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  ads                   MetaAdsPacerAd[]
+  periodBudgets         MetaAdsPacerPeriodBudget[]
+  monthSnapshots        MetaAdsPacerMonthSnapshot[]
+  auditEntries          MetaAdsPacerAuditEntry[]
+  carryoverApplications MetaAdsPacerCarryoverApplication[]
+}
+
+/**
+ * Automatic audit log (Change 10). Every tracked change — daily budget, actual
+ * spend, allocation, budget goals, status, flight dates, carryover, freeze/
+ * reopen, bulk applies, Meta syncs — is recorded here with who/what/from→to/
+ * when, no button press. The manual "Log Budget" snapshot (MetaAdsPacerBudgetLog)
+ * is a separate, deliberate checkpoint layered on top. Purged after 1 year.
+ */
+model MetaAdsPacerAuditEntry {
+  id           String           @id @default(cuid())
+  accountKey   String
+  planId       String
+  plan         MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  period       String // YYYY-MM
+  adId         String? // null for period-level (budget goals) / account-level events
+  adName       String? // denormalized so the trail survives ad deletion
+  action       String // edit | created | deleted | carryover | freeze | reopen | sync
+  field        String? // e.g. pacerDailyBudget, adStatus
+  fromValue    String?
+  toValue      String?
+  summary      String // human-readable one-liner
+  groupId      String? // ties a multi-entry action together (one save / bulk apply)
+  authorUserId String?
+  createdAt    DateTime         @default(now())
+
+  @@index([accountKey, period, createdAt])
+  @@index([adId, createdAt])
+  @@index([createdAt])
+}
+
+/**
+ * Immutable end-of-month freeze (Change 5). Once a month has fully settled
+ * (past the grace period after month-end), the pacer captures the exact plan
+ * payload — per-ad spend, effective flight dates, target, budget goals,
+ * markup, timezone — so a closed month stays a faithful record even if the
+ * live ad rows are later edited. `reopenedAt` set = an admin reopened it for
+ * correction, so the live rows are served (editable) until it re-freezes.
+ */
+model MetaAdsPacerMonthSnapshot {
+  id             String           @id @default(cuid())
+  planId         String
+  plan           MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  period         String // YYYY-MM
+  payloadJson    String // frozen plan payload (ads + budget goals + markup + timeZone)
+  frozenAt       DateTime         @default(now())
+  frozenByUserId String?
+  reopenedAt     DateTime?
+  reopenedByUserId String?
+
+  @@unique([planId, period])
+  @@index([planId])
+}
+
+model MetaAdsPacerPeriodBudget {
+  id              String           @id @default(cuid())
+  planId          String
+  plan            MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  period          String // YYYY-MM, e.g. "2026-04"
+  baseBudgetGoal  String?
+  addedBudgetGoal String?
+  // Carryover applied from the prior month's over/under (Change 7), in
+  // actual-spend dollars, per bucket. Opt-in (null = none). Added to the
+  // DERIVED spend target only (target = clientBudget × markup + carryover);
+  // it NEVER modifies the typed budget goals above, which stay the billing
+  // record. Single-month: set once on approval, not auto-chained.
+  baseCarryover   String?
+  addedCarryover  String?
+  // Backfilled actual spend for a pre-pacer month (account-total from Meta,
+  // combined — not bucket-split). Lets year reconciliation include months from
+  // before the tool existed. Null for normally-tracked months (their actual is
+  // Σ ad pacerActual). The client budget for these months is entered later into
+  // baseBudgetGoal, so over/under = historicalActual − baseBudgetGoal × markup.
+  historicalActual String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([planId, period])
+  @@index([planId, period])
+}
+
+/// One application of a month's settled over/under into a later month's spend
+/// target (reconciliation). The ledger is the source of truth for how much of a
+/// given source month's over/under has been consumed, so the YTD net and each
+/// month's unapplied remainder stay honest across arbitrary apply actions.
+model MetaAdsPacerCarryoverApplication {
+  id              String           @id @default(cuid())
+  planId          String
+  plan            MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  bucket          String // "base" | "added" — the target month bucket it lands in
+  sourceMonth     String // YYYY-MM the over/under came from
+  targetMonth     String // YYYY-MM it was applied into
+  amount          String // actual-spend dollars applied (signed)
+  appliedByUserId String? // recorded for display; no FK so plan delete cascades cleanly
+  appliedAt       DateTime @default(now())
+
+  @@index([planId, sourceMonth])
+  @@index([planId, targetMonth])
+}
+
+model MetaAdsPacerAd {
+  id       String           @id @default(cuid())
+  planId   String
+  plan     MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  position Int              @default(0)
+
+  name String @default("")
+
+  // Assignments
+  ownerUserId      String?
+  owner            User?   @relation("MetaPacerOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  designerUserId   String?
+  designer         User?   @relation("MetaPacerDesigner", fields: [designerUserId], references: [id], onDelete: SetNull)
+  accountRepUserId String?
+  accountRep       User?   @relation("MetaPacerAccountRep", fields: [accountRepUserId], references: [id], onDelete: SetNull)
+
+  // Planning
+  period          String  @default("") // YYYY-MM bucket — primary planning axis
+  month           String? // legacy month-name tag, retained for backwards compat
+  actionNeeded    String?
+  recurring       String  @default("No") // Yes | No | Unknown
+  coop            String  @default("No") // Yes | No | Unknown
+  budgetType      String  @default("Daily") // Daily | Lifetime
+  // base | added | split. When "split", the ad's allocation is divided
+  // between the two budget pools — splitBaseAmount goes to Base, the
+  // rest goes to Added. pacerActual splits proportionally to keep both
+  // pools' over/under math accurate.
+  budgetSource    String  @default("base")
+  splitBaseAmount String?
+
+  // Dates (ISO yyyy-MM-dd strings to mirror <input type="date">)
+  flightStart     String?
+  flightEnd       String?
+  liveDate        String?
+  creativeDueDate String?
+  dueDate         String? // overall ad due date — auto-calc 2 business days before flightStart
+  dateCompleted   String?
+
+  // Status
+  adStatus         String @default("In Draft")
+  designStatus     String @default("Not Started")
+  internalApproval String @default("Pending Approval")
+  clientApproval   String @default("Pending Approval")
+
+  // Money (string to mirror form input, parsed at calc time)
+  allocation       String?
+  pacerActual      String?
+  pacerDailyBudget String?
+  // Full-run actual spend across the linked ad set's entire flight (Meta
+  // date_preset=maximum), not just the current pacing month. Informational —
+  // surfaced for multi-month ads so the full date-range spend is visible; never
+  // drives the month's pacing math.
+  pacerRunSpend    String?
+  // §2a: the YYYY-MM the ad's FULL run was counted in (single-month straddler
+  // resolution). When set, the assigned month uses pacerRunSpend + allocation
+  // (full scope) and the ad contributes 0 to any other month. Server-managed
+  // via /resolve-cross-month; never written by autosave or the Meta sync.
+  fullRunAppliedToMonth String?
+  // §2b: JSON Record<YYYY-MM, number> — a lifetime ad's editable planned split
+  // across the months its flight touches. DISPLAY-ONLY (planned vs actual);
+  // never books a variance (§3 owns the over/under). Server-managed too.
+  lifetimeMonthSplit String?
+
+  // Pacer-only date scoping: lets the user adjust "today" and "end" per ad
+  // without affecting the Ad Planner flight dates.
+  pacerTodayDate String?
+  pacerEndDate   String?
+
+  // Facebook (Meta) Ads sync. When `metaObjectId` is set the row is "linked"
+  // to a Facebook object and the Sync-from-Facebook job owns its spend:
+  // pacerActual (and, for Daily ads, pacerDailyBudget) are overwritten from the
+  // Marketing API. `allocation` is the PLANNED target spend and is never
+  // touched by sync. metaEffectiveStatus mirrors the FB
+  // delivery status for mismatch display only — it never touches adStatus.
+  // pacerSyncedAt timestamps the last successful pull (drives the "synced
+  // Xh ago" badge). All three are server-managed: the client PUT spreads
+  // them back but the route ignores them, so autosave can't clobber a sync.
+  metaObjectType      String? // "campaign" | "adset" | "ad"
+  metaObjectId        String?
+  metaEffectiveStatus String?
+  pacerSyncedAt       DateTime?
+  // Actual run schedule from Meta (start_time / stop_time), stored as the
+  // ad-account-timezone calendar date (YYYY-MM-DD) at sync time. Server-
+  // managed, kept separate from the planner's flightStart/flightEnd so Meta's
+  // truth never clobbers planning intent. The pacer clamps these to the
+  // pacing month: effective_end = min(metaEndDate ?? flightEnd, month_end).
+  // metaEndDate is null for campaigns Meta reports with no stop_time.
+  metaStartDate       String?
+  metaEndDate         String?
+
+  // Google Ads sync (§8) — parallel to the Meta block above, reusing the same
+  // planner/pacer/reconciliation flow. `platform` tags the row's ad platform:
+  // null/"meta" = a Meta line (back-compat for every existing row), "google" =
+  // a Google campaign line. For Google lines `googleCampaignId` links to the
+  // Google Ads CAMPAIGN (the budget/pacing grain per §8 — never an ad group/ad);
+  // `googleChannelType` is the display-only rollup tag (Search/Display/Video/
+  // Shopping/PMax, PMax kept as its own group); googleEffectiveStatus/Start/End
+  // mirror the Meta equivalents. Spend syncs via metrics.cost_micros under the
+  // same server-managed rules as Meta (sync owns pacerActual, never allocation;
+  // pacerSyncedAt is shared across both platforms).
+  platform              String? // null | "meta" | "google"
+  googleCampaignId      String?
+  googleChannelType     String? // "Search" | "Display" | "Video" | "Shopping" | "PMax"
+  googleEffectiveStatus String?
+  googleStartDate       String?
+  googleEndDate         String?
+  // The campaign_budget resource name — multiple campaigns can share one budget,
+  // so the §8 "daily set" account roll-up dedupes on this (distinct budgets, not
+  // per-campaign rows) to avoid overstating the run-rate.
+  googleBudgetResourceName String?
+  // Per-ad alert mute (Change 9): when true, the pacing-family scanners
+  // (underspend/overpace, went-dark, flight-ending) skip this ad so a
+  // known-acceptable case stops pinging. Workflow alerts are unaffected.
+  alertsMuted         Boolean @default(false)
+
+  // Other
+  creativeLink   String?
+  clientName     String?
+  digitalDetails String? // long-form notes from the rep about the ad goal/plan
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  designNotes MetaAdsPacerDesignNote[]
+  activityLog MetaAdsPacerActivityLog[]
+
+  @@index([planId, period, position])
+  @@index([planId, position])
+  @@index([adStatus])
+  @@index([designerUserId])
+  @@index([ownerUserId])
+}
+
+model MetaAdsPacerDesignNote {
+  id           String         @id @default(cuid())
+  adId         String
+  ad           MetaAdsPacerAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  text         String
+  authorUserId String?
+  author       User?          @relation("MetaPacerDesignNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt    DateTime       @default(now())
+
+  @@index([adId, createdAt])
+}
+
+model MetaAdsPacerActivityLog {
+  id                 String         @id @default(cuid())
+  adId               String
+  ad                 MetaAdsPacerAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  text               String
+  attachmentKey      String? // S3 key when an attachment was uploaded
+  attachmentFilename String?
+  attachmentMimeType String?
+  attachmentSize     Int?
+  authorUserId       String?
+  author             User?          @relation("MetaPacerActivityAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt          DateTime       @default(now())
+
+  @@index([adId, createdAt])
+}
+
+// Account-level chat log for the Meta Ads Pacer. Distinct from the
+// per-ad DesignNote / ActivityLog — these notes live on the account
+// itself so reps can capture context that applies to the whole pacing
+// view (variance explanations, client conversations, etc).
+model MetaAdsPacerAccountNote {
+  id           String   @id @default(cuid())
+  accountKey   String
+  account      Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  // Month (YYYY-MM) the comment was written in — comments are scoped to their
+  // month, so May notes only show in May and June starts a fresh log. Nullable
+  // for pre-existing account-wide notes (which won't surface in a month view).
+  period       String?
+  text         String
+  authorUserId String?
+  author       User?    @relation("MetaPacerAccountNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([accountKey, period, createdAt])
+}
+
+// Budget log — point-in-time snapshot of the pacer's spend + client
+// budget numbers, captured by reps as a record of when they checked or
+// adjusted budgets during the month. Scoped per-account + per-period
+// (YYYY-MM) so each month's checks live as their own thread.
+model MetaAdsPacerBudgetLog {
+  id           String   @id @default(cuid())
+  accountKey   String
+  account      Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  period       String // YYYY-MM
+  // JSON-encoded AdSnapshot[] — per-ad numbers matching the Summary tab
+  // columns (budgetType, budget, projected, actual, target, recDaily).
+  // See BudgetLogDrawer for the exact shape.
+  adsSnapshot  String   @default("[]")
+  // Optional free-text context — "rebalanced after client call", etc.
+  note         String?
+  authorUserId String?
+  author       User?    @relation("MetaPacerBudgetLogAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([accountKey, period, createdAt])
+}
+
+// ─────────────────────────────────────────────────────
+// Notifications (in-app + email)
+// ─────────────────────────────────────────────────────
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // ad_due_soon | ad_overdue | approval_pending | status_stuck | pacing_alert | period_over_allocated | ad_assigned | approval_changed
+  severity  String    @default("info") // info | warning | critical
+  title     String
+  body      String?
+  link      String? // optional in-app link (e.g. /tools/meta-ads-pacer?adId=…)
+  metaJson  String? // optional JSON payload for the originating event (adId, accountKey, etc)
+  emailedAt DateTime?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+model NotificationPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────
+// Alert rules (§9) — config-driven monitoring engine
+// ─────────────────────────────────────────────────────
+
+// One row per alert definition, so thresholds tune without a redeploy. Every
+// rule is the same shape: a metric, a baseline, a fire condition, a tier. The
+// engine (src/lib/alerts) reads enabled rows and fires Notifications, reusing
+// their dedupe window for cooldown. Google-channel rules (channel='google',
+// phase 1/2) drop in as rows once the Google Ads API is connected (§8).
+model AlertRule {
+  id          String  @id @default(cuid())
+  key         String  @unique // stable slug for seeding/idempotency, e.g. "meta-account-pace"
+  name        String
+  description String?
+  channel     String  @default("meta") // meta | google
+  metric      String // e.g. account_monthly_pace | campaign_budget_burn | metrics.ctr
+  resource    String // account | campaign | keyword_view | asset_group | asset_group_asset
+  // FIXED | ROLLING_AVG_DEVIATION | PERIOD_OVER_PERIOD | CONSECUTIVE_DURATION
+  baselineType  String
+  baselineParams String @default("{}") // JSON, e.g. {"window":30,"deviationPct":25}
+  fireCondition  String @default("{}") // JSON, e.g. {"comparator":"outside","low":85,"high":110}
+  tier          String  @default("FYI") // URGENT | FYI
+  minVolumeGate Float? // skip below this data volume (e.g. min monthly spend target $)
+  cooldownHours Int     @default(20) // suppress re-fire while still true / within N hours
+  phase         Int     @default(1) // 1 = ships now | 2 = Merchant Center (deferred)
+  enabled       Boolean @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([enabled])
+  @@index([channel, enabled])
+}
+
+// ─────────────────────────────────────────────────────
+// App Settings (singleton key/value store)
+// ─────────────────────────────────────────────────────
+
+// Small key/value store for app-level singletons that used to live as files
+// on the release filesystem (and were silently lost on every deploy — see
+// the local-disk data-loss fix). First tenant: the "loomi-knowledge" key,
+// holding the AI knowledge-base markdown formerly at loomi-knowledge.md.
+// `value` is plain text (markdown/JSON/etc.); callers own the encoding.
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

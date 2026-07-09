@@ -1,0 +1,52 @@
+{
+  "tags": [
+    "Header",
+    "Footer",
+    "Hero",
+    "Content",
+    "Media",
+    "Call to Action",
+    "Layout",
+    "Automotive"
+  ],
+  "assignments": {
+    "header": [
+      "Header"
+    ],
+    "footer": [
+      "Footer"
+    ],
+    "hero": [
+      "Hero"
+    ],
+    "copy": [
+      "Content"
+    ],
+    "cta": [
+      "Call to Action"
+    ],
+    "vehicle-card": [
+      "Automotive",
+      "Content"
+    ],
+    "features": [
+      "Content"
+    ],
+    "divider": [
+      "Layout"
+    ],
+    "spacer": [
+      "Layout"
+    ],
+    "countdown-stat": [
+      "Call to Action"
+    ],
+    "testimonial": [
+      "Content"
+    ],
+    "split": [
+      "Content",
+      "Media"
+    ]
+  }
+}

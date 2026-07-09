@@ -1,0 +1,1617 @@
+@import "tailwindcss";
+/* @xyflow/react ships light-mode-only chrome by default. Importing
+   here (rather than in the FlowBuilder component) lets our overrides
+   below win the cascade — otherwise the per-component import loads
+   AFTER globals.css and our dark-mode chrome gets clobbered. */
+@import "@xyflow/react/dist/style.css";
+
+:root,
+[data-theme="dark"] {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: rgba(24, 24, 27, 0.62);
+  /* Higher-opacity card surface for floating overlays (flow builder
+     inspector, flow nodes) that need to feel solid rather than
+     translucent. Pair with `backdrop-blur-*` utilities for the frost. */
+  --card-strong: rgba(24, 24, 27, 0.94);
+  /* Flow builder canvas dot color. Dim white in dark mode so the
+     dotted background reads as "subtle grid" rather than competing
+     with node chrome. */
+  --canvas-dot: rgba(255, 255, 255, 0.08);
+  --card-foreground: #fafafa;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.07);
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --muted: rgba(255, 255, 255, 0.05);
+  --muted-foreground: #a1a1aa;
+  --accent: rgba(255, 255, 255, 0.05);
+  --accent-foreground: #fafafa;
+  --destructive: #ef4444;
+  --ring: #6366f1;
+  --radius: 0.5rem;
+
+  /* Gradient background — dark mode */
+  --gradient-bg:
+    radial-gradient(ellipse 60% 50% at 8% 30%, rgba(99, 60, 180, 0.2) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 40% at 15% 70%, rgba(56, 100, 220, 0.14) 0%, transparent 60%),
+    linear-gradient(
+      145deg,
+      #09090b 0%,
+      #0c0c14 25%,
+      #0f0a18 45%,
+      #0a0d1a 65%,
+      #0d0b12 85%,
+      #09090b 100%
+    );
+
+  /* Liquid glass sidebar — dark */
+  --sidebar-bg: rgba(12, 12, 20, 0.7);
+  --sidebar-foreground: #fafafa;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-border-soft: rgba(255, 255, 255, 0.1);
+  --sidebar-muted: rgba(255, 255, 255, 0.05);
+  --sidebar-muted-foreground: #a1a1aa;
+  --sidebar-input: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #6366f1;
+  --sidebar-highlight: rgba(255, 255, 255, 0.03);
+  --sidebar-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(161, 161, 170, 0.5);
+  --scrollbar-thumb-hover: rgba(161, 161, 170, 0.7);
+  --scrollbar-thumb-active: rgba(161, 161, 170, 0.82);
+
+  /* Horizon AI brand tokens - dark */
+  --ai-hz-start: #fb923c;
+  --ai-hz-mid: #fb7185;
+  --ai-hz-end: #ec4899;
+  --ai-hz-chip-bg: rgba(244, 114, 182, 0.2);
+  --ai-hz-chip-border: rgba(244, 114, 182, 0.45);
+  --ai-hz-chip-text: #fbcfe8;
+  --ai-hz-chip-hover: rgba(244, 114, 182, 0.3);
+  --ai-hz-primary-shadow: 0 10px 24px rgba(190, 24, 93, 0.34);
+  --ai-hz-fab-shadow: 0 6px 22px rgba(219, 39, 119, 0.36);
+  --ai-hz-fab-shadow-hover: 0 10px 30px rgba(192, 38, 211, 0.4);
+
+  /* AI assistant panel tokens - dark */
+  --ai-assist-bg: rgba(31, 10, 35, 0.8);
+  --ai-assist-border: rgba(244, 114, 182, 0.34);
+  --ai-assist-shadow: 0 22px 52px rgba(42, 9, 38, 0.54),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+  --ai-assist-tint-strong: rgba(251, 146, 60, 0.2);
+  --ai-assist-tint-soft: rgba(244, 114, 182, 0.22);
+  --ai-assist-context-bg: rgba(244, 114, 182, 0.14);
+  --ai-assist-thread-bg: rgba(20, 7, 26, 0.4);
+  --ai-assist-message-bg: rgba(51, 14, 46, 0.46);
+
+  /* Editor AI panel tokens — dark */
+  --ai-ed-bg: rgba(29, 9, 36, 0.84);
+  --ai-ed-border: rgba(244, 114, 182, 0.42);
+  --ai-ed-shadow: 0 0 0 1px rgba(244, 114, 182, 0.22), 0 26px 54px rgba(190, 24, 93, 0.26);
+  --ai-ed-accent: rgba(249, 168, 212, 0.28);
+  --ai-ed-text: #fce7f3;
+  --ai-ed-text-muted: rgba(251, 207, 232, 0.80);
+  --ai-ed-text-faint: rgba(251, 207, 232, 0.55);
+  --ai-ed-card: rgba(255, 255, 255, 0.05);
+  --ai-ed-deep: rgba(31, 10, 35, 0.44);
+  --ai-ed-user-msg: rgba(249, 168, 212, 0.14);
+  --ai-ed-input: rgba(20, 7, 26, 0.56);
+  --ai-ed-thread: rgba(18, 7, 24, 0.26);
+  --ai-ed-footer: rgba(18, 7, 24, 0.3);
+  --ai-ed-dot: rgba(249, 168, 212, 0.60);
+  --ai-ed-hover: rgba(255, 255, 255, 0.12);
+  --ai-ed-focus: rgba(244, 114, 182, 0.5);
+  --ai-ed-btn-text: #fce4f2;
+  --ai-ed-btn-border: rgba(244, 114, 182, 0.40);
+}
+
+[data-theme="light"] {
+  --background: #f8f9fb;
+  --foreground: #09090b;
+  --card: rgba(255, 255, 255, 0.62);
+  --card-strong: rgba(255, 255, 255, 0.96);
+  /* Darker grid so the dots read against the gradient background.
+     #d1d5db blended in; #9ca3af is the same as zinc-400 ish — visible
+     without being loud. */
+  --canvas-dot: #9ca3af;
+  --card-foreground: #09090b;
+  --border: rgba(0, 0, 0, 0.09);
+  --input: rgba(0, 0, 0, 0.05);
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --muted: rgba(0, 0, 0, 0.04);
+  --muted-foreground: #71717a;
+  --accent: rgba(0, 0, 0, 0.04);
+  --accent-foreground: #09090b;
+  --destructive: #dc2626;
+  --ring: #3b82f6;
+  --radius: 0.5rem;
+
+  /* Gradient background — light mode */
+  --gradient-bg:
+    radial-gradient(ellipse 55% 50% at 10% 35%, rgba(168, 130, 220, 0.08) 0%, transparent 65%),
+    radial-gradient(ellipse 35% 35% at 12% 75%, rgba(120, 150, 240, 0.05) 0%, transparent 55%),
+    linear-gradient(
+      145deg,
+      #f4f5f9 0%,
+      #f0f1f8 25%,
+      #f2eff8 45%,
+      #eef0f8 65%,
+      #f1f0f5 85%,
+      #f4f5f9 100%
+    );
+
+  /* Liquid glass sidebar — light */
+  --sidebar-bg: rgba(255, 255, 255, 0.58);
+  --sidebar-foreground: #09090b;
+  --sidebar-border: rgba(255, 255, 255, 0.65);
+  --sidebar-border-soft: rgba(203, 213, 225, 0.92);
+  --sidebar-muted: rgba(0, 0, 0, 0.03);
+  --sidebar-muted-foreground: #52525b;
+  --sidebar-input: rgba(0, 0, 0, 0.04);
+  --sidebar-ring: #2563eb;
+  --sidebar-highlight: rgba(255, 255, 255, 0.5);
+  --sidebar-shadow: 0 8px 32px rgba(0, 0, 0, 0.08),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(113, 113, 122, 0.45);
+  --scrollbar-thumb-hover: rgba(113, 113, 122, 0.62);
+  --scrollbar-thumb-active: rgba(113, 113, 122, 0.76);
+
+  /* Horizon AI brand tokens - light */
+  --ai-hz-start: #fb923c;
+  --ai-hz-mid: #fb7185;
+  --ai-hz-end: #ec4899;
+  --ai-hz-chip-bg: rgba(244, 114, 182, 0.16);
+  --ai-hz-chip-border: rgba(236, 72, 153, 0.34);
+  --ai-hz-chip-text: #9d174d;
+  --ai-hz-chip-hover: rgba(244, 114, 182, 0.24);
+  --ai-hz-primary-shadow: 0 8px 20px rgba(190, 24, 93, 0.24);
+  --ai-hz-fab-shadow: 0 4px 18px rgba(190, 24, 93, 0.28);
+  --ai-hz-fab-shadow-hover: 0 6px 24px rgba(192, 38, 211, 0.28);
+
+  /* AI assistant panel tokens - light */
+  --ai-assist-bg: rgba(255, 249, 253, 0.94);
+  --ai-assist-border: rgba(236, 72, 153, 0.26);
+  --ai-assist-shadow: 0 20px 44px rgba(190, 24, 93, 0.16),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.95);
+  --ai-assist-tint-strong: rgba(251, 146, 60, 0.17);
+  --ai-assist-tint-soft: rgba(244, 114, 182, 0.16);
+  --ai-assist-context-bg: rgba(244, 114, 182, 0.12);
+  --ai-assist-thread-bg: rgba(255, 255, 255, 0.56);
+  --ai-assist-message-bg: rgba(255, 255, 255, 0.84);
+
+  /* Editor AI panel tokens — light */
+  --ai-ed-bg: rgba(255, 249, 253, 0.97);
+  --ai-ed-border: rgba(236, 72, 153, 0.26);
+  --ai-ed-shadow: 0 0 0 1px rgba(236, 72, 153, 0.14), 0 20px 44px rgba(190, 24, 93, 0.14);
+  --ai-ed-accent: rgba(236, 72, 153, 0.2);
+  --ai-ed-text: #4a044e;
+  --ai-ed-text-muted: #831843;
+  --ai-ed-text-faint: #9d174d;
+  --ai-ed-card: rgba(236, 72, 153, 0.06);
+  --ai-ed-deep: rgba(236, 72, 153, 0.1);
+  --ai-ed-user-msg: rgba(244, 114, 182, 0.16);
+  --ai-ed-input: rgba(236, 72, 153, 0.08);
+  --ai-ed-thread: rgba(244, 114, 182, 0.04);
+  --ai-ed-footer: rgba(244, 114, 182, 0.07);
+  --ai-ed-dot: rgba(236, 72, 153, 0.62);
+  --ai-ed-hover: rgba(236, 72, 153, 0.12);
+  --ai-ed-focus: rgba(236, 72, 153, 0.45);
+  --ai-ed-btn-text: #9d174d;
+  --ai-ed-btn-border: rgba(236, 72, 153, 0.35);
+
+  /* Warning tint overrides for light mode legibility */
+  --warning-ink: rgb(161 78 19);
+  --warning-ink-soft: rgb(194 107 23);
+  --warning-surface-5: rgb(194 107 23 / 0.08);
+  --warning-surface-10: rgb(194 107 23 / 0.12);
+  --warning-surface-20: rgb(194 107 23 / 0.17);
+  --warning-border: rgb(194 107 23 / 0.28);
+}
+
+/* Light mode warning color tuning (keeps dark mode unchanged) */
+[data-theme='light'] .text-amber-500,
+[data-theme='light'] .text-amber-400,
+[data-theme='light'] .text-orange-400 {
+  color: var(--warning-ink-soft);
+}
+[data-theme='light'] .text-amber-300 {
+  color: var(--warning-ink);
+}
+[data-theme='light'] .text-amber-400\/70 {
+  color: rgb(161 78 19 / 0.78);
+}
+[data-theme='light'] .border-amber-500\/20 {
+  border-color: var(--warning-border);
+}
+[data-theme='light'] .bg-amber-500\/5 {
+  background-color: var(--warning-surface-5);
+}
+[data-theme='light'] .bg-amber-500\/10 {
+  background-color: var(--warning-surface-10);
+}
+[data-theme='light'] .bg-amber-500\/20 {
+  background-color: var(--warning-surface-20);
+}
+[data-theme='light'] .hover\:text-amber-300:hover {
+  color: var(--warning-ink);
+}
+[data-theme='light'] .hover\:bg-amber-500\/10:hover {
+  background-color: var(--warning-surface-10);
+}
+[data-theme='light'] .hover\:bg-amber-500\/20:hover {
+  background-color: var(--warning-surface-20);
+}
+
+/* Light mode danger color tuning (keeps dark mode unchanged).
+   The dark-tuned rose-200/300/400 values disappear against a light
+   background — retarget them here to darker rose shades so the
+   "Danger zone" treatment in the LP settings (and any future
+   destructive panels using the same utility classes) reads clearly
+   in light mode. Mirrors the amber/warning pattern above. */
+[data-theme='light'] .text-rose-400 {
+  color: rgb(190 18 60); /* rose-700 */
+}
+[data-theme='light'] .text-rose-300 {
+  color: rgb(159 18 57); /* rose-800 */
+}
+[data-theme='light'] .text-rose-200 {
+  color: rgb(190 18 60); /* rose-700 */
+}
+[data-theme='light'] .text-rose-200\/80 {
+  color: rgb(159 18 57 / 0.85); /* rose-800 @ 85% */
+}
+[data-theme='light'] .border-rose-500\/30 {
+  border-color: rgb(244 63 94 / 0.45); /* rose-500 @ 45% — deeper than dark mode */
+}
+[data-theme='light'] .border-rose-500\/40 {
+  border-color: rgb(244 63 94 / 0.55);
+}
+[data-theme='light'] .bg-rose-500\/5 {
+  background-color: rgb(254 226 226 / 0.7); /* rose-100 tint */
+}
+[data-theme='light'] .bg-rose-500\/10 {
+  background-color: rgb(254 205 211 / 0.9); /* rose-200 tint */
+}
+[data-theme='light'] .hover\:bg-rose-500\/20:hover {
+  background-color: rgb(253 164 175); /* rose-300 */
+}
+
+body {
+  background: var(--gradient-bg);
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+/* ── @xyflow/react chrome theming ──
+   ReactFlow ships light-mode-only Controls + MiniMap chrome by default
+   (bright white panels). These overrides re-tint them to the Loomi
+   card surface so they read as part of the builder, not floating
+   3rd-party widgets. We hit both `.react-flow__controls` and the
+   library's CSS-variable hooks so v12+ versions stay covered. */
+.react-flow__controls,
+.react-flow__minimap {
+  background-color: var(--card-strong);
+  backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  fill: var(--foreground);
+}
+.react-flow__controls-button:hover {
+  background: var(--muted);
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+.react-flow__minimap-mask {
+  /* In dark mode the default mask (rgba black) reads as a dark blob
+     over already-dark chrome — invert it so the visible viewport is
+     dark and the mask is a soft white tint instead. */
+  fill: rgba(255, 255, 255, 0.04);
+}
+[data-theme='light'] .react-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.06);
+}
+.react-flow__minimap-node {
+  fill: var(--muted-foreground);
+  stroke: var(--border);
+}
+.react-flow__attribution {
+  background: transparent;
+  color: var(--muted-foreground);
+  opacity: 0.5;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-active);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.page-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  /* Flush look at rest — the header reads as inline page content
+     until the user scrolls and it actually pins to the viewport edge,
+     at which point the rule below adds padding + frosted card chrome.
+     Animates via the transition below for a smooth handoff. */
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  transition:
+    padding 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    backdrop-filter 0.2s ease;
+}
+
+/* Back-compat alias — `.pad-on-scroll` used to be opt-in for this
+   behaviour; it's now the default. Kept as a no-op so existing
+   call sites don't need to be swept. */
+.page-sticky-header.pad-on-scroll {
+  padding: 0;
+}
+
+/* Only apply the frosted card chrome when the header is *actually* stuck
+   to the viewport (page has scrolled). At rest it stays transparent and
+   flush with the page. Background is intentionally near-opaque so text
+   stays legible over busy page content. */
+main[data-scrolled='true'] .page-sticky-header {
+  padding: 0.75rem 1rem;
+  background: rgba(28, 28, 36, 0.96);
+  border-color: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(28px) saturate(200%);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme='light'] main[data-scrolled='true'] .page-sticky-header {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Heavier frost variant — drop-in replacement for `.glass-panel` when
+   the surface needs to read strongly over busy page content (e.g. the
+   account notes drawer). Uses a clearly elevated surface color so the
+   panel reads as a distinct card against the near-black page bg, not as
+   a translucent wash that blends in. */
+.frost-heavy {
+  background: rgba(28, 28, 36, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(28px) saturate(200%);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='light'] .frost-heavy {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Liquid glass panel base */
+.glass-panel {
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(24px) saturate(180%);
+
+  border: 1px solid var(--sidebar-border);
+  box-shadow: var(--sidebar-shadow);
+}
+
+/* Strong variant for high-contrast filter panels */
+[data-theme='dark'] .glass-panel-strong {
+  background: rgba(10, 10, 18, 0.9);
+}
+[data-theme='light'] .glass-panel-strong {
+  background: rgba(255, 255, 255, 0.93);
+}
+
+/* Subtle top-edge highlight for the glass effect */
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--sidebar-highlight) 30%,
+    var(--sidebar-highlight) 70%,
+    transparent 100%
+  );
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* ── Dropdown popover — opaque frosted glass ── */
+.glass-dropdown {
+  backdrop-filter: blur(40px) saturate(200%);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  animation: dropdown-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top right;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.5),
+    0 0 0 1px var(--border),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .glass-dropdown {
+  background: rgba(14, 14, 22, 0.97);
+}
+
+[data-theme="light"] .glass-dropdown {
+  background: rgba(250, 250, 252, 0.97);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.12),
+    0 0 0 1px var(--border),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
+}
+
+/* Allow dropdown panels to escape clipping containers while open.
+   Note: tooltips/popovers that sit permanently in the DOM (hidden via
+   display:none/group-hover) must NOT participate here — they'd
+   permanently override the table's overflow:hidden and break the
+   rounded-corner clipping. Dropdown menus are fine because they only
+   exist in the DOM when open. */
+@supports selector(:has(*)) {
+  .glass-modal:has(.glass-dropdown),
+  .glass-table:has(.glass-dropdown),
+  .overflow-hidden:has(.glass-dropdown),
+  [class*='overflow-hidden']:has(.glass-dropdown) {
+    overflow: visible;
+  }
+}
+
+/* ── Glass card ── cards, stat tiles, list items */
+.glass-card {
+  background: var(--card);
+  backdrop-filter: blur(16px) saturate(160%);
+
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.3s ease, transform 0.2s ease;
+}
+.glass-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(99, 102, 241, 0.1),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.04);
+}
+/* When a glass-card has an open dropdown inside it, lift the whole
+   card above its siblings so the menu doesn't get painted over by
+   the next card in DOM order. Covers the flows / forms / landing-
+   pages / template card grids in one rule. */
+@supports selector(:has(*)) {
+  .glass-card:has(.glass-dropdown) {
+    position: relative;
+    z-index: 30;
+  }
+}
+[data-theme='light'] .glass-card {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
+}
+[data-theme='light'] .glass-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(37, 99, 235, 0.08),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* Strong variant — for modal surfaces that need to feel like a panel,
+   not a frosted overlay. Mirrors .glass-panel-strong. */
+[data-theme='dark'] .glass-card-strong {
+  background: rgba(18, 18, 22, 0.96);
+}
+[data-theme='light'] .glass-card-strong {
+  background: rgba(255, 255, 255, 0.97);
+}
+.glass-card-strong:hover {
+  /* Modals don't lift on hover — kill the inherited .glass-card hover lift. */
+  transform: none;
+}
+
+/* ── Bulk action dock ── */
+.loomi-bulk-dock {
+  background: rgba(10, 12, 24, 0.95);
+  border-color: rgba(99, 102, 241, 0.34);
+  box-shadow:
+    0 20px 52px rgba(0, 0, 0, 0.56),
+    0 0 0 1px rgba(99, 102, 241, 0.22),
+    0 0 28px rgba(99, 102, 241, 0.18),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.1);
+}
+
+.loomi-bulk-dock-count {
+  box-shadow: 0 8px 18px rgba(99, 102, 241, 0.45);
+}
+
+.loomi-bulk-dock-sep {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.loomi-bulk-dock-action {
+  color: rgba(250, 250, 252, 0.96);
+}
+
+.loomi-bulk-dock-action:hover {
+  background: rgba(99, 102, 241, 0.18);
+}
+
+.loomi-bulk-dock-action-danger {
+  color: #f87171;
+}
+
+.loomi-bulk-dock-action-danger:hover {
+  background: rgba(239, 68, 68, 0.17);
+}
+
+.loomi-bulk-dock-close {
+  color: rgba(212, 212, 216, 0.92);
+}
+
+.loomi-bulk-dock-close:hover {
+  color: #ffffff;
+  background: rgba(99, 102, 241, 0.18);
+}
+
+[data-theme='light'] .loomi-bulk-dock {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(59, 130, 246, 0.32);
+  box-shadow:
+    0 20px 44px rgba(15, 23, 42, 0.18),
+    0 0 0 1px rgba(59, 130, 246, 0.18),
+    0 0 22px rgba(59, 130, 246, 0.12),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.96);
+}
+
+[data-theme='light'] .loomi-bulk-dock-count {
+  box-shadow: 0 7px 16px rgba(59, 130, 246, 0.34);
+}
+
+[data-theme='light'] .loomi-bulk-dock-sep {
+  background: rgba(15, 23, 42, 0.13);
+}
+
+[data-theme='light'] .loomi-bulk-dock-action {
+  color: rgba(15, 23, 42, 0.92);
+}
+
+[data-theme='light'] .loomi-bulk-dock-action:hover {
+  background: rgba(59, 130, 246, 0.13);
+}
+
+[data-theme='light'] .loomi-bulk-dock-action-danger {
+  color: #dc2626;
+}
+
+[data-theme='light'] .loomi-bulk-dock-action-danger:hover {
+  background: rgba(220, 38, 38, 0.13);
+}
+
+[data-theme='light'] .loomi-bulk-dock-close {
+  color: rgba(63, 63, 70, 0.9);
+}
+
+[data-theme='light'] .loomi-bulk-dock-close:hover {
+  color: rgba(15, 23, 42, 0.96);
+  background: rgba(59, 130, 246, 0.13);
+}
+
+/* Keep Apex charts transparent so Loomi glass gradients show through in both themes */
+.apexcharts-canvas,
+.apexcharts-svg,
+.apexcharts-inner,
+.apexcharts-graphical,
+.apexcharts-grid,
+.apexcharts-plot-series {
+  background: transparent !important;
+}
+
+/* ── Glass section card ── non-lifting frosted cards for form sections */
+.glass-section-card {
+  background: var(--card);
+  backdrop-filter: blur(16px) saturate(160%);
+
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.04);
+}
+
+[data-theme='light'] .glass-section-card {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ── Meta Ads pacer card ── a brighter card body so the inner metric boxes
+   (Projected Spend, Days Remaining, …) read as recessed dark panels. The
+   default glass-section-card body and its boxes sit at nearly the same value,
+   which looks flat; here we lift the body and sink the boxes. Scoped to the
+   pacer — other glass-section-cards keep the default look. */
+.pacer-ad-card {
+  background: #23232b;
+}
+.pacer-ad-card .metric-box {
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+[data-theme='light'] .pacer-ad-card {
+  background: rgba(255, 255, 255, 0.9);
+}
+[data-theme='light'] .pacer-ad-card .metric-box {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+/* ── Glass modal ── dialogs, large overlays */
+.glass-modal {
+  background: rgba(18, 18, 22, 0.86);
+  backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 1rem;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  animation: modal-content-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.glass-modal:hover {
+  transform: none;
+  border-color: rgba(255, 255, 255, 0.11);
+}
+[data-theme='light'] .glass-modal {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.1),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
+}
+[data-theme='light'] .glass-modal:hover {
+  transform: none;
+  border-color: rgba(255, 255, 255, 0.65);
+}
+
+/* (glass-dropdown is defined above — single source of truth) */
+
+/* ── Glass table ── wraps data tables */
+.glass-table {
+  background: var(--card);
+  backdrop-filter: blur(16px) saturate(160%);
+
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.account-avatar-stack .account-avatar-stack-item {
+  margin-left: -0.5rem;
+  transition: margin-left 0.18s ease;
+}
+
+.account-avatar-stack .account-avatar-stack-item:first-child {
+  margin-left: 0;
+}
+
+.account-avatar-stack:hover .account-avatar-stack-item {
+  margin-left: 0.15rem;
+}
+
+.account-avatar-stack:hover .account-avatar-stack-item:first-child {
+  margin-left: 0;
+}
+
+.users-table-scroll {
+  overflow: visible;
+}
+
+@media (max-width: 900px) {
+  .users-table-scroll {
+    overflow-x: auto;
+  }
+}
+
+/* ── Glass action bar ── fixed bottom bulk-action bars */
+.glass-action-bar {
+  background: var(--card);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: action-bar-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-theme='light'] .glass-action-bar {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* ── AI assistant panel ──
+   Neutral light/dark surface (per theme), rainbow gradient OUTLINE
+   via a pseudo-element. The inner chrome (context bar, thread, message
+   bubbles) all use neutral muted tones — pink/horizon tint stripped to
+   match the new Iris brand.
+
+   NOTE: no `position: relative` here. The consumer sets `position:
+   fixed` (or absolute) via Tailwind on the same element, and a rule
+   here with the same specificity but later source order would
+   override it — flinging the panel to the default position. The
+   ::before below resolves its `inset: 0` against the fixed parent
+   either way. */
+.ai-assist-panel {
+  background: var(--card-strong);
+  backdrop-filter: blur(34px) saturate(195%);
+  /* Transparent border keeps the layout while the ::before pseudo
+     paints the visible rainbow ring. */
+  border: 1.5px solid transparent;
+  background-clip: padding-box;
+  box-shadow: var(--ai-assist-shadow);
+}
+.ai-assist-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(
+    115deg,
+    #fda4af 0%,
+    #fed7aa 18%,
+    #fef08a 35%,
+    #bbf7d0 52%,
+    #bae6fd 68%,
+    #c4b5fd 84%,
+    #f9a8d4 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.ai-assist-context {
+  background: var(--muted);
+}
+
+.ai-assist-thread {
+  background: transparent;
+}
+
+.ai-assist-assistant-message {
+  background: var(--muted);
+}
+
+/* ── Editor AI panel (template editor sidebar) ──
+   Same treatment — neutral surface, rainbow gradient outline. No
+   `position: relative` for the same reason as .ai-assist-panel above. */
+.ai-ed-panel {
+  background: var(--card-strong);
+  border: 1.5px solid transparent;
+  background-clip: padding-box;
+  box-shadow: var(--ai-ed-shadow);
+}
+.ai-ed-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(
+    115deg,
+    #fda4af 0%,
+    #fed7aa 18%,
+    #fef08a 35%,
+    #bbf7d0 52%,
+    #bae6fd 68%,
+    #c4b5fd 84%,
+    #f9a8d4 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.ai-ed-glow {
+  /* Was a soft pink radial wash; rainbow brand owns the outline now
+     and the interior stays clean. */
+  background: transparent;
+}
+.ai-ed-header {
+  /* Neutral header strip — no pink wash. */
+  background: var(--muted);
+}
+/* Neutral secondary button — was pink-tinted. */
+.ai-ed-btn-inactive {
+  color: var(--foreground);
+  border-color: var(--border);
+  background: var(--muted);
+}
+.ai-ed-btn-inactive:hover {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--muted), var(--foreground) 6%);
+}
+/* Active variant carries the rainbow shimmer — same surface as the
+   .ai-ed-primary-btn and the orb/FAB, so the active state visibly
+   belongs to the Iris brand. */
+.ai-ed-btn-active {
+  color: #18181b;
+  border-color: color-mix(in srgb, #f9a8d4, white 32%);
+  background-image: linear-gradient(
+    115deg,
+    #fda4af 0%,
+    #fed7aa 18%,
+    #fef08a 35%,
+    #bbf7d0 52%,
+    #bae6fd 68%,
+    #c4b5fd 84%,
+    #f9a8d4 100%
+  );
+  background-size: 250% 250%;
+  animation: iris-rainbow-shimmer 10s ease-in-out infinite;
+  box-shadow: var(--ai-hz-primary-shadow);
+}
+.ai-ed-btn-active:hover {
+  filter: brightness(1.04);
+}
+.ai-ed-primary-btn {
+  /* Dark glyphs — the new pastel rainbow background is light, so the
+     prior white text/icons washed out. */
+  color: #18181b;
+  border: 1px solid color-mix(in srgb, #f9a8d4, white 32%);
+  /* Iris brand — animated rainbow shimmer (matches the flow-builder
+     empty-state hero). `background-size` blown out so the keyframe can
+     slide colour stops past the visible box. */
+  background-image: linear-gradient(
+    115deg,
+    #fda4af 0%,
+    #fed7aa 18%,
+    #fef08a 35%,
+    #bbf7d0 52%,
+    #bae6fd 68%,
+    #c4b5fd 84%,
+    #f9a8d4 100%
+  );
+  background-size: 250% 250%;
+  animation: iris-rainbow-shimmer 10s ease-in-out infinite;
+  box-shadow: var(--ai-hz-primary-shadow);
+}
+.ai-ed-primary-btn:hover {
+  filter: brightness(1.06);
+}
+.ai-horizon-chip {
+  color: var(--ai-hz-chip-text);
+  border: 1px solid var(--ai-hz-chip-border);
+  background: var(--ai-hz-chip-bg);
+}
+.ai-horizon-chip:hover {
+  background: var(--ai-hz-chip-hover);
+}
+.ai-horizon-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ai-hz-mid), transparent 56%);
+}
+/* ── Iris brand surfaces ──
+   Orb (inline icon halo), soft-orb (empty-state echo behind the orb),
+   and FAB (floating action button) all carry the AI signature
+   wherever Iris shows up. We use the same animated pastel
+   rainbow gradient as the flow-builder hero's accents so the brand
+   reads as one chromatic surface across the app — global AI bubble,
+   template-editor sidebar, and inline AI affordances all match. */
+.ai-horizon-orb {
+  background-image: linear-gradient(
+    115deg,
+    #fda4af 0%,
+    #fed7aa 18%,
+    #fef08a 35%,
+    #bbf7d0 52%,
+    #bae6fd 68%,
+    #c4b5fd 84%,
+    #f9a8d4 100%
+  );
+  background-size: 250% 250%;
+  animation: iris-rainbow-shimmer 10s ease-in-out infinite;
+}
+.ai-horizon-orb-soft {
+  /* Lower-opacity echo used behind the orb on empty-state cards. */
+  background-image: linear-gradient(
+    115deg,
+    rgba(253, 164, 175, 0.32) 0%,
+    rgba(254, 215, 170, 0.32) 18%,
+    rgba(254, 240, 138, 0.32) 35%,
+    rgba(187, 247, 208, 0.32) 52%,
+    rgba(186, 230, 253, 0.32) 68%,
+    rgba(196, 181, 253, 0.32) 84%,
+    rgba(249, 168, 212, 0.32) 100%
+  );
+  background-size: 250% 250%;
+  animation: iris-rainbow-shimmer 10s ease-in-out infinite;
+}
+.ai-horizon-fab {
+  background-image: linear-gradient(
+    115deg,
+    #fda4af 0%,
+    #fed7aa 18%,
+    #fef08a 35%,
+    #bbf7d0 52%,
+    #bae6fd 68%,
+    #c4b5fd 84%,
+    #f9a8d4 100%
+  );
+  background-size: 250% 250%;
+  animation: iris-rainbow-shimmer 10s ease-in-out infinite;
+  box-shadow: var(--ai-hz-fab-shadow);
+}
+.ai-horizon-fab:hover {
+  box-shadow: var(--ai-hz-fab-shadow-hover);
+}
+
+/* ═══════════════════════════════════════════════════════
+   ANIMATION SYSTEM — Loomi Studio Liquid Glass
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Keyframes ── */
+
+@keyframes modal-content-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes modal-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes action-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes chat-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-chat-panel-in {
+  animation: chat-panel-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Loomi flow builder drawer slide-in ──
+   Used when the FeatureDrawer or FlowAiPanel takes over the left rail
+   slot. Slides in from -16px on the X axis with a fade so the drawer
+   feels like it's emerging from the left edge of the canvas rather
+   than blinking into existence. */
+@keyframes loomi-drawer-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-drawer-slide-in {
+  animation: loomi-drawer-slide-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Iris rainbow shimmer ──
+   Used by the flow-builder empty-state AI hero node. The frame and
+   glow share the same pastel rainbow gradient with `background-size`
+   blown out so the keyframe can slide the color stops past the visible
+   box, producing a slow chromatic shimmer. The gradient itself is the
+   colour signature of the AI surface; the animation is what makes it
+   feel alive without being noisy. */
+@keyframes iris-rainbow-shimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.iris-rainbow-gradient {
+  background-image: linear-gradient(
+    115deg,
+    #fda4af 0%,
+    #fed7aa 18%,
+    #fef08a 35%,
+    #bbf7d0 52%,
+    #bae6fd 68%,
+    #c4b5fd 84%,
+    #f9a8d4 100%
+  );
+  background-size: 250% 250%;
+  animation: iris-rainbow-shimmer 10s ease-in-out infinite;
+}
+
+/* ── Iris rotating beam ──
+   A conic-gradient border that sweeps clockwise around its container.
+   Uses `@property --iris-beam-angle` (registered custom property) so
+   the angle interpolates smoothly during the keyframe animation —
+   plain CSS animations on a custom property only step between
+   keyframes, but registered properties tween. The conic gradient is
+   masked to a thin ring via the standard "padding + mask-composite:
+   exclude" trick. An outer blurred copy sits behind it as a soft halo
+   so the beam reads as a glow, not just a border. */
+@property --iris-beam-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes iris-beam-rotate {
+  to { --iris-beam-angle: 360deg; }
+}
+
+.iris-beam-wrap {
+  position: relative;
+  isolation: isolate;
+  /* No `border-radius` here — consumer sets it via a Tailwind class
+     (e.g. `rounded-2xl`). Setting it here with `inherit` would clobber
+     the Tailwind utility because both are single-class selectors and
+     our rule comes later in source order. The ::before / ::after
+     correctly inherit whatever border-radius the consumer applies. */
+}
+
+/* The crisp ring */
+.iris-beam-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--iris-beam-angle),
+    #f43f5e 0%,
+    #f97316 14%,
+    #eab308 28%,
+    #10b981 42%,
+    #3b82f6 56%,
+    #8b5cf6 70%,
+    #ec4899 84%,
+    #f43f5e 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: iris-beam-rotate 5s linear infinite;
+  pointer-events: none;
+}
+
+/* Blurred halo behind, same gradient + rotation so the glow tracks
+   the bright spot of the beam. */
+.iris-beam-wrap::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--iris-beam-angle),
+    #f43f5e 0%,
+    #f97316 14%,
+    #eab308 28%,
+    #10b981 42%,
+    #3b82f6 56%,
+    #8b5cf6 70%,
+    #ec4899 84%,
+    #f43f5e 100%
+  );
+  filter: blur(10px);
+  opacity: 0.5;
+  animation: iris-beam-rotate 5s linear infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+[data-theme="light"] .iris-beam-wrap::after {
+  opacity: 0.4;
+}
+
+/* ── Iris aurora ──
+   Atmospheric variant of the rainbow signature used as the background
+   for the empty-state AI hero. Built from FIVE independently-drifting
+   blob divs (rendered as separate <span>s in JSX) rather than one
+   rectangular layer with multiple radials — that earlier approach
+   showed a visibly rotating rectangle because all the colour stops
+   transformed together. Independent blobs with staggered durations
+   and offsets give a sporadic, organic feel.
+
+   Each blob is a circular div (border-radius: 50%) with a single
+   colour-to-transparent radial gradient, heavy blur, and its own
+   keyframe pushing it around its start position. Dark mode uses
+   `mix-blend-mode: screen` so the saturated jewel tones *add light*
+   to the dark canvas (luminous aurora curtains, not flat paint);
+   light mode reverts to `normal` blend with soft pastels (screen on
+   a light canvas would blow highlights to pure white). */
+
+.iris-aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  /* Dark-mode default. The .light override below restores normal. */
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+[data-theme="light"] .iris-aurora-blob {
+  filter: blur(60px);
+  mix-blend-mode: normal;
+}
+
+/* Five blobs at scattered positions across the hero's footprint.
+   Sizes are %-relative to the .absolute -inset-N parent so the
+   blob layer scales with the content's bounds. */
+
+.iris-aurora-blob-1 {
+  width: 60%;
+  height: 70%;
+  left: -8%;
+  top: -5%;
+  background: radial-gradient(circle, #f43f5e 0%, transparent 70%);
+  opacity: 0.28;
+  animation: iris-blob-drift-1 22s ease-in-out infinite;
+}
+.iris-aurora-blob-2 {
+  width: 55%;
+  height: 60%;
+  right: -5%;
+  top: -8%;
+  background: radial-gradient(circle, #f97316 0%, transparent 70%);
+  opacity: 0.25;
+  animation: iris-blob-drift-2 27s ease-in-out infinite;
+}
+.iris-aurora-blob-3 {
+  width: 65%;
+  height: 65%;
+  left: 18%;
+  bottom: -10%;
+  background: radial-gradient(circle, #10b981 0%, transparent 70%);
+  opacity: 0.22;
+  animation: iris-blob-drift-3 25s ease-in-out infinite;
+}
+.iris-aurora-blob-4 {
+  width: 55%;
+  height: 60%;
+  right: -8%;
+  bottom: -5%;
+  background: radial-gradient(circle, #3b82f6 0%, transparent 70%);
+  opacity: 0.25;
+  animation: iris-blob-drift-4 30s ease-in-out infinite;
+}
+.iris-aurora-blob-5 {
+  width: 55%;
+  height: 55%;
+  left: -5%;
+  bottom: 5%;
+  background: radial-gradient(circle, #8b5cf6 0%, transparent 70%);
+  opacity: 0.27;
+  animation: iris-blob-drift-5 33s ease-in-out infinite;
+}
+
+/* Light-mode pastel overrides — same positions, same animations,
+   different palette. Higher opacity per blob because pastels read
+   softer than jewel tones to begin with. */
+[data-theme="light"] .iris-aurora-blob-1 {
+  background: radial-gradient(circle, #fda4af 0%, transparent 70%);
+  opacity: 0.85;
+}
+[data-theme="light"] .iris-aurora-blob-2 {
+  background: radial-gradient(circle, #fed7aa 0%, transparent 70%);
+  opacity: 0.8;
+}
+[data-theme="light"] .iris-aurora-blob-3 {
+  background: radial-gradient(circle, #bbf7d0 0%, transparent 70%);
+  opacity: 0.75;
+}
+[data-theme="light"] .iris-aurora-blob-4 {
+  background: radial-gradient(circle, #bae6fd 0%, transparent 70%);
+  opacity: 0.8;
+}
+[data-theme="light"] .iris-aurora-blob-5 {
+  background: radial-gradient(circle, #c4b5fd 0%, transparent 70%);
+  opacity: 0.8;
+}
+
+/* Independent drift keyframes — different start/end vectors per blob
+   so the wash never feels like a single rotation. Each is a slow
+   3-keyframe wander that returns to origin (smooth loop). */
+@keyframes iris-blob-drift-1 {
+  0%   { transform: translate(0, 0)       scale(1); }
+  33%  { transform: translate(15%, 20%)   scale(1.1); }
+  66%  { transform: translate(-10%, 8%)   scale(0.95); }
+  100% { transform: translate(0, 0)       scale(1); }
+}
+@keyframes iris-blob-drift-2 {
+  0%   { transform: translate(0, 0)       scale(1); }
+  33%  { transform: translate(-18%, 22%)  scale(1.05); }
+  66%  { transform: translate(8%, -10%)   scale(1.15); }
+  100% { transform: translate(0, 0)       scale(1); }
+}
+@keyframes iris-blob-drift-3 {
+  0%   { transform: translate(0, 0)       scale(1); }
+  33%  { transform: translate(12%, -18%)  scale(0.92); }
+  66%  { transform: translate(-15%, -22%) scale(1.1); }
+  100% { transform: translate(0, 0)       scale(1); }
+}
+@keyframes iris-blob-drift-4 {
+  0%   { transform: translate(0, 0)       scale(1); }
+  33%  { transform: translate(-15%, -25%) scale(1.12); }
+  66%  { transform: translate(6%, -12%)   scale(0.9); }
+  100% { transform: translate(0, 0)       scale(1); }
+}
+@keyframes iris-blob-drift-5 {
+  0%   { transform: translate(0, 0)       scale(1); }
+  33%  { transform: translate(22%, -20%)  scale(1.05); }
+  66%  { transform: translate(-6%, -18%)  scale(1.12); }
+  100% { transform: translate(0, 0)       scale(1); }
+}
+
+/* ── Modal Overlay Fade ── */
+.animate-overlay-in {
+  animation: modal-overlay-in 0.2s ease both;
+  backdrop-filter: blur(8px) saturate(120%);
+}
+
+/* ── Page Content Entrance ── */
+.animate-fade-in-up {
+  animation: fade-in-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-stagger-1 { animation-delay: 0ms; }
+.animate-stagger-2 { animation-delay: 50ms; }
+.animate-stagger-3 { animation-delay: 100ms; }
+.animate-stagger-4 { animation-delay: 150ms; }
+.animate-stagger-5 { animation-delay: 200ms; }
+.animate-stagger-6 { animation-delay: 250ms; }
+
+/* ── Button Micro-interactions ── */
+button {
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* ── Input Focus Transitions ── */
+input, select, textarea {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* ── Glass Table Row Hover ── */
+.glass-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+/* ── Collapsible Section (CSS grid trick) ── */
+.collapsible-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.collapsible-wrapper[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.collapsible-inner {
+  overflow: hidden;
+  /* Grid items default to `min-height: auto`, which sizes them to their
+     content's minimum height — so `grid-template-rows: 0fr` on the
+     wrapper would never actually collapse the row. Forcing min-height to
+     0 lets the row resolve to zero and the overflow:hidden then clips. */
+  min-height: 0;
+}
+/* Direct child selector only — otherwise an open parent wrapper would
+   force `overflow: visible` on a *closed* nested wrapper's inner, which
+   would let the nested content render outside its zero-height grid row
+   (e.g. Tools open → Meta closed but its children still visible). */
+.collapsible-wrapper[data-open="true"] > .collapsible-inner {
+  overflow: visible;
+}
+
+/* ── Range Slider (Elementor-style) ── */
+.range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  background: transparent;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+}
+.range-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0.08) 100%
+  );
+}
+[data-theme='light'] .range-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    rgba(9, 9, 11, 0.07) 0%,
+    rgba(9, 9, 11, 0.12) 100%
+  );
+}
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--primary);
+  padding: 4px;
+  background: var(--primary);
+  background-clip: content-box;
+  cursor: pointer;
+  box-shadow: none;
+  margin-top: -5px;
+}
+.range-slider::-moz-range-track {
+  height: 8px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.range-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--primary);
+  padding: 4px;
+  background: var(--primary);
+  background-clip: content-box;
+  cursor: pointer;
+  box-shadow: none;
+}
+[data-theme='light'] .range-slider::-moz-range-track {
+  background: rgba(9, 9, 11, 0.12);
+}
+
+/* ── Chevron Rotation ── */
+.chevron-icon {
+  transition: transform 0.2s ease;
+}
+.chevron-icon[data-open="true"] {
+  transform: rotate(90deg);
+}
+
+/* ── Reduced Motion ── respect accessibility preferences */
+@media (prefers-reduced-motion: reduce) {
+  .glass-modal,
+  .glass-dropdown,
+  .glass-action-bar,
+  .animate-fade-in-up,
+  .animate-overlay-in,
+  .animate-slide-in-right,
+  .animate-chat-panel-in,
+  .collapsible-wrapper {
+    animation: none !important;
+    transition: none !important;
+  }
+  .glass-card {
+    transition: border-color 0.2s ease !important;
+  }
+  .glass-card:hover {
+    transform: none !important;
+  }
+  button:active:not(:disabled) {
+    transform: none !important;
+  }
+}
+
+/* ── Toast notification type colors ── */
+
+[data-theme='dark'] [data-sonner-toast][data-type='success'] {
+  background: rgba(6, 78, 59, 0.85) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+[data-theme='dark'] [data-sonner-toast][data-type='error'] {
+  background: rgba(80, 15, 15, 0.85) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='dark'] [data-sonner-toast][data-type='warning'] {
+  background: rgba(60, 50, 10, 0.85) !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+[data-theme='dark'] [data-sonner-toast][data-type='info'] {
+  background: rgba(15, 30, 60, 0.85) !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+}
+
+[data-theme='light'] [data-sonner-toast][data-type='success'] {
+  background: #ecfdf5 !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='light'] [data-sonner-toast][data-type='error'] {
+  background: #fef2f2 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='light'] [data-sonner-toast][data-type='warning'] {
+  background: #fffbeb !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+[data-theme='light'] [data-sonner-toast][data-type='info'] {
+  background: #eff6ff !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+}
+
+/* ── Toast icon colors — match type primary color ── */
+
+[data-sonner-toast][data-type='success'] [data-icon] svg {
+  color: #10b981 !important;
+}
+[data-sonner-toast][data-type='error'] [data-icon] svg {
+  color: #ef4444 !important;
+}
+[data-sonner-toast][data-type='warning'] [data-icon] svg {
+  color: #f59e0b !important;
+}
+[data-sonner-toast][data-type='info'] [data-icon] svg {
+  color: #6366f1 !important;
+}
+
+/* ── Toast close button — plain X inside card, top-right ── */
+
+[data-sonner-toast] [data-close-button] {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  left: auto !important;
+  transform: none !important;
+  background: transparent !important;
+  border: none !important;
+  color: currentColor !important;
+  opacity: 0.4 !important;
+  width: 16px !important;
+  height: 16px !important;
+  padding: 0 !important;
+  cursor: pointer !important;
+}
+[data-sonner-toast] [data-close-button]:hover {
+  opacity: 0.8 !important;
+  background: transparent !important;
+}
+
+[data-sonner-toast][data-type='success'] [data-close-button] {
+  color: #10b981 !important;
+}
+[data-sonner-toast][data-type='error'] [data-close-button] {
+  color: #ef4444 !important;
+}
+[data-sonner-toast][data-type='warning'] [data-close-button] {
+  color: #f59e0b !important;
+}
+[data-sonner-toast][data-type='info'] [data-close-button] {
+  color: #6366f1 !important;
+}
