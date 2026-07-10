@@ -230,7 +230,7 @@ export default function AdGeneratorListPage() {
           client themselves). */}
       {!isManager && (
         <div className="mb-5 flex items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
-          <AccountLogo className="h-14 w-auto max-w-[260px] object-contain" />
+          <AccountLogo className="h-11 w-auto max-w-[220px] object-contain" />
           <ImpersonationEscape />
         </div>
       )}
