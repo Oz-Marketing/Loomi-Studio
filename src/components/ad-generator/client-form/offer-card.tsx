@@ -89,9 +89,20 @@ export function OfferCard({
         .filter((r) => r.value),
     [manualFields, data],
   );
+  // An offer is "applied" only when a SUBSTANTIVE field has a value — not
+  // offerType / offerLabel / expiration, which all carry template defaults
+  // (e.g. "Lease" + "Offer ends March 31") and would otherwise show the recap
+  // before any incentive is picked.
   const hasOffer = useMemo(
-    () => manualFields.some((f) => !/^(o2_)?(offerType|offerLabel)$/i.test(f.key) && (data[f.key] ?? '').toString().trim()),
+    () => manualFields.some((f) => !/^(o2_)?(offerType|offerLabel|expiration)$/i.test(f.key) && (data[f.key] ?? '').toString().trim()),
     [manualFields, data],
+  );
+  // A vehicle is loaded once its name resolves to "YYYY Make Model" (what an
+  // applied incentive writes, or a manual entry). Gates the color picker so it
+  // isn't shown as an empty placeholder before an offer/vehicle exists.
+  const hasVehicle = useMemo(
+    () => vehicleSlots.some((slot) => /^\d{4}\s+\S+\s+.+$/.test((data[slot.nameKey] ?? data.vehicleName ?? '').toString().trim())),
+    [vehicleSlots, data],
   );
   // Fields the incentive does NOT provide (e.g. Security deposit) — editable
   // inputs under the locked recap so an OEM offer can still be completed.
@@ -206,8 +217,9 @@ export function OfferCard({
       )}
 
       {/* Vehicle color — folded in under the offer. The offer already decides the
-          vehicle; here you pick the paint. Inline cropped swatches, no modal. */}
-      {vehicleSlots.length > 0 && (
+          vehicle; here you pick the paint. Hidden until a vehicle is loaded so it
+          isn't an empty placeholder. Inline cropped swatches, no modal. */}
+      {vehicleSlots.length > 0 && hasVehicle && (
         <div className="mt-5 border-t border-[var(--border)] pt-4">
           <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Vehicle color</h3>
           <div className="space-y-4">
