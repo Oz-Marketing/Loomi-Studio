@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowPathIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { FontSelect, type FontSelectOption } from '@/components/font-select';
 import type { EvoxVehicle } from '@/lib/integrations/evox';
 import type { MarketCheckIncentive } from '@/lib/integrations/marketcheck';
@@ -45,9 +45,31 @@ export function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleM
   const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   // True while fetching the EVOX jellybean for an applied incentive.
   const [resolvingImg, setResolvingImg] = useState(false);
+  // Offer-type result filter — the set of types the user has toggled OFF.
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
   const yearOptions: FontSelectOption[] = EVOX_YEARS.filter((y) => y >= 2020).map((y) => ({ value: String(y), label: String(y) }));
   const makeOptions: FontSelectOption[] = [{ value: '', label: 'Select make…' }, ...EVOX_MAKES.map((m) => ({ value: m, label: m }))];
+
+  // Offer-type filter: the distinct types in the results (stable order) and the
+  // subset left after removing the ones the user toggled off.
+  const TYPE_LABEL: Record<string, string> = { lease: 'Lease', apr: 'APR', cash: 'Cash', other: 'Other' };
+  const presentTypes = useMemo(() => {
+    const order = ['lease', 'apr', 'cash', 'other'];
+    const seen = new Set<string>((incentives ?? []).map((i) => i.type));
+    return order.filter((t) => seen.has(t));
+  }, [incentives]);
+  const visibleIncentives = useMemo(
+    () => (incentives ?? []).filter((i) => !hiddenTypes.has(i.type)),
+    [incentives, hiddenTypes],
+  );
+  const toggleType = (t: string) =>
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
 
   async function find() {
     if (!make) {
@@ -196,8 +218,9 @@ export function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleM
       <button
         onClick={find}
         disabled={busy}
-        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] disabled:opacity-50"
+        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
       >
+        <MagnifyingGlassIcon className="h-4 w-4" />
         {busy ? 'Searching…' : 'Find incentives'}
       </button>
 
@@ -219,42 +242,84 @@ export function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleM
         <p className="mt-3 text-center text-[11px] text-[var(--muted-foreground)]">{fallbackNote}</p>
       )}
       {incentives && incentives.length > 0 && (
-        <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
-          {incentives.map((inc, i) => (
-            <div key={inc.id || i} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${typeBadge[inc.type]}`}>{inc.type}</span>
-                {/* Fill directly into the target offer — no separate "Apply to" toggle. */}
-                <div className="flex items-center gap-1">
-                  {dual ? (
-                    <>
-                      <button onClick={() => apply(inc, '')} className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20">
-                        Fill Offer 1
-                      </button>
-                      <button onClick={() => apply(inc, 'o2_')} className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20">
-                        Fill Offer 2
-                      </button>
-                    </>
-                  ) : (
-                    <button onClick={() => apply(inc, '')} className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20">
-                      Fill offer
-                    </button>
-                  )}
-                </div>
-              </div>
-              <p className="text-xs font-medium text-[var(--foreground)]">{inc.offerDetails || inc.description}</p>
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[var(--muted-foreground)]">
-                {inc.payment > 0 && <span>${Math.round(inc.payment).toLocaleString()}/mo</span>}
-                {inc.rate > 0 && <span>{inc.rate}% APR</span>}
-                {inc.amount > 0 && <span>${Math.round(inc.amount).toLocaleString()} cash</span>}
-                {inc.term > 0 && <span>{inc.term} mo</span>}
-                {inc.downPayment > 0 && <span>${Math.round(inc.downPayment).toLocaleString()} DAS</span>}
-                {inc.trim && <span>{inc.trim}</span>}
-                {inc.endDate && <span>ends {inc.endDate.slice(0, 10)}</span>}
-              </div>
+        <>
+          {/* Offer-type filter — toggle which kinds of offers to show. */}
+          {presentTypes.length > 1 && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span className="mr-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Show</span>
+              {presentTypes.map((t) => {
+                const on = !hiddenTypes.has(t);
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => toggleType(t)}
+                    aria-pressed={on}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${on ? typeBadge[t] : 'bg-[var(--muted)] text-[var(--muted-foreground)] opacity-60 hover:opacity-100'}`}
+                  >
+                    {TYPE_LABEL[t] ?? t}
+                  </button>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* Results — clickable cards inside a background container. */}
+          <div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--muted)]/20 p-2">
+            <div className="max-h-72 space-y-2 overflow-y-auto">
+              {visibleIncentives.length === 0 ? (
+                <p className="py-6 text-center text-xs text-[var(--muted-foreground)]">No offers match the selected types.</p>
+              ) : (
+                visibleIncentives.map((inc, i) => {
+                  const badge = (
+                    <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${typeBadge[inc.type]}`}>{inc.type}</span>
+                  );
+                  const detail = (
+                    <>
+                      <p className="text-xs font-medium text-[var(--foreground)]">{inc.offerDetails || inc.description}</p>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[var(--muted-foreground)]">
+                        {inc.payment > 0 && <span>${Math.round(inc.payment).toLocaleString()}/mo</span>}
+                        {inc.rate > 0 && <span>{inc.rate}% APR</span>}
+                        {inc.amount > 0 && <span>${Math.round(inc.amount).toLocaleString()} cash</span>}
+                        {inc.term > 0 && <span>{inc.term} mo</span>}
+                        {inc.downPayment > 0 && <span>${Math.round(inc.downPayment).toLocaleString()} DAS</span>}
+                        {inc.trim && <span>{inc.trim}</span>}
+                        {inc.endDate && <span>ends {inc.endDate.slice(0, 10)}</span>}
+                      </div>
+                    </>
+                  );
+                  // Dual keeps explicit Offer 1 / Offer 2 buttons (the card can't
+                  // guess which slot). Single: the whole card is the click target.
+                  return dual ? (
+                    <div key={inc.id || i} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        {badge}
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => apply(inc, '')} className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20">Fill Offer 1</button>
+                          <button onClick={() => apply(inc, 'o2_')} className="rounded-md bg-[var(--primary)]/10 px-2 py-1 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20">Fill Offer 2</button>
+                        </div>
+                      </div>
+                      {detail}
+                    </div>
+                  ) : (
+                    <button
+                      key={inc.id || i}
+                      type="button"
+                      onClick={() => apply(inc, '')}
+                      className="group block w-full cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-left transition-all hover:border-[var(--primary)] hover:bg-[var(--card-strong)] hover:shadow-sm"
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        {badge}
+                        <span className="text-[10px] font-semibold text-[var(--primary)] opacity-0 transition-opacity group-hover:opacity-100">Use this offer →</span>
+                      </div>
+                      {detail}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
