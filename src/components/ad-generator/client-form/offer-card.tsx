@@ -20,6 +20,12 @@ const OFFER_TYPE_BADGE: Record<string, string> = {
   custom: 'bg-[var(--muted)] text-[var(--muted-foreground)]',
 };
 const MONEY_KEYS = new Set(['monthlyPayment', 'msrp', 'dueAtSigning', 'securityDeposit', 'salePrice', 'discountAmount', 'costPerThousand']);
+// Keys the MarketCheck incentive `apply()` fills — these show in the locked
+// recap. Everything else (e.g. securityDeposit) is editable below it. Split by
+// this fixed set, NOT by whether a field currently has a value: a value-based
+// split moves a field into the recap on its first keystroke, unmounting the
+// input mid-type (the "locks after one character" bug).
+const INCENTIVE_KEYS = new Set(['offerType', 'monthlyPayment', 'leaseTerm', 'dueAtSigning', 'aprRate', 'aprTerm', 'discountAmount', 'msrp', 'expiration', 'vehicleName']);
 const baseKey = (k: string) => k.replace(/^o2_/, '');
 function fmtMoney(v: string): string {
   const n = Number(v.replace(/[$,]/g, ''));
@@ -74,23 +80,30 @@ export function OfferCard({
   // The OEM tab swaps its results for a locked recap once an offer has actually
   // been applied — detected by a SUBSTANTIVE value (payment / term / amount /
   // vehicle), not just `offerType`/`offerLabel`, which carry template defaults.
+  // Locked recap = the incentive-provided fields that came back with a value.
   const recapRows = useMemo(
-    () => manualFields.map((f) => ({ key: f.key, label: f.label, value: (data[f.key] ?? '').toString().trim() })).filter((r) => r.value),
+    () =>
+      manualFields
+        .filter((f) => INCENTIVE_KEYS.has(baseKey(f.key)))
+        .map((f) => ({ key: f.key, label: f.label, value: (data[f.key] ?? '').toString().trim() }))
+        .filter((r) => r.value),
     [manualFields, data],
   );
   const hasOffer = useMemo(
     () => manualFields.some((f) => !/^(o2_)?(offerType|offerLabel)$/i.test(f.key) && (data[f.key] ?? '').toString().trim()),
     [manualFields, data],
   );
-  // Fields the incentive did NOT fill but that apply to this offer type (e.g.
-  // Security deposit, which MarketCheck never provides) — shown as editable
+  // Fields the incentive does NOT provide (e.g. Security deposit) — editable
   // inputs under the locked recap so an OEM offer can still be completed.
-  const editableRest = useMemo(() => {
-    const filled = new Set(recapRows.map((r) => r.key));
-    return manualFields.filter(
-      (f) => isFieldVisible(f, data) && !/^(o2_)?(offerType|offerLabel)$/i.test(f.key) && !filled.has(f.key),
-    );
-  }, [manualFields, data, recapRows]);
+  // Membership is value-INDEPENDENT (keyed off INCENTIVE_KEYS, not the current
+  // value) so typing doesn't move the field into the recap and remount it.
+  const editableRest = useMemo(
+    () =>
+      manualFields.filter(
+        (f) => isFieldVisible(f, data) && !/^(o2_)?(offerType|offerLabel)$/i.test(f.key) && !INCENTIVE_KEYS.has(baseKey(f.key)),
+      ),
+    [manualFields, data],
+  );
 
   return (
     <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
