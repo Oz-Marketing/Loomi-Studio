@@ -132,6 +132,14 @@ export function OfferCard({
             dual={isDual}
             dualVehicleMode={dualVehicleMode}
             accountKey={accountKey}
+            // Restore the previous search/selection (persisted by apply()).
+            initial={{
+              year: data._vehYear,
+              make: data._vehMake,
+              model: data._vehModel,
+              zip: data._oemZip,
+              selectedKey: data._oemSelectedKey,
+            }}
             onApply={(patch) => setData((d) => ({ ...d, ...patch }))}
           />
           {/* No manufacturer recap card — the selected incentive card above shows

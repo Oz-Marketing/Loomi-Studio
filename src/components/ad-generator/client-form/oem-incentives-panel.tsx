@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowPathIcon, MagnifyingGlassIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { FontSelect, type FontSelectOption } from '@/components/font-select';
@@ -28,16 +28,25 @@ const MODEL_EXAMPLE: Record<string, string> = {
  * entry lives on the sibling tab; this is just a faster, accurate source.
  * Renders a "not configured" hint when MARKETCHECK_API_KEY is unset.
  */
-export function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, accountKey, onApply }: { defaultMake?: string; defaultZip?: string; dual?: boolean; dualVehicleMode?: 'same' | 'two'; accountKey?: string; onApply: (patch: Record<string, string>) => void }) {
-  const [year, setYear] = useState(String(EVOX_CURRENT_YEAR));
-  const [make, setMake] = useState(defaultMake || '');
-  const [model, setModel] = useState('');
-  // Seed from the account profile's postal code — the designer can still change it.
-  const [zip, setZip] = useState(defaultZip ?? '');
+export function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleMode, accountKey, initial, onApply }: { defaultMake?: string; defaultZip?: string; dual?: boolean; dualVehicleMode?: 'same' | 'two'; accountKey?: string; initial?: { year?: string; make?: string; model?: string; zip?: string; selectedKey?: string }; onApply: (patch: Record<string, string>) => void }) {
+  // Seed from the previously-applied search (persisted in the ad's data) so
+  // reopening the ad restores the Year/Make/Model + the results + selection.
+  const [year, setYear] = useState(initial?.year || String(EVOX_CURRENT_YEAR));
+  const [make, setMake] = useState(initial?.make || defaultMake || '');
+  const [model, setModel] = useState(initial?.model || '');
+  // Seed from the persisted search ZIP, else the account profile's postal code.
+  const [zip, setZip] = useState(initial?.zip || defaultZip || '');
   // Account data loads async; fill the ZIP once it arrives unless already typed.
   useEffect(() => {
     if (defaultZip) setZip((z) => z || defaultZip);
   }, [defaultZip]);
+  // On reopen, if a prior search was stashed, re-run it once to restore the list.
+  useEffect(() => {
+    if (didAutoSearch.current || !initial?.make) return;
+    didAutoSearch.current = true;
+    void find();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.make]);
   const [busy, setBusy] = useState(false);
   const [incentives, setIncentives] = useState<MarketCheckIncentive[] | null>(null);
   const [notConfigured, setNotConfigured] = useState(false);
@@ -47,8 +56,12 @@ export function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleM
   const [resolvingImg, setResolvingImg] = useState(false);
   // Offer-type result filter — the set of types the user has toggled OFF.
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
-  // The incentive card the user last applied — kept outlined + checked.
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // The incentive card the user last applied — kept outlined + checked. Seeded
+  // from the persisted selection so it survives reopening the ad.
+  const [selectedKey, setSelectedKey] = useState<string | null>(initial?.selectedKey || null);
+  // Re-run the previous search once on reopen (a stashed make means the user
+  // searched before), so the incentive list comes back instead of vanishing.
+  const didAutoSearch = useRef(false);
 
   const yearOptions: FontSelectOption[] = EVOX_YEARS.filter((y) => y >= 2020).map((y) => ({ value: String(y), label: String(y) }));
   const makeOptions: FontSelectOption[] = [{ value: '', label: 'Select make…' }, ...EVOX_MAKES.map((m) => ({ value: m, label: m }))];
@@ -144,10 +157,13 @@ export function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleM
       patch[`${p}_vehModel`] = model || '';
     }
     // Explicit marker that an OEM incentive was actually applied. The OfferCard
-    // gates the "From the manufacturer" recap + vehicle-color picker on this, so
-    // a fresh creative's template defaults (which look like a real offer) never
-    // surface them — only a real selection does.
+    // gates the vehicle-color picker on this, so a fresh creative's template
+    // defaults (which look like a real offer) never surface it.
     patch[`${p}_oemApplied`] = '1';
+    // Persist the search ZIP + which card was selected so reopening the ad
+    // restores the list (auto-searched) and the highlighted selection.
+    patch._oemSelectedKey = keyOf(inc);
+    patch._oemZip = zip;
     onApply(patch);
     toast.success(dual ? `Filled ${which === 'o2_' ? 'Offer 2' : 'Offer 1'} from the incentive` : 'Offer filled from the incentive');
     if (setVehicle && make) {

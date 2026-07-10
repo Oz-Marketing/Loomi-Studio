@@ -576,7 +576,7 @@ export default function AdGeneratorPage() {
             // so a very long name scrolls inside the field rather than pushing
             // the layout.
             style={{ width: `${Math.min(48, Math.max(14, creativeName.length + 2))}ch` }}
-            className="min-w-0 max-w-full rounded-lg border border-transparent bg-transparent px-2 py-1 text-lg font-bold text-[var(--foreground)] outline-none transition-colors hover:border-[var(--border)] focus:border-[var(--primary)] focus:bg-[var(--background)]"
+            className="min-w-0 max-w-full rounded-lg border border-[var(--border)] bg-transparent px-2 py-1 text-lg font-bold text-[var(--foreground)] outline-none transition-colors hover:border-[var(--muted-foreground)] focus:border-[var(--primary)] focus:bg-[var(--background)]"
           />
         </div>
         <div className="flex items-center gap-2">
