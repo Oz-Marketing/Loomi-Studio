@@ -21,6 +21,7 @@ import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { MANAGEMENT_ROLES } from '@/lib/roles';
 import { ListToolbar } from '@/components/list-toolbar';
 import { AccountLogo } from '@/components/account-logo';
+import { ImpersonationEscape } from '@/components/impersonation-escape';
 import type { StatusFilterValue } from '@/components/status-filter';
 import { AdPreviewThumb, brandingFromAccount } from '@/components/ad-generator/ad-preview-thumb';
 import { ALL_TEMPLATES } from '@/lib/ad-generator/templates';
@@ -223,6 +224,9 @@ export default function AdGeneratorListPage() {
     // Managers render inside the app shell's padded card; clients render bare,
     // so give them the same centered, padded content column the editor uses.
     <div className={!isManager ? 'mx-auto max-w-6xl px-6 py-8' : undefined}>
+      {/* Admin/developer escape hatch — lets someone who "viewed as" a client
+          exit impersonation from this minimal-chrome page. Self-gates. */}
+      <ImpersonationEscape />
       {/* Clients have no app chrome — show their dealership's brand at the top. */}
       {!isManager && (
         <div className="mb-5 border-b border-[var(--border)] pb-4">
@@ -460,61 +464,100 @@ export default function AdGeneratorListPage() {
       )}
 
       {pickerOpen && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-16" onClick={() => !creating && setPickerOpen(false)}>
-          <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-5 shadow-xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h2 className="text-sm font-bold text-[var(--foreground)]">Start a new ad</h2>
-                <p className="text-xs text-[var(--muted-foreground)]">
-                  {isManager
-                    ? 'Pick a template to begin. You can edit everything after.'
-                    : 'Pick a template, then fill in your offer and vehicle.'}
-                </p>
+        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-10 sm:pt-16" onClick={() => !creating && setPickerOpen(false)}>
+          <div className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] p-5">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--primary)]/10 text-[var(--primary)]">
+                  <MegaphoneIcon className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="text-lg font-bold text-[var(--foreground)]">Start a new ad</h2>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    {isManager
+                      ? 'Pick a template to begin — you can edit everything after.'
+                      : 'Pick a template, then fill in your offer and vehicle.'}
+                  </p>
+                </div>
               </div>
-              <button onClick={() => setPickerOpen(false)} className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
+              <button onClick={() => setPickerOpen(false)} className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
                 <XMarkIcon className="h-5 w-5" />
               </button>
             </div>
-            {pickerTemplates.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[var(--border)] p-8 text-center">
-                {isManager ? (
-                  <>
-                    <p className="text-sm text-[var(--muted-foreground)]">No templates for this account&rsquo;s industry yet.</p>
+
+            {/* Body */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {pickerTemplates.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-[var(--border)] p-12 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--muted)]">
+                    <MegaphoneIcon className="h-6 w-6 text-[var(--muted-foreground)]" />
+                  </div>
+                  {isManager ? (
+                    <>
+                      <p className="text-sm text-[var(--muted-foreground)]">No templates for this account&rsquo;s industry yet.</p>
+                      <button
+                        type="button"
+                        disabled={creating}
+                        onClick={() => {
+                          setPickerOpen(false);
+                          setScratchOpen(true);
+                        }}
+                        className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                      >
+                        <Squares2X2Icon className="h-4 w-4" />
+                        Start from scratch
+                      </button>
+                    </>
+                  ) : (
+                    <p className="mx-auto max-w-sm text-sm text-[var(--muted-foreground)]">
+                      No ad templates have been published for your account yet. Your Loomi team will add this month&rsquo;s offer template here.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {pickerTemplates.map((t) => (
                     <button
-                      type="button"
+                      key={t.id}
                       disabled={creating}
-                      onClick={() => {
-                        setPickerOpen(false);
-                        setScratchOpen(true);
-                      }}
-                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                      onClick={() => createAd(t.id)}
+                      className="group flex flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] text-left transition-all hover:-translate-y-0.5 hover:border-[var(--primary)] hover:shadow-lg disabled:pointer-events-none disabled:opacity-60"
                     >
-                      <Squares2X2Icon className="h-4 w-4" />
-                      Start from scratch
+                      <div className="relative overflow-hidden border-b border-[var(--border)]">
+                        <AdPreviewThumb template={t} data={{}} branding={branding} height={190} />
+                        <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/55 to-transparent p-3 opacity-0 transition-opacity group-hover:opacity-100">
+                          <span className="rounded-lg bg-white/95 px-3 py-1 text-xs font-semibold text-black shadow">Use this template</span>
+                        </div>
+                      </div>
+                      <div className="p-3">
+                        <div className="truncate text-sm font-semibold text-[var(--foreground)]">{t.name}</div>
+                        {t.description && <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-[var(--muted-foreground)]">{t.description}</div>}
+                      </div>
                     </button>
-                  </>
-                ) : (
-                  <p className="text-sm text-[var(--muted-foreground)]">
-                    No ad templates have been published for your account yet. Your Loomi team will add this month&rsquo;s offer template here.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {pickerTemplates.map((t) => (
-                  <button
-                    key={t.id}
-                    disabled={creating}
-                    onClick={() => createAd(t.id)}
-                    className="flex flex-col overflow-hidden rounded-xl border border-[var(--border)] text-left transition-colors hover:border-[var(--primary)] disabled:opacity-60"
-                  >
-                    <AdPreviewThumb template={t} data={{}} branding={branding} height={120} />
-                    <div className="p-2.5">
-                      <div className="truncate text-xs font-semibold text-[var(--foreground)]">{t.name}</div>
-                      {t.description && <div className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">{t.description}</div>}
-                    </div>
-                  </button>
-                ))}
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer — template count + from-scratch (managers, when templates exist) */}
+            {isManager && pickerTemplates.length > 0 && (
+              <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] p-4">
+                <span className="text-[11px] text-[var(--muted-foreground)]">
+                  {pickerTemplates.length} template{pickerTemplates.length === 1 ? '' : 's'} available
+                </span>
+                <button
+                  type="button"
+                  disabled={creating}
+                  onClick={() => {
+                    setPickerOpen(false);
+                    setScratchOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:opacity-50"
+                >
+                  <Squares2X2Icon className="h-4 w-4" />
+                  Start from scratch
+                </button>
               </div>
             )}
           </div>
