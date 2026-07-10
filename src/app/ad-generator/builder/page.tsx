@@ -3194,7 +3194,7 @@ export default function AdBuilderPage() {
                         className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
                       >
                         <RocketLaunchIcon className="h-4 w-4" />
-                        Deploy to subaccounts
+                        Copy to Subaccounts
                       </button>
                       {templateId && (
                         <button

@@ -294,18 +294,26 @@ export function AdTemplatesTab({ accountKey }: { accountKey?: string }) {
     return <div className="text-sm text-[var(--muted-foreground)]">Loading…</div>;
   }
 
+  // "Copy to Subaccounts" — publishes a copy of the template into other accounts
+  // (the DeployTemplateModal). Offered at the admin level AND inside a subaccount;
+  // requires the template to be published first.
+  const copyToSubaccounts = (t: DocTemplate): TemplateCardAction =>
+    t.status === 'published'
+      ? { key: 'copy-subaccounts', label: 'Copy to Subaccounts', icon: RocketLaunchIcon, run: () => setDeployFor(t) }
+      : { key: 'copy-subaccounts', label: 'Copy to Subaccounts', icon: RocketLaunchIcon, disabled: true, run: () => toast('Publish this template first, then you can copy it to subaccounts.') };
+
   const actionsFor = (t: DocTemplate): TemplateCardAction[] => [
     { key: 'view', label: 'View', icon: EyeIcon, run: () => setPreview(t) },
     { key: 'edit', label: 'Edit', icon: PencilSquareIcon, run: () => edit(t.id) },
     { key: 'rename', label: 'Rename', icon: PencilIcon, run: () => { setRenameFor(t); setRenameValue(t.name); } },
-    { key: 'clone', label: 'Clone', icon: DocumentDuplicateIcon, run: () => void clone(t) },
-    // In a subaccount you USE the template (make an ad from it); at the admin
-    // level you DEPLOY it down to subaccounts.
-    accountKey
-      ? { key: 'use', label: 'Use this template', icon: ArrowUpRightIcon, run: () => void useTemplate(t) }
-      : t.status === 'published'
-        ? { key: 'deploy', label: 'Deploy to subaccounts', icon: RocketLaunchIcon, run: () => setDeployFor(t) }
-        : { key: 'deploy', label: 'Publish to deploy', icon: RocketLaunchIcon, disabled: true, run: () => toast('Publish this template first, then you can deploy it to subaccounts.') },
+    { key: 'clone', label: 'Copy', icon: DocumentDuplicateIcon, run: () => void clone(t) },
+    // Directly below Copy: push a published copy out to other accounts. Shown at
+    // both the admin level and inside a subaccount.
+    copyToSubaccounts(t),
+    // Inside a subaccount you can also USE the template (make an ad from it).
+    ...(accountKey
+      ? [{ key: 'use', label: 'Use this template', icon: ArrowUpRightIcon, run: () => void useTemplate(t) } as TemplateCardAction]
+      : []),
     t.status === 'published'
       ? { key: 'unpublish', label: 'Move to draft', icon: ArrowUturnLeftIcon, run: () => setPublished(t, false) }
       : { key: 'publish', label: 'Publish', icon: CheckCircleIcon, run: () => setPublished(t, true) },

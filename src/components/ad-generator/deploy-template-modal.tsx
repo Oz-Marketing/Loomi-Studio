@@ -77,11 +77,11 @@ export function DeployTemplateModal({
       );
       const failed = results.filter((r) => !r.ok).length;
       if (failed) throw new Error(`${failed} of ${results.length} could not be created`);
-      toast.success(`Deployed to ${selected.size} ${selected.size === 1 ? 'account' : 'accounts'}`);
+      toast.success(`Copied to ${selected.size} ${selected.size === 1 ? 'account' : 'accounts'}`);
       onDeployed?.();
       onClose();
     } catch (err) {
-      toast.error(`Couldn't deploy: ${err instanceof Error ? err.message : 'unknown error'}`);
+      toast.error(`Couldn't copy: ${err instanceof Error ? err.message : 'unknown error'}`);
       setBusy(false);
     }
   };
@@ -95,9 +95,9 @@ export function DeployTemplateModal({
       >
         <div className="mb-3 flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-[var(--foreground)]">Deploy to subaccounts</h2>
+            <h2 className="text-sm font-bold text-[var(--foreground)]">Copy to Subaccounts</h2>
             <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
-              Publishes a copy of &ldquo;{name}&rdquo; into each selected account&rsquo;s template library.
+              Copies &ldquo;{name}&rdquo; into each selected account&rsquo;s template library.
             </p>
           </div>
           <button onClick={onClose} title="Close" aria-label="Close" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
@@ -106,7 +106,7 @@ export function DeployTemplateModal({
         </div>
 
         {list.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-8 text-center text-xs text-[var(--muted-foreground)]">No subaccounts available to deploy to.</p>
+          <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-8 text-center text-xs text-[var(--muted-foreground)]">No subaccounts available to copy to.</p>
         ) : (
           <>
             {/* Search */}
@@ -159,7 +159,7 @@ export function DeployTemplateModal({
                 disabled={busy || !selected.size}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
               >
-                {busy ? 'Deploying…' : `Deploy${selected.size ? ` to ${selected.size}` : ''}`}
+                {busy ? 'Copying…' : `Copy${selected.size ? ` to ${selected.size}` : ''}`}
               </button>
             </div>
           </>
