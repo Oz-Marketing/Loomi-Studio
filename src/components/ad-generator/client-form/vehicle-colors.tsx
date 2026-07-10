@@ -32,10 +32,9 @@ export function colorNameToHex(c: EvoxColor): string {
 type Swatch = { color: EvoxColor; candidates: { vifnum: number; code: string }[] };
 
 /**
- * A single paint-color tile showing the ACTUAL EVOX jellybean, cover-cropped
- * and zoomed so the vehicle body fills the tile — this pushes the transparent
- * padding and the bottom-right EVOX watermark out of frame, so the tile reads
- * as the real paint color. Falls back to an approximated hex chip on 404.
+ * A single paint-color tile showing the ACTUAL EVOX jellybean in full — the
+ * whole vehicle is contained in the tile (not cover-cropped) so you see the
+ * real car and its paint. Falls back to an approximated hex chip on 404.
  */
 function JellybeanTile({ vifnum, code, color }: { vifnum: number; code: string; color: EvoxColor }) {
   const [ok, setOk] = useState(true);
@@ -49,10 +48,8 @@ function JellybeanTile({ vifnum, code, color }: { vifnum: number; code: string; 
       alt={color.name || color.code}
       loading="lazy"
       onError={() => setOk(false)}
-      // cover + zoom crops the transparent margins and the bottom-right
-      // watermark; object-position pulls toward the body's upper-left.
-      className="h-full w-full object-cover"
-      style={{ transform: 'scale(1.7)', objectPosition: '38% 32%' }}
+      // contain shows the full vehicle, no crop.
+      className="h-full w-full object-contain"
     />
   );
 }
@@ -187,10 +184,10 @@ export function VehicleColorPicker({ vehicleName, selectedCode, onPick }: { vehi
             onClick={() => pickColor(s)}
             disabled={picking !== null}
             title={label}
-            className="group flex w-16 flex-col items-center gap-1 disabled:opacity-60"
+            className="group flex w-28 flex-col items-center gap-1 disabled:opacity-60"
           >
             <span
-              className={`relative block h-16 w-16 overflow-hidden rounded-lg border bg-[var(--muted)]/40 transition-all ${
+              className={`relative block h-16 w-28 overflow-hidden rounded-lg border bg-[var(--muted)]/40 transition-all ${
                 selected ? 'border-[var(--primary)] ring-2 ring-[var(--primary)]/40' : 'border-[var(--border)] group-hover:border-[var(--primary)]'
               }`}
             >

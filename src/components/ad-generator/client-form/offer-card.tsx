@@ -1,13 +1,30 @@
 'use client';
 
 import { useMemo } from 'react';
-import { LockClosedIcon } from '@heroicons/react/24/outline';
-import type { AdData, FieldSpec } from '@/lib/ad-generator/types';
+import { isFieldVisible, type AdData, type FieldSpec } from '@/lib/ad-generator/types';
+import { OFFER_TYPES } from '@/lib/ad-generator/offer-text';
 import { OemIncentivesPanel } from './oem-incentives-panel';
 import { VehicleColorPicker } from './vehicle-colors';
 import { Field } from './fields';
 
 export type VehicleSlot = { imageKey: string; nameKey: string; codeKey: string; label: string };
+
+// Recap formatting: offer type → color pill; money fields → "$1,234". Mirrors
+// the pill colors used in the OEM incentive results list.
+const OFFER_TYPE_LABEL: Record<string, string> = Object.fromEntries(OFFER_TYPES.map((o) => [o.value, o.label]));
+const OFFER_TYPE_BADGE: Record<string, string> = {
+  lease: 'bg-blue-500/15 text-blue-500',
+  apr: 'bg-emerald-500/15 text-emerald-500',
+  discount: 'bg-amber-500/15 text-amber-500',
+  sales_price: 'bg-violet-500/15 text-violet-500',
+  custom: 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+};
+const MONEY_KEYS = new Set(['monthlyPayment', 'msrp', 'dueAtSigning', 'securityDeposit', 'salePrice', 'discountAmount', 'costPerThousand']);
+const baseKey = (k: string) => k.replace(/^o2_/, '');
+function fmtMoney(v: string): string {
+  const n = Number(v.replace(/[$,]/g, ''));
+  return Number.isFinite(n) && v.trim() !== '' ? `$${n.toLocaleString('en-US')}` : v;
+}
 
 /**
  * The unified Offer card — the single home for the vehicle + offer, for both
@@ -58,13 +75,22 @@ export function OfferCard({
   // been applied — detected by a SUBSTANTIVE value (payment / term / amount /
   // vehicle), not just `offerType`/`offerLabel`, which carry template defaults.
   const recapRows = useMemo(
-    () => manualFields.map((f) => ({ label: f.label, value: (data[f.key] ?? '').toString().trim() })).filter((r) => r.value),
+    () => manualFields.map((f) => ({ key: f.key, label: f.label, value: (data[f.key] ?? '').toString().trim() })).filter((r) => r.value),
     [manualFields, data],
   );
   const hasOffer = useMemo(
     () => manualFields.some((f) => !/^(o2_)?(offerType|offerLabel)$/i.test(f.key) && (data[f.key] ?? '').toString().trim()),
     [manualFields, data],
   );
+  // Fields the incentive did NOT fill but that apply to this offer type (e.g.
+  // Security deposit, which MarketCheck never provides) — shown as editable
+  // inputs under the locked recap so an OEM offer can still be completed.
+  const editableRest = useMemo(() => {
+    const filled = new Set(recapRows.map((r) => r.key));
+    return manualFields.filter(
+      (f) => isFieldVisible(f, data) && !/^(o2_)?(offerType|offerLabel)$/i.test(f.key) && !filled.has(f.key),
+    );
+  }, [manualFields, data, recapRows]);
 
   return (
     <section className="glass-card rounded-2xl border border-[var(--border)] p-5">
@@ -117,19 +143,41 @@ export function OfferCard({
           />
           {hasOffer && (
             <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 p-3">
-              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                <LockClosedIcon className="h-3.5 w-3.5" />
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
                 From the manufacturer
               </div>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                {recapRows.map((r) => (
-                  <div key={r.label} className="flex flex-col">
-                    <dt className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">{r.label}</dt>
-                    <dd className="text-sm font-medium text-[var(--foreground)]">{r.value}</dd>
-                  </div>
-                ))}
+                {recapRows.map((r) => {
+                  const bk = baseKey(r.key);
+                  const isMoney = MONEY_KEYS.has(bk);
+                  const dt = isMoney ? r.label.replace(/\s*\(\$\)\s*$/, '') : r.label;
+                  return (
+                    <div key={r.key} className="flex flex-col">
+                      <dt className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">{dt}</dt>
+                      <dd className="text-sm font-medium text-[var(--foreground)]">
+                        {bk === 'offerType' ? (
+                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${OFFER_TYPE_BADGE[r.value] ?? OFFER_TYPE_BADGE.custom}`}>
+                            {OFFER_TYPE_LABEL[r.value] ?? r.value}
+                          </span>
+                        ) : isMoney ? (
+                          fmtMoney(r.value)
+                        ) : (
+                          r.value
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
               </dl>
-              <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">These come straight from the incentive and can’t be edited. Pick a different incentive above to change them.</p>
+              {/* Fields the incentive doesn't provide (e.g. Security deposit) —
+                  editable here so the OEM offer can still meet OEM compliance. */}
+              {editableRest.length > 0 && (
+                <div className="mt-3 space-y-3 border-t border-[var(--border)] pt-3">
+                  {editableRest.map((f) => (
+                    <Field key={f.key} field={f} value={data[f.key] ?? ''} onChange={(v) => set(f.key, v)} allowVehiclePicker={allowVehiclePicker} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </>
