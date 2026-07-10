@@ -29,7 +29,7 @@ const roleBadgeColors: Record<string, string> = {
   client: 'bg-emerald-500/10 text-emerald-400',
 };
 
-export function DevImpersonate() {
+export function DevImpersonate({ bare = false }: { bare?: boolean }) {
   const { data: session, update } = useSession();
   const [users, setUsers] = useState<UserEntry[]>([]);
   const [open, setOpen] = useState(false);
@@ -186,7 +186,7 @@ export function DevImpersonate() {
   };
 
   return (
-    <div className="mt-1 border-t border-[var(--border)] pt-1">
+    <div className={bare ? '' : 'mt-1 border-t border-[var(--border)] pt-1'}>
       {/* Impersonation banner */}
       {isImpersonating && (
         <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">

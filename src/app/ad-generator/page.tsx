@@ -224,13 +224,14 @@ export default function AdGeneratorListPage() {
     // Managers render inside the app shell's padded card; clients render bare,
     // so give them the same centered, padded content column the editor uses.
     <div className={!isManager ? 'mx-auto max-w-6xl px-6 py-8' : undefined}>
-      {/* Admin/developer escape hatch — lets someone who "viewed as" a client
-          exit impersonation from this minimal-chrome page. Self-gates. */}
-      <ImpersonationEscape />
-      {/* Clients have no app chrome — show their dealership's brand at the top. */}
+      {/* Clients have no app chrome — show their dealership's brand at the top.
+          The impersonation escape sits to the right of the logo and only
+          renders while a developer is viewing as this client (never for the
+          client themselves). */}
       {!isManager && (
-        <div className="mb-5 border-b border-[var(--border)] pb-4">
-          <AccountLogo className="h-9 w-auto max-w-[180px] object-contain" />
+        <div className="mb-5 flex items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
+          <AccountLogo className="h-14 w-auto max-w-[260px] object-contain" />
+          <ImpersonationEscape />
         </div>
       )}
       <div className="page-sticky-header mb-6">

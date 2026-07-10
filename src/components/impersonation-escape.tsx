@@ -4,26 +4,19 @@ import { useSession } from 'next-auth/react';
 import { DevImpersonate } from '@/components/dev-impersonate';
 
 /**
- * Fixed, self-gating impersonation control for minimal-chrome pages (e.g. the
- * Ad Generator) that don't render the top utility bar / profile menu.
- *
- * Without it, an admin/developer who "views as" a client lands on a page with
- * no menu to exit from — they're stuck as that client with no way back. This
- * floats the existing DevImpersonate control (stop-impersonating banner +, for
- * developers, the user switcher) in the corner. It renders nothing unless the
- * viewer is a developer or is currently impersonating, so regular users and
- * clients never see it.
+ * Inline impersonation escape for the client view (minimal chrome — no top
+ * utility bar / profile menu to exit from). Renders ONLY while actually
+ * impersonating: because starting impersonation is developer-gated, a set
+ * `originalUserId` proves a developer is behind the session, so a real client
+ * never sees this. A developer who "views as" a client gets the amber
+ * "Viewing as… ✕" control here to switch back.
  */
 export function ImpersonationEscape() {
   const { data: session } = useSession();
-  const show = session?.user?.role === 'developer' || !!session?.user?.originalUserId;
-  if (!show) return null;
+  if (!session?.user?.originalUserId) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-[60] w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border)] bg-[var(--card-strong)] px-3 pb-2 shadow-xl backdrop-blur-2xl">
-      <div className="px-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-        Admin
-      </div>
-      <DevImpersonate />
+    <div className="w-64 flex-shrink-0">
+      <DevImpersonate bare />
     </div>
   );
 }
