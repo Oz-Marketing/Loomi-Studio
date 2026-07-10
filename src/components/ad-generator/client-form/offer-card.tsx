@@ -89,17 +89,17 @@ export function OfferCard({
         .filter((r) => r.value),
     [manualFields, data],
   );
-  // An offer is "applied" only when a SUBSTANTIVE field has a value — not
-  // offerType / offerLabel / expiration, which all carry template defaults
-  // (e.g. "Lease" + "Offer ends March 31") and would otherwise show the recap
-  // before any incentive is picked.
-  const hasOffer = useMemo(
-    () => manualFields.some((f) => !/^(o2_)?(offerType|offerLabel|expiration)$/i.test(f.key) && (data[f.key] ?? '').toString().trim()),
-    [manualFields, data],
-  );
-  // A vehicle is loaded once its name resolves to "YYYY Make Model" (what an
-  // applied incentive writes, or a manual entry). Gates the color picker so it
-  // isn't shown as an empty placeholder before an offer/vehicle exists.
+  // An OEM incentive was actually applied — the ONLY reliable signal, since a
+  // fresh creative carries template defaults (monthly $299, MSRP $34,000,
+  // "2024 Toyota Camry SE" …) that are indistinguishable from a real offer by
+  // value. `_oemApplied` is set by the incentive apply(); `_vehMake` (the
+  // stashed searched vehicle) is a fallback for offers applied before the flag.
+  const oemApplied = useMemo(() => {
+    const flag = (k: string) => !!(data[k] ?? '').toString().trim();
+    return flag('_oemApplied') || flag('o2__oemApplied') || flag('_vehMake') || flag('o2__vehMake');
+  }, [data]);
+  // A resolvable "YYYY Make Model" vehicle name — lets Manual entry keep the
+  // color picker even without an OEM selection.
   const hasVehicle = useMemo(
     () => vehicleSlots.some((slot) => /^\d{4}\s+\S+\s+.+$/.test((data[slot.nameKey] ?? data.vehicleName ?? '').toString().trim())),
     [vehicleSlots, data],
@@ -165,7 +165,7 @@ export function OfferCard({
             accountKey={accountKey}
             onApply={(patch) => setData((d) => ({ ...d, ...patch }))}
           />
-          {hasOffer && (
+          {oemApplied && (
             <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 p-3">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
                 From the manufacturer
@@ -216,10 +216,10 @@ export function OfferCard({
         </div>
       )}
 
-      {/* Vehicle color — folded in under the offer. The offer already decides the
-          vehicle; here you pick the paint. Hidden until a vehicle is loaded so it
-          isn't an empty placeholder. Inline cropped swatches, no modal. */}
-      {vehicleSlots.length > 0 && hasVehicle && (
+      {/* Vehicle color — only after an OEM offer is applied (which loads the
+          vehicle), or on Manual entry once a vehicle name is set. Never shown on
+          a fresh OEM tab, where template defaults would otherwise surface it. */}
+      {vehicleSlots.length > 0 && (oemApplied || (offerSource === 'manual' && hasVehicle)) && (
         <div className="mt-5 border-t border-[var(--border)] pt-4">
           <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Vehicle color</h3>
           <div className="space-y-4">

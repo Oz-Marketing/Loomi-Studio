@@ -117,6 +117,11 @@ export function OemIncentivesPanel({ defaultMake, defaultZip, dual, dualVehicleM
       patch[`${p}_vehMake`] = make || '';
       patch[`${p}_vehModel`] = model || '';
     }
+    // Explicit marker that an OEM incentive was actually applied. The OfferCard
+    // gates the "From the manufacturer" recap + vehicle-color picker on this, so
+    // a fresh creative's template defaults (which look like a real offer) never
+    // surface them — only a real selection does.
+    patch[`${p}_oemApplied`] = '1';
     onApply(patch);
     toast.success(dual ? `Filled ${which === 'o2_' ? 'Offer 2' : 'Offer 1'} from the incentive` : 'Offer filled from the incentive');
     if (setVehicle && make) {
