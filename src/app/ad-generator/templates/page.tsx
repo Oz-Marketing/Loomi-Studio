@@ -150,7 +150,7 @@ export default function DisclaimerTemplatesPage() {
         )}
       </div>
 
-      <div className="mb-6 flex items-center gap-6 border-b border-[var(--border)]">
+      <div className="mb-6 mt-8 flex items-center gap-6 border-b border-[var(--border)]">
         <span className="flex items-center gap-1.5 border-b-2 border-[var(--primary)] pb-2.5 text-sm font-semibold text-[var(--primary)]">
           <DocumentTextIcon className="h-4 w-4" /> Disclaimer Templates
         </span>
@@ -285,8 +285,11 @@ function TemplateForm({
           <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">Offer type</label>
           <FontSelect value={draft.offerType} onChange={(v) => setDraft({ ...draft, offerType: v })} options={OFFER_TYPES} previewFont={false} />
         </div>
-        <div className="flex items-end gap-5 pb-1.5">
-          <PillToggle checked={draft.isDefault} onChange={(v) => setDraft({ ...draft, isDefault: v })} label="Default" />
+        <div className="flex items-center gap-5 pb-1.5">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--foreground)]">
+            <input type="checkbox" checked={draft.isDefault} onChange={(e) => setDraft({ ...draft, isDefault: e.target.checked })} />
+            Default
+          </label>
           <PillToggle checked={draft.isActive} onChange={(v) => setDraft({ ...draft, isActive: v })} label="Active" />
         </div>
       </div>
