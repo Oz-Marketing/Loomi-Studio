@@ -360,6 +360,17 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
     bg +
     padding +
     radius;
+  if (el.autoSize && el.lockWidth) {
+    // Hug + pinned width: the box WIDTH is fixed (box.w); the font auto-scales (via
+    // the fit script / builder parent) so the single-line text fills that width,
+    // and the height is AUTO so the text is contained and never overflows — for any
+    // value, incl. dynamic client data. Anchored at the box's top-left.
+    const posFit =
+      `position:absolute;left:${box.x * width}px;top:${box.y * height}px;` +
+      `width:${box.w * width}px;height:auto;`;
+    const styles = posFit + common + `white-space:pre;text-align:${el.align ?? 'left'};overflow:visible;`;
+    return `<div${idAttr} data-fit style="${dim}${fx}${styles}">${value}</div>`;
+  }
   if (el.autoSize) {
     // Hug mode: the element sizes to its content (width:max-content, no wrap;
     // explicit newlines still break via white-space:pre) and is ANCHORED by
@@ -373,7 +384,7 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
     const posAuto =
       `position:absolute;left:${anchorX}px;top:${anchorY}px;transform:translate(${shiftX},-50%);` +
       `width:max-content;max-width:none;white-space:pre;`;
-    return `<div${idAttr} style="${dim}${fx}${posAuto}${common}">${value}</div>`;
+    return `<div${idAttr} data-hug style="${dim}${fx}${posAuto}${common}">${value}</div>`;
   }
   const styles =
     pos +
@@ -432,6 +443,13 @@ export function renderDoc(doc: TemplateDoc, data: AdData, size: AdSize, opts?: {
     ? `<div style="position:absolute;top:0;left:0;right:0;height:${Math.max(4, Math.min(width, height) / 80)}px;background:${brand};"></div>`
     : '';
 
+  // Pinned-width (Hug + lockWidth) text scales its font to fill the box at render
+  // time. On EXPORT (Puppeteer parses scripts) this inline script does it; the
+  // builder can't run it (it writes via innerHTML) and drives the same logic from
+  // the parent. Exposed as window.__fitText so the exporter forces a final pass.
+  const hasFit = doc.elements.some((el) => el.autoSize && el.lockWidth);
+  const fitScript = hasFit ? `<script>${FIT_SCRIPT}</script>` : '';
+
   return `<!doctype html>
 <html>
 <head><meta charset="utf-8" />
@@ -442,6 +460,38 @@ ${googleLink}
   html,body { width:${width}px; height:${height}px; }
   .ad { width:${width}px; height:${height}px; position:relative; overflow:hidden; background:${bgCss}; }
 </style></head>
-<body><div class="ad">${accentBar}${body}</div></body>
+<body><div class="ad">${accentBar}${body}</div>${fitScript}</body>
 </html>`;
 }
+
+// Injected verbatim (see renderDoc). For each [data-fit] element, scale the font
+// from its current size so the single-line text fills the box width — one pass is
+// exact (width is linear in font-size). Measured via a Range (padding-agnostic).
+// Loop-safe: font-size changes don't change the box's client width, so the
+// ResizeObserver won't re-fire; the MutationObserver watches text, not attributes.
+const FIT_SCRIPT = `(function(){
+  function fitOne(el){
+    try{
+      var cs=getComputedStyle(el);
+      var availW=el.clientWidth-parseFloat(cs.paddingLeft||0)-parseFloat(cs.paddingRight||0);
+      if(availW<=0)return;
+      var cur=parseFloat(cs.fontSize)||16;
+      var r=document.createRange(); r.selectNodeContents(el);
+      var rect=r.getBoundingClientRect();
+      if(!rect.width)return;
+      el.style.fontSize=Math.max(1,Math.min(2000,cur*(availW/rect.width)))+'px';
+    }catch(e){}
+  }
+  function fitAll(){ document.querySelectorAll('[data-fit]').forEach(fitOne); }
+  window.__fitText=fitAll;
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitAll);
+  fitAll();
+  try{
+    var ro=new ResizeObserver(function(es){ es.forEach(function(e){ fitOne(e.target); }); });
+    var mo=new MutationObserver(function(){ fitAll(); });
+    document.querySelectorAll('[data-fit]').forEach(function(el){
+      ro.observe(el);
+      mo.observe(el,{characterData:true,childList:true,subtree:true});
+    });
+  }catch(e){}
+})();`;

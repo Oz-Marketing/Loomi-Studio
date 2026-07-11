@@ -52,6 +52,9 @@ export async function renderAdBatch(
           ])`,
         )
         .catch(() => {});
+      // Force a final fill-to-width pass now that fonts are loaded, so any pinned-
+      // width text is sized against real glyph metrics before we capture.
+      await page.evaluate('window.__fitText && window.__fitText()').catch(() => {});
       const buf = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width, height } });
       out.push(Buffer.from(buf));
     }
