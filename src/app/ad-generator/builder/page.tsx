@@ -6490,30 +6490,22 @@ function SelectionPanel({
                 • Hug (default): the box follows the text (no wrap); resizing scales the font.
                 • Fit to box:    a fixed W×H frame; the text auto-scales to fill it. */}
             <PanelSection title="Sizing">
-              <div className="grid grid-cols-2 gap-1">
-                {([
-                  { key: 'hug', label: 'Hug', hint: 'Box hugs the text · no wrap' },
-                  { key: 'fit', label: 'Fit to box', hint: 'Fixed frame · text scales to fit' },
-                ] as const).map((m) => (
-                  <button
-                    key={m.key}
-                    type="button"
-                    title={m.hint}
-                    onClick={() => onSetSizing(m.key)}
-                    className={`rounded-md border px-1.5 py-1.5 text-[11px] font-medium transition-colors ${
-                      sizingMode === m.key
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--foreground)]'
-                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/60 hover:text-[var(--foreground)]'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isFit}
+                onClick={() => onSetSizing(isFit ? 'hug' : 'fit')}
+                className="flex w-full cursor-pointer items-center justify-between gap-2 text-xs font-medium text-[var(--foreground)]"
+              >
+                <span>Fit to box</span>
+                <span className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${isFit ? 'bg-[var(--primary)]' : 'border border-[var(--border)] bg-[var(--muted)]'}`}>
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isFit ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </span>
+              </button>
               <p className="mt-1.5 text-[10px] leading-tight text-[var(--muted-foreground)]">
-                {sizingMode === 'hug'
-                  ? 'The box hugs the text — type to resize it, Enter for a new line.'
-                  : 'A fixed frame — drag W and H; the text auto-scales to fill it and stays put as the value changes. Aligns horizontally + vertically.'}
+                {isFit
+                  ? 'A fixed frame — drag W and H; the text auto-scales to fill it and stays put as the value changes. Aligns horizontally + vertically.'
+                  : 'Off: the box hugs the text — type to resize it, Enter for a new line.'}
               </p>
             </PanelSection>
 
