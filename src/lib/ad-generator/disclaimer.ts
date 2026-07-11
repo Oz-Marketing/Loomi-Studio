@@ -57,6 +57,14 @@ function plain(v: string | undefined): string | null {
   return t === '' ? null : t;
 }
 
+/** A rate value with a trailing `%` (idempotent). ODT's disclaimer templates
+ *  write `{apr_rate} APR`, expecting the rate to already carry its percent sign. */
+function pct(v: string | undefined): string | null {
+  const t = (v ?? '').trim();
+  if (t === '') return null;
+  return t.endsWith('%') ? t : `${t}%`;
+}
+
 /** Resolve `{slug}` values from the offer's structured fields (formatted). */
 export function buildTokenValues(data: AdData): Record<string, string> {
   const v: Record<string, string> = {};
@@ -70,7 +78,7 @@ export function buildTokenValues(data: AdData): Record<string, string> {
   set('due_at_signing', money(data.dueAtSigning));
   set('lease_term', plain(data.leaseTerm));
   set('security_deposit', money(data.securityDeposit));
-  set('apr_rate', plain(data.aprRate));
+  set('apr_rate', pct(data.aprRate));
   set('apr_term', plain(data.aprTerm));
   set('financial_institution', plain(data.financialInstitution));
   set('cost_per_thousand', plain(data.costPerThousand));
