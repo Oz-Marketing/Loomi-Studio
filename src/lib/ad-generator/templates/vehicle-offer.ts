@@ -149,8 +149,8 @@ export const vehicleOffer: AdTemplate = {
     // APR
     { key: 'aprRate', label: 'APR rate (%)', type: 'text', group: 'Offer', placeholder: '1.9', visibleWhen: { field: 'offerType', in: ['apr'] } },
     { key: 'aprTerm', label: 'APR term (months)', type: 'text', group: 'Offer', placeholder: '60', visibleWhen: { field: 'offerType', in: ['apr'] } },
-    { key: 'financialInstitution', label: 'Financial institution', type: 'text', group: 'Offer', placeholder: 'Toyota Financial', visibleWhen: { field: 'offerType', in: ['apr'] } },
-    { key: 'costPerThousand', label: 'Cost per $1,000 financed ($)', type: 'text', group: 'Offer', placeholder: '4.51', help: 'Required in some OEM APR disclaimers (e.g. Kia).', visibleWhen: { field: 'offerType', in: ['apr'] } },
+    { key: 'financialInstitution', label: 'Financial institution', type: 'text', group: 'Offer', placeholder: 'Toyota Financial', help: 'Required in some OEM disclaimers (e.g. Kia/VW APR, Mazda custom).', visibleWhen: { field: 'offerType', in: ['apr', 'custom'] } },
+    { key: 'costPerThousand', label: 'Cost per $1,000 financed ($)', type: 'text', group: 'Offer', placeholder: '4.51', help: 'Required in some OEM disclaimers (e.g. Kia APR, Mazda lease).', visibleWhen: { field: 'offerType', in: ['apr', 'lease'] } },
     // Discount
     { key: 'discountAmount', label: 'Discount amount ($)', type: 'text', group: 'Offer', placeholder: '3000', visibleWhen: { field: 'offerType', in: ['discount'] } },
     { key: 'discountLabelStyle', label: 'Discount style', type: 'select', group: 'Offer', options: [{ value: 'off_msrp', label: 'Off MSRP' }, { value: 'cash_back', label: 'Cash Back' }], visibleWhen: { field: 'offerType', in: ['discount'] } },

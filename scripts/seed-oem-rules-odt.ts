@@ -52,13 +52,13 @@ const RULES: { make: string; requiredFields: Record<string, string[]>; notes: st
   {
     make: 'Mazda',
     requiredFields: {
-      lease: ['msrp', 'disclaimer', 'expiration', 'leaseTerm', 'dueAtSigning'],
+      lease: ['msrp', 'disclaimer', 'expiration', 'leaseTerm', 'dueAtSigning', 'costPerThousand'],
       apr: ['disclaimer', 'expiration', 'aprTerm', 'financialInstitution', 'costPerThousand'],
       discount: ['vehicleName', 'disclaimer', 'expiration', 'discountSource'],
       sales_price: ['vehicleName', 'msrp', 'disclaimer', 'expiration', 'discountSource'],
-      custom: ['msrp', 'disclaimer'],
+      custom: ['msrp', 'disclaimer', 'financialInstitution'],
     },
-    notes: 'Ported from ODT Monthly Offers oem_offer_rules. trim → vehicleName; APR-only keys dropped from lease/custom (see seed script).',
+    notes: 'Ported from ODT Monthly Offers oem_offer_rules — exact match. trim → vehicleName; costPerThousand exposed on lease + financialInstitution on custom (vehicle-offer form now shows them there) to satisfy the rule.',
   },
   {
     make: 'Volkswagen',
