@@ -90,7 +90,7 @@ import { MultiSelect } from '@/components/ui/multi-select';
 import { Tooltip } from '@/app/app/tools/_shared/Tooltip';
 import { DeployTemplateModal } from '@/components/ad-generator/deploy-template-modal';
 import { enrichOfferFields, OFFER_TYPES } from '@/lib/ad-generator/offer-text';
-import { isVehicleIndustry } from '@/lib/ad-generator/industry';
+import { EVOX_MAKES } from '@/components/ad-generator/client-form/evox-makes';
 import { requiredFieldsFor, FIELD_LABELS, type OemOfferRule } from '@/lib/ad-generator/compliance';
 import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } from '@/lib/ad-generator/layer-tree';
 import { TextElementIcon, ShapeElementIcon, ButtonElementIcon, DashboardLayoutIcon, LayersIcon, OutlinesIcon, MarginsIcon, CropIcon } from '@/components/ad-generator/builder-icons';
@@ -289,6 +289,9 @@ function buildContentSources(el: DocElement, fields: FieldSpec[]): SearchableSel
   }
   return opts;
 }
+// Make/OEM options for the template-settings picker — the shared EVOX make list,
+// with a blank "None" so a template can be untagged.
+const MAKE_OPTIONS: FontSelectOption[] = [{ value: '', label: 'None' }, ...EVOX_MAKES.map((m) => ({ value: m, label: m }))];
 const WEIGHT_OPTIONS: FontSelectOption[] = [
   { value: '300', label: 'Light' },
   { value: '400', label: 'Regular' },
@@ -605,9 +608,7 @@ function makeDefaultElement(id: string, type: DocElementType): DocElement {
 export default function AdBuilderPage() {
   const { accountData, accountKey, accounts, isUnrestricted } = useAccount();
   const { prompt, confirm } = useLoomiDialog();
-  // Automotive templates can be tagged with a make/OEM; when they are, the Fields
-  // panel shows a compliance checklist against that make's OEM rule.
-  const isAutomotive = isVehicleIndustry(accountData?.category) || isUnrestricted;
+  // OEM rule for the template's make (drives the Fields-panel compliance checklist).
   const [oemRule, setOemRule] = useState<OemOfferRule | null>(null);
 
   // Reusable blocks (saved element clusters) available to insert here: global +
@@ -632,6 +633,10 @@ export default function AdBuilderPage() {
       .catch(() => { if (!cancelled) setOemRule(null); });
     return () => { cancelled = true; };
   }, [docMake]);
+  // The Make/OEM tag + compliance checklist apply to Automotive templates: shown
+  // when the template targets Automotive — explicitly selected, or the empty
+  // "all vehicle-offer accounts" default (which includes Automotive).
+  const templateIsAutomotive = (doc.industries ?? []).length === 0 || (doc.industries ?? []).includes('Automotive');
   const [sizeId, setSizeId] = useState(doc.sizes[0].id);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // The group the user has "drilled into" via double-click (Figma-style): while
@@ -3436,24 +3441,19 @@ export default function AdBuilderPage() {
                     />
                     <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">Assign tags on the template card in the Templates library.</p>
 
-                    {isAutomotive && (
+                    {templateIsAutomotive && (
                       <div className="mt-4 border-t border-[var(--border)] pt-3">
                         <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Make / OEM</h3>
                         <p className="mb-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
                           Tie this template to an OEM — the Fields panel then flags any required compliance field it&apos;s missing.
                         </p>
-                        <input
+                        <FontSelect
                           value={doc.make ?? ''}
-                          onChange={(e) => setDoc((prev) => ({ ...prev, make: e.target.value || undefined }), 'make')}
-                          list="oem-make-suggestions"
-                          placeholder="e.g. Kia — blank for none"
-                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                          onChange={(v) => setDoc((prev) => ({ ...prev, make: v || undefined }), 'make')}
+                          options={MAKE_OPTIONS}
+                          placeholder="Select make…"
+                          previewFont={false}
                         />
-                        <datalist id="oem-make-suggestions">
-                          {(accountData?.oems ?? (accountData?.oem ? [accountData.oem] : [])).map((m) => (
-                            <option key={m} value={m} />
-                          ))}
-                        </datalist>
                       </div>
                     )}
 
