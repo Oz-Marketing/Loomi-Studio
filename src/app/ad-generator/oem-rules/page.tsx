@@ -16,8 +16,10 @@ import { useAccount } from '@/contexts/account-context';
 import { OFFER_TYPES } from '@/lib/ad-generator/offer-text';
 import { FIELD_LABELS } from '@/lib/ad-generator/compliance';
 
-// Offer types that have structured fields (custom has none).
-const EDITABLE_TYPES = OFFER_TYPES.filter((t) => t.value !== 'custom');
+// All offer types are editable — including custom. Its on-ad copy is free text,
+// but an OEM can still require fields on a custom offer (e.g. ODT's Mazda custom
+// rule requires the financial institution), so it needs a section here too.
+const EDITABLE_TYPES = OFFER_TYPES;
 // Fields an OEM might additionally require (the baseline numbers are always
 // required and handled in code, so they're not listed here).
 // Every field an OEM rule may require, beyond the code baseline. Superset of
