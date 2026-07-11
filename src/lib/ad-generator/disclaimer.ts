@@ -37,11 +37,11 @@ const DEALER_FEE_BOILERPLATE =
 /** Code-defined per-offer-type defaults — used when no DB template matches. */
 export const DEFAULT_DISCLAIMER_TEMPLATES: Record<OfferType, string> = {
   lease:
-    'Closed-end lease. {monthly_payment}/month for {lease_term} months, {due_at_signing} due at signing. With approved credit. See dealer for details.',
-  apr: '{apr_rate}% APR financing for {apr_term} months with approved credit. See dealer for details.',
-  discount: 'Save {discount_amount} off MSRP of {msrp}. See dealer for complete details.',
+    'Closed-end lease. {{monthly_payment}}/month for {{lease_term}} months, {{due_at_signing}} due at signing. With approved credit. See dealer for details.',
+  apr: '{{apr_rate}}% APR financing for {{apr_term}} months with approved credit. See dealer for details.',
+  discount: 'Save {{discount_amount}} off MSRP of {{msrp}}. See dealer for complete details.',
   sales_price:
-    'Sale price {sale_price}. MSRP {msrp}. Plus tax, title, and license. See dealer for details.',
+    'Sale price {{sale_price}}. MSRP {{msrp}}. Plus tax, title, and license. See dealer for details.',
   custom: 'See dealer for complete details.',
 };
 
@@ -91,12 +91,18 @@ export function buildTokenValues(data: AdData): Record<string, string> {
   return v;
 }
 
+// Matches a `{slug}` or `{{slug}}` token (either brace style). The UI writes
+// `{{slug}}` now; single-brace bodies from older data still resolve so no
+// migration is needed. Shared with the editor's highlighter.
+export const TOKEN_RE = /\{\{?([a-z_]+)\}\}?/g;
+
 /**
- * Substitute `{slug}` tokens. Unknown or unfilled tokens are LEFT VISIBLE
- * (ODT's convention) so missing data is obvious rather than silently dropped.
+ * Substitute `{{slug}}` (or legacy `{slug}`) tokens. Unknown or unfilled tokens
+ * are LEFT VISIBLE (ODT's convention) so missing data is obvious rather than
+ * silently dropped.
  */
 export function substituteTokens(body: string, values: Record<string, string>): string {
-  return body.replace(/\{([a-z_]+)\}/g, (m, key: string) =>
+  return body.replace(TOKEN_RE, (m, key: string) =>
     values[key] != null && values[key] !== '' ? values[key] : m,
   );
 }

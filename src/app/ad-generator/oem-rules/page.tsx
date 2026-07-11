@@ -91,8 +91,10 @@ const EMPTY: Draft = { make: '', requiredFields: {}, notes: '', isActive: true }
 const TYPE_LABEL = Object.fromEntries(OFFER_TYPES.map((o) => [o.value, o.label]));
 
 export default function OemRulesPage() {
-  const { userRole } = useAccount();
+  const { userRole, account, accountData } = useAccount();
   const isAdmin = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
+  // When viewing a specific subaccount, scope to that account's OEM; admin sees all.
+  const scopedOem = account.mode === 'account' ? (accountData?.oem || accountData?.oems?.[0] || '').trim() : '';
 
   const [items, setItems] = useState<Rule[] | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -111,6 +113,9 @@ export default function OemRulesPage() {
   useEffect(() => {
     if (isAdmin) load();
   }, [isAdmin, load]);
+
+  // Scoped to a subaccount's OEM → only that make's rule; admin sees every make.
+  const visible = items && scopedOem ? items.filter((r) => r.make.toLowerCase() === scopedOem.toLowerCase()) : items;
 
   function toggleField(type: string, key: string) {
     setDraft((d) => {
@@ -200,7 +205,7 @@ export default function OemRulesPage() {
         </div>
         {!draft && (
           <button
-            onClick={() => setDraft({ ...EMPTY })}
+            onClick={() => setDraft({ ...EMPTY, make: scopedOem })}
             className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             <PlusIcon className="h-4 w-4" /> New rule
@@ -302,15 +307,17 @@ export default function OemRulesPage() {
         </div>
       )}
 
-      {items === null ? (
+      {visible === null ? (
         <p className="py-12 text-center text-sm text-[var(--muted-foreground)]">Loading…</p>
-      ) : items.length === 0 ? (
+      ) : visible.length === 0 ? (
         <p className="py-12 text-center text-sm text-[var(--muted-foreground)]">
-          No OEM rules yet — only the baseline required fields apply. Add a rule to require extra fields per make.
+          {scopedOem
+            ? `No OEM rule for ${scopedOem} yet — only the baseline required fields apply. Add one to require extra fields.`
+            : 'No OEM rules yet — only the baseline required fields apply. Add a rule to require extra fields per make.'}
         </p>
       ) : (
         <div className="space-y-2">
-          {items.map((r) => {
+          {visible.map((r) => {
             const activeTypes = EDITABLE_TYPES.filter((t) => (r.requiredFields[t.value]?.length ?? 0) > 0);
             return (
               <div key={r.id} className="glass-card rounded-xl border border-[var(--border)] p-4">

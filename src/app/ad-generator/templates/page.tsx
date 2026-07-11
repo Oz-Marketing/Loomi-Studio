@@ -40,21 +40,64 @@ interface Draft {
 const EMPTY: Draft = { make: '', offerType: 'lease', name: '', body: '', isDefault: false, isActive: true };
 const OFFER_TYPE_LABEL = Object.fromEntries(OFFER_TYPES.map((o) => [o.value, o.label]));
 
-/** Render body text with `{slug}` tokens as subtle pills, so it's clear which
- *  parts auto-fill from the offer vs. which are fixed legal wording. */
-function highlightTokens(text: string) {
-  return text.split(/(\{[a-z_]+\})/g).map((part, i) =>
-    /^\{[a-z_]+\}$/.test(part) ? (
-      <span key={i} className="rounded bg-[var(--primary)]/10 px-1 font-medium text-[var(--primary)]">{part}</span>
+// Split keeping the whole `{{slug}}` / `{slug}` token; test matches one exactly.
+const TOKEN_SPLIT = /(\{\{?[a-z_]+\}\}?)/g;
+const TOKEN_TEST = /^\{\{?[a-z_]+\}\}?$/;
+/** Render body text with tokens highlighted in blue, so it's clear which parts
+ *  auto-fill from the offer vs. which are fixed legal wording. `padded` adds the
+ *  pill's side padding (previews); the in-body overlay omits it so the highlight
+ *  stays character-aligned with the transparent textarea behind it. */
+function highlightTokens(text: string, padded = true) {
+  return text.split(TOKEN_SPLIT).map((part, i) =>
+    TOKEN_TEST.test(part) ? (
+      <span key={i} className={`rounded bg-blue-500/15 font-medium text-blue-600 dark:text-blue-400 ${padded ? 'px-1' : ''}`}>{part}</span>
     ) : (
       <span key={i}>{part}</span>
     ),
   );
 }
 
+/** A textarea whose {{tokens}} show as blue pills: a highlighted backdrop mirrors
+ *  the text behind a transparent textarea (same metrics), scrolled in sync. */
+function TokenTextArea({
+  value,
+  onChange,
+  placeholder,
+  taRef,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  taRef: React.RefObject<HTMLTextAreaElement | null>;
+}) {
+  const backRef = useRef<HTMLDivElement>(null);
+  // Identical text metrics on both layers keep the highlight aligned to the caret.
+  const metrics = 'w-full rounded-lg border px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words';
+  return (
+    <div className="relative">
+      <div ref={backRef} aria-hidden className={`pointer-events-none absolute inset-0 overflow-hidden border-transparent text-[var(--foreground)] ${metrics}`}>
+        {value ? highlightTokens(value, false) : <span className="text-[var(--muted-foreground)]">{placeholder}</span>}
+        {'​'}
+      </div>
+      <textarea
+        ref={taRef}
+        rows={4}
+        value={value}
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={(e) => { if (backRef.current) backRef.current.scrollTop = e.currentTarget.scrollTop; }}
+        className={`relative resize-y border-[var(--border)] bg-transparent text-transparent caret-[var(--foreground)] outline-none focus:border-[var(--primary)] ${metrics}`}
+      />
+    </div>
+  );
+}
+
 export default function DisclaimerTemplatesPage() {
-  const { userRole } = useAccount();
+  const { userRole, account, accountData } = useAccount();
   const isAdmin = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
+  // When viewing a specific subaccount, scope to that account's OEM (plus global
+  // templates); admin sees every make.
+  const scopedOem = account.mode === 'account' ? (accountData?.oem || accountData?.oems?.[0] || '').trim() : '';
 
   const [items, setItems] = useState<Template[] | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -73,6 +116,10 @@ export default function DisclaimerTemplatesPage() {
   useEffect(() => {
     if (isAdmin) load();
   }, [isAdmin, load]);
+
+  // Scoped to a subaccount → that make's templates + global (make-less) ones.
+  const visible =
+    items && scopedOem ? items.filter((t) => !t.make || t.make.toLowerCase() === scopedOem.toLowerCase()) : items;
 
   async function save() {
     if (!draft) return;
@@ -136,13 +183,13 @@ export default function DisclaimerTemplatesPage() {
           <div>
             <h1 className="text-xl font-bold text-[var(--foreground)]">Disclaimer templates</h1>
             <p className="text-sm text-[var(--muted-foreground)]">
-              Reusable legal text with {'{slug}'} tokens, per make + offer type. The generator auto-fills the disclaimer from these; numbers fill from the offer.
+              Reusable legal text with {'{{slug}}'} tokens, per make + offer type. The generator auto-fills the disclaimer from these; numbers fill from the offer.
             </p>
           </div>
         </div>
         {!draft && (
           <button
-            onClick={() => setDraft({ ...EMPTY })}
+            onClick={() => setDraft({ ...EMPTY, make: scopedOem })}
             className="flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             <PlusIcon className="h-4 w-4" /> New template
@@ -163,15 +210,17 @@ export default function DisclaimerTemplatesPage() {
         <TemplateForm draft={draft} setDraft={setDraft} onSave={save} onCancel={() => setDraft(null)} saving={saving} />
       )}
 
-      {items === null ? (
+      {visible === null ? (
         <p className="py-12 text-center text-sm text-[var(--muted-foreground)]">Loading…</p>
-      ) : items.length === 0 ? (
+      ) : visible.length === 0 ? (
         <p className="py-12 text-center text-sm text-[var(--muted-foreground)]">
-          No templates yet — the generator uses the built-in defaults. Add one to override per make / offer type.
+          {scopedOem
+            ? `No ${scopedOem} or global templates yet — the generator uses the built-in defaults. Add one to override.`
+            : 'No templates yet — the generator uses the built-in defaults. Add one to override per make / offer type.'}
         </p>
       ) : (
         <div className="space-y-2">
-          {items.map((t) => (
+          {visible.map((t) => (
             <div key={t.id} className="glass-card rounded-xl border border-[var(--border)] p-4">
               <div className="mb-1 flex items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -295,13 +344,11 @@ function TemplateForm({
       </div>
       <div className="mt-4">
         <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">Body</label>
-        <textarea
-          ref={bodyRef}
-          rows={4}
-          className={`${input} resize-y`}
+        <TokenTextArea
+          taRef={bodyRef}
           value={draft.body}
-          placeholder="{apr_rate}% APR for {apr_term} months with approved credit. See dealer for details."
-          onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+          onChange={(v) => setDraft({ ...draft, body: v })}
+          placeholder="{{apr_rate}}% APR for {{apr_term}} months with approved credit. See dealer for details."
         />
         <p className="mb-1.5 mt-2 text-[11px] font-medium text-[var(--muted-foreground)]">
           Click to insert a token <span className="font-normal">— it fills from the offer at render time:</span>
@@ -311,11 +358,11 @@ function TemplateForm({
             <button
               key={s}
               type="button"
-              onClick={() => insertToken(`{${s}}`)}
-              title={`Insert {${s}}`}
-              className="rounded bg-[var(--primary)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20"
+              onClick={() => insertToken(`{{${s}}}`)}
+              title={`Insert {{${s}}}`}
+              className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[11px] font-medium text-blue-600 transition-colors hover:bg-blue-500/25 dark:text-blue-400"
             >
-              {`{${s}}`}
+              {`{{${s}}}`}
             </button>
           ))}
         </div>
