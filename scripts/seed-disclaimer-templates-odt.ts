@@ -5,7 +5,9 @@
  * Body translation for Loomi's token engine:
  *  - `{year} {make} {model} {trim}` → `{vehicle}` (Loomi's combined Vehicle field)
  *  - literal `$` before `{msrp}` / `{due_at_signing}` / `{monthly_payment}`
- *    removed — Loomi's substitution formats those as "$45,000" already
+ *    removed — Loomi's substitution formats those as "$45,000" already. NOTE:
+ *    `{cost_per_thousand}` is NOT currency-formatted (it's a decimal rate like
+ *    18.37), so it KEEPS its literal `$` — `${cost_per_thousand}`.
  * Skipped: the "Oz Lease" row (make "Oz" — a test entry, not a real OEM).
  *
  * Idempotent by (make, offerType, name). Run:
@@ -20,7 +22,7 @@ const TEMPLATES: { make: string; offerType: string; name: string; body: string; 
     name: 'Kia APR Disclaimer',
     isDefault: false,
     body:
-      '{apr_rate} APR for {apr_term} months. {cost_per_thousand} per month per $1,000 financed at {apr_term} months. ' +
+      '{apr_rate} APR for {apr_term} months. ${cost_per_thousand} per month per $1,000 financed at {apr_term} months. ' +
       'APR financing subject to credit approval by {financial_institution} for well-qualified buyers. Not all customers ' +
       'will qualify for advertised APR. Subject to vehicle availability and dealer participation. New vehicles only. ' +
       'Must take from retail stock by {offer_end_date}. Finance contract must be signed and dated no later than ' +

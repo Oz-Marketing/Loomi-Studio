@@ -64,12 +64,12 @@ const RULES: { make: string; requiredFields: Record<string, string[]>; notes: st
     make: 'Volkswagen',
     requiredFields: {
       lease: ['vin', 'stockNumber', 'msrp', 'disclaimer', 'expiration', 'leaseTerm'],
-      apr: ['vin', 'stockNumber', 'msrp', 'disclaimer', 'expiration', 'aprTerm', 'financialInstitution', 'costPerThousand'],
+      apr: ['vin', 'stockNumber', 'msrp', 'disclaimer', 'expiration', 'dueAtSigning', 'aprTerm', 'financialInstitution', 'costPerThousand'],
       discount: ['vin', 'stockNumber', 'msrp', 'disclaimer', 'expiration', 'discountSource'],
-      sales_price: ['vehicleName', 'vin', 'stockNumber', 'msrp', 'disclaimer', 'expiration'],
+      sales_price: ['vehicleName', 'vin', 'stockNumber', 'msrp', 'disclaimer', 'expiration', 'dueAtSigning'],
       custom: [],
     },
-    notes: 'Ported from ODT Monthly Offers oem_offer_rules. trim → vehicleName; lease_due dropped from apr/sales_price (see seed script).',
+    notes: 'Ported from ODT Monthly Offers oem_offer_rules — exact match. trim → vehicleName; dueAtSigning (lease_due) required on apr + sales_price (the vehicle-offer form exposes it there).',
   },
 ];
 
