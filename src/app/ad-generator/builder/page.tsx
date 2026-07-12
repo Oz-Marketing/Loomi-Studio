@@ -415,12 +415,6 @@ const MARGIN_UNITS: { value: MarginUnit; label: string }[] = [
   { value: 'em', label: 'em' },
   { value: 'rem', label: 'rem' },
 ];
-/** A "default" block is a global one (no account scoping) — the seeded offer
- *  blocks, shown in the Insert popout. Account-scoped blocks a user saved are
- *  "custom" and live in the dedicated Blocks panel. */
-function isDefaultBlock(b: { accountKey?: string | null; accountKeys?: string[] }): boolean {
-  return !b.accountKey && !(b.accountKeys?.length);
-}
 /** Convert a safe-area margin (value + unit) to per-size edge fractions. px/em/
  *  rem are absolute, so they resolve against this size's dimensions. */
 function safeAreaFractions(sa: { value: number; unit: MarginUnit } | undefined, w: number, h: number): { x: number; y: number } | null {
@@ -3489,10 +3483,10 @@ export default function AdBuilderPage() {
                 collides with an open panel. Sizes are managed on the canvas
                 action bar (bottom); view guides (outlines / margins) live here. */}
             <RailButton label="Insert" Icon={PlusIcon} primary active={leftPanel === 'insert'} onClick={() => setLeftPanel((p) => (p === 'insert' ? null : 'insert'))} />
-            {/* Blocks — the user's saved (custom) blocks. Default/global blocks
-                stay in the Insert popout; this panel is just the reusable clusters
-                the user saved themselves. */}
-            <RailButton label="Blocks" Icon={Squares2X2Icon} active={leftPanel === 'blocks'} onClick={() => setLeftPanel((p) => (p === 'blocks' ? null : 'blocks'))} />
+            {/* Saved blocks — every reusable block (seeded/global + the user's
+                own saved clusters). Its own popout; nothing block-related lives
+                under Insert. */}
+            <RailButton label="Saved blocks" Icon={Squares2X2Icon} active={leftPanel === 'blocks'} onClick={() => setLeftPanel((p) => (p === 'blocks' ? null : 'blocks'))} />
             <RailButton label="Layers" Icon={LayersIcon} active={leftPanel === 'layers'} onClick={() => setLeftPanel((p) => (p === 'layers' ? null : 'layers'))} />
             <div className="my-0.5 h-px w-6 bg-[var(--border)]" />
             {/* View guides — element outlines + safe-area margins (moved off the
@@ -3548,45 +3542,24 @@ export default function AdBuilderPage() {
           </section>
           )}
 
-          {/* Default blocks — the seeded, global element clusters (offer blocks,
-              etc.). The user's own saved blocks live in the separate Blocks panel. */}
-          {leftPanel === 'insert' && (() => {
-            const defaults = blocks.filter(isDefaultBlock);
-            return (
-              <section className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
-                <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                  <Squares2X2Icon className="h-3.5 w-3.5" />
-                  Blocks
-                </h2>
-                {defaults.length === 0 ? (
-                  <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">No default blocks available.</p>
-                ) : (
-                  <div className="flex flex-col gap-1">{defaults.map(renderBlockRow)}</div>
-                )}
-              </section>
-            );
-          })()}
-
-          {/* Blocks panel — the user's own saved (custom) blocks. Click to insert,
-              rename, or delete. Default/global blocks live in the Insert popout. */}
-          {leftPanel === 'blocks' && (() => {
-            const custom = blocks.filter((b) => !isDefaultBlock(b));
-            return (
-              <section className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
-                <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                  <Squares2X2Icon className="h-3.5 w-3.5" />
-                  Blocks
-                </h2>
-                {custom.length === 0 ? (
-                  <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
-                    Select elements on the canvas, then <span className="text-[var(--foreground)]">Save as block</span> (right-click or the multi-select panel) to reuse them here.
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-1">{custom.map(renderBlockRow)}</div>
-                )}
-              </section>
-            );
-          })()}
+          {/* Saved blocks — every reusable block (seeded/global + the user's own
+              saved clusters). Its own rail popout; nothing block-related lives
+              under Insert. Click to insert, rename, or delete. */}
+          {leftPanel === 'blocks' && (
+            <section className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
+              <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                <Squares2X2Icon className="h-3.5 w-3.5" />
+                Saved blocks
+              </h2>
+              {blocks.length === 0 ? (
+                <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
+                  Select elements on the canvas, then <span className="text-[var(--foreground)]">Save as block</span> (right-click or the multi-select panel) to reuse them here.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1">{blocks.map(renderBlockRow)}</div>
+              )}
+            </section>
+          )}
 
           {/* Layers — the stack of placed elements (top of the list = front).
               Double-click to rename · lock icon to lock · drag to reorder (z). */}
