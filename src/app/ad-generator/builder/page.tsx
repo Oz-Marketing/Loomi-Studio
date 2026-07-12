@@ -467,6 +467,14 @@ function elName(el: DocElement): string {
   return b.key;
 }
 
+/** The short LAYER NAME (matches the inspector's "Layer name" field): the custom
+ *  name, else the element-type label — never the content. Used for the on-canvas
+ *  selection badge so a long text value doesn't render as a full-width banner. */
+function layerName(el: DocElement): string {
+  if (el.name && el.name.trim()) return el.name.trim();
+  return el.type === 'text' ? 'Text' : el.type === 'image' ? 'Image' : el.type === 'logo' ? 'Logo' : el.type === 'background' ? 'Background' : 'Shape';
+}
+
 /** If a text element's content is a SINGLE `{{field}}` token (and nothing else),
  *  return that field key. Inline editing such a box then edits the field's VALUE
  *  — showing the resolved value and writing the typed value back to the field —
@@ -4312,7 +4320,7 @@ export default function AdBuilderPage() {
                               className={`pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${detached ? 'bg-amber-500' : ''}`}
                               style={detached ? undefined : { backgroundColor: kindColor }}
                             >
-                              {isCropping ? 'Crop — drag to reposition' : detached ? `${elName(el)} — detached` : elName(el)}
+                              {isCropping ? 'Crop — drag to reposition' : detached ? `${layerName(el)} — detached` : layerName(el)}
                             </span>
                             {RESIZE_HANDLES.map((rh) => {
                               // Double-click a handle on a text box to fit it to
