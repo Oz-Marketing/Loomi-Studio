@@ -4780,6 +4780,7 @@ export default function AdBuilderPage() {
                     return firstText?.fontSize ?? 48;
                   })()}
                   fontOptions={fontOptions}
+                  hasOfferField={doc.fields.some((f) => f.key === 'offerType')}
                   onElAll={patchSelectedElements}
                   onBoxAll={patchSelectedBoxes}
                   onBumpSize={bumpSelectedFontSize}
@@ -6366,19 +6367,27 @@ function TokenTextArea({
       backRef.current.scrollLeft = taRef.current.scrollLeft;
     }
   };
-  // Auto-grow to fit the content (up to a cap, then scroll) so a multi-line value
-  // is never clipped. The textarea drives the wrapper height and the backdrop
-  // fills it (inset-0), so both grow together. Min-height keeps a 2-row floor.
+  // Once the user drags the resize grip, their height wins and we stop auto-sizing.
+  const autoHRef = useRef(0);
+  const [manualH, setManualH] = useState<number | null>(null);
+  // Auto-grow to fit the content (up to a generous cap, then scroll) so a long
+  // value is never clipped. The textarea drives the wrapper height and the
+  // backdrop fills it (inset-0), so both grow together. The user can also drag
+  // the grip to any height — that overrides auto-growing (see onPointerUp).
   useLayoutEffect(() => {
+    if (manualH != null) return; // user took control of the height
     const ta = taRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
     // box-sizing:border-box → the height must include the border, or the last
     // line clips by the border width; add (offsetHeight - clientHeight) back.
     const chrome = ta.offsetHeight - ta.clientHeight;
-    ta.style.height = `${Math.min(ta.scrollHeight + chrome, 200)}px`;
+    const cap = Math.max(200, Math.round(window.innerHeight * 0.6));
+    const h = Math.min(ta.scrollHeight + chrome, cap);
+    ta.style.height = `${h}px`;
+    autoHRef.current = h;
     syncScroll();
-  }, [value]);
+  }, [value, manualH]);
   const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html =
     escHtml(value).replace(
@@ -6496,11 +6505,17 @@ function TokenTextArea({
           else if (e.key === 'Escape') { e.preventDefault(); setAcOpen(false); }
         }}
         onScroll={syncScroll}
+        onPointerUp={() => {
+          // Detect a manual drag of the resize grip: if the height no longer
+          // matches what auto-grow set, the user owns it from here on.
+          const ta = taRef.current;
+          if (ta && Math.abs(ta.offsetHeight - autoHRef.current) > 2) setManualH(ta.offsetHeight);
+        }}
         onBlur={() => setTimeout(() => setAcOpen(false), 120)}
         rows={2}
         placeholder={placeholder}
         spellCheck={false}
-        className="relative block max-h-[200px] min-h-[3.25rem] w-full resize-none overflow-y-auto rounded-md border border-[var(--border)] bg-transparent px-2 py-1.5 pr-8 text-xs leading-normal text-transparent caret-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)]"
+        className="relative block min-h-[3.25rem] max-h-[80vh] w-full resize-y overflow-y-auto rounded-md border border-[var(--border)] bg-transparent px-2 py-1.5 pr-8 text-xs leading-normal text-transparent caret-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)]"
       />
       {options.length > 0 && (
         <div ref={pickRef} className="absolute right-1.5 top-1.5">
@@ -6568,6 +6583,44 @@ function TokenTextArea({
   );
 }
 
+/** Per-offer-type visibility toggles (element `visibleWhen`). All selected =
+ *  always shown; a subset shows the element(s) only for those offer types.
+ *  Shared by the single-element inspector and the multi-select panel. */
+function ShowForControl({ visibleWhen, onChange }: {
+  visibleWhen?: { field: string; in: string[] };
+  onChange: (v: { field: string; in: string[] } | undefined) => void;
+}) {
+  const all = OFFER_TYPES.map((x) => x.value);
+  const cur = visibleWhen?.field === 'offerType' ? visibleWhen.in : all;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {OFFER_TYPES.map((t) => {
+        const active = cur.includes(t.value);
+        return (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => {
+              const next = active ? cur.filter((v) => v !== t.value) : [...cur, t.value];
+              onChange(next.length === all.length ? undefined : { field: 'offerType', in: next });
+            }}
+            className={`rounded-full border px-2 py-1 text-[11px] font-medium transition-colors ${
+              active
+                ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+      <Tooltip label="These element(s) render only for the checked offer types (hidden on export, dimmed in the editor). All checked = always shown.">
+        <InformationCircleIcon className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]" />
+      </Tooltip>
+    </div>
+  );
+}
+
 /**
  * Bulk-edit panel for a multi-selection. Mirrors the single panel's typography
  * controls but applies each change to EVERY selected element at once (font,
@@ -6579,6 +6632,7 @@ function MultiSelectPanel({
   elements,
   sampleFontSize,
   fontOptions,
+  hasOfferField,
   onElAll,
   onBoxAll,
   onBumpSize,
@@ -6593,6 +6647,8 @@ function MultiSelectPanel({
   elements: DocElement[];
   sampleFontSize: number;
   fontOptions: FontSelectOption[];
+  /** Whether the template has an `offerType` field — gates the "Show for" control. */
+  hasOfferField: boolean;
   onElAll: (patch: Partial<DocElement>) => void;
   onBoxAll: (patch: Partial<DocLayoutBox>) => void;
   onBumpSize: (delta: number) => void;
@@ -6649,6 +6705,13 @@ function MultiSelectPanel({
             )}
           </div>
         </PanelSection>
+        {/* Show for — per-offer-type visibility, applied to the WHOLE selection at
+            once (any element type). Reflects the first selected element. */}
+        {hasOfferField && (
+          <PanelSection title="Show for">
+            <ShowForControl visibleWhen={elements[0]?.visibleWhen} onChange={(v) => onElAll({ visibleWhen: v })} />
+          </PanelSection>
+        )}
         {textEls.length > 0 ? (
           <>
             <PanelSection title={`Font · ${textEls.length} text ${textEls.length === 1 ? 'box' : 'boxes'}`}>
@@ -7014,33 +7077,7 @@ function SelectionPanel({
             a subset to show this element only for those offer types. */}
         {hasOfferField && (
           <PanelSection title="Show for">
-            <div className="flex flex-wrap items-center gap-1">
-              {OFFER_TYPES.map((t) => {
-                const all = OFFER_TYPES.map((x) => x.value);
-                const cur = el.visibleWhen?.field === 'offerType' ? el.visibleWhen.in : all;
-                const active = cur.includes(t.value);
-                return (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() => {
-                      const next = active ? cur.filter((v) => v !== t.value) : [...cur, t.value];
-                      onEl({ visibleWhen: next.length === all.length ? undefined : { field: 'offerType', in: next } });
-                    }}
-                    className={`rounded-full border px-2 py-1 text-[11px] font-medium transition-colors ${
-                      active
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                );
-              })}
-              <Tooltip label="This element renders only for the checked offer types (hidden on export, dimmed in the editor). All checked = always shown.">
-                <InformationCircleIcon className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]" />
-              </Tooltip>
-            </div>
+            <ShowForControl visibleWhen={el.visibleWhen} onChange={(v) => onEl({ visibleWhen: v })} />
           </PanelSection>
         )}
 
