@@ -446,6 +446,12 @@ const MARGIN_UNITS: { value: MarginUnit; label: string }[] = [
   { value: 'em', label: 'em' },
   { value: 'rem', label: 'rem' },
 ];
+/** A "default" block is a global one (no account scoping) — the seeded offer
+ *  blocks, shown in the Insert popout. Account-scoped blocks a user saved are
+ *  "custom" and live in the dedicated Blocks panel. */
+function isDefaultBlock(b: { accountKey?: string | null; accountKeys?: string[] }): boolean {
+  return !b.accountKey && !(b.accountKeys?.length);
+}
 /** Convert a safe-area margin (value + unit) to per-size edge fractions. px/em/
  *  rem are absolute, so they resolve against this size's dimensions. */
 function safeAreaFractions(sa: { value: number; unit: MarginUnit } | undefined, w: number, h: number): { x: number; y: number } | null {
@@ -816,7 +822,7 @@ export default function AdBuilderPage() {
   const [focusField, setFocusField] = useState<{ key: string; nonce: number } | null>(null);
   // Left rail: which panel (Elements / Layers / Industries / Sizes) is open as a
   // flyout. null = collapsed to just the icons.
-  const [leftPanel, setLeftPanel] = useState<'insert' | 'layers' | null>(null);
+  const [leftPanel, setLeftPanel] = useState<'insert' | 'blocks' | 'layers' | null>(null);
   const railRef = useRef<HTMLElement>(null);
   // Close the left flyout (Insert / Layers / …) when clicking anywhere outside
   // the rail + flyout — e.g. on the canvas. Tile clicks stay inside, so adding
@@ -2082,6 +2088,58 @@ export default function AdBuilderPage() {
       }
     },
     [blocks],
+  );
+
+  // One saved-block row: insert on click, inline rename, delete. Shared by the
+  // Insert popout (default/global blocks) and the Blocks panel (custom blocks).
+  const renderBlockRow = (b: BlockRow) => (
+    <div key={b.id} className="flex items-center gap-1 rounded-lg border border-[var(--border)] pr-1 transition-colors hover:border-[var(--primary)]">
+      {renamingBlock === b.id ? (
+        <input
+          autoFocus
+          value={blockNameDraft}
+          onChange={(e) => setBlockNameDraft(e.target.value)}
+          onBlur={() => renameBlock(b.id, blockNameDraft)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') renameBlock(b.id, blockNameDraft);
+            else if (e.key === 'Escape') setRenamingBlock(null);
+          }}
+          className="min-w-0 flex-1 rounded-md border border-[var(--primary)] bg-[var(--background)] px-2 py-1.5 text-sm text-[var(--foreground)] outline-none"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => insertBlock(b.doc)}
+          title="Insert this block"
+          className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[var(--foreground)]"
+        >
+          <span className="truncate">{b.name}</span>
+          <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)]">
+            {b.accountKeys?.length ? `${b.accountKeys.length} acct${b.accountKeys.length > 1 ? 's' : ''}` : 'Global'}
+          </span>
+        </button>
+      )}
+      {renamingBlock !== b.id && (
+        <>
+          <button
+            type="button"
+            onClick={() => { setRenamingBlock(b.id); setBlockNameDraft(b.name); }}
+            title="Rename block"
+            className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+          >
+            <PencilSquareIcon className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => deleteBlock(b.id, b.name)}
+            title="Delete block"
+            className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500"
+          >
+            <TrashIcon className="h-3.5 w-3.5" />
+          </button>
+        </>
+      )}
+    </div>
   );
 
   // Make the selected element a background: full-bleed (0,0,1,1) on every size +
@@ -3752,6 +3810,10 @@ export default function AdBuilderPage() {
                 collides with an open panel. Sizes are managed on the canvas
                 action bar (bottom); view guides (outlines / margins) live here. */}
             <RailButton label="Insert" Icon={PlusIcon} primary active={leftPanel === 'insert'} onClick={() => { setLeftPanel((p) => (p === 'insert' ? null : 'insert')); setFieldsOpen(false); }} />
+            {/* Blocks — the user's saved (custom) blocks. Default/global blocks
+                stay in the Insert popout; this panel is just the reusable clusters
+                the user saved themselves. */}
+            <RailButton label="Blocks" Icon={Squares2X2Icon} active={leftPanel === 'blocks'} onClick={() => { setLeftPanel((p) => (p === 'blocks' ? null : 'blocks')); setFieldsOpen(false); }} />
             <RailButton label="Layers" Icon={LayersIcon} active={leftPanel === 'layers'} onClick={() => { setLeftPanel((p) => (p === 'layers' ? null : 'layers')); setFieldsOpen(false); }} />
             {/* Fields — the form that drives the ad. Left-docked (shares the left
                 slot with Insert/Layers); coexists with the right settings panel. */}
@@ -3821,73 +3883,45 @@ export default function AdBuilderPage() {
           </section>
           )}
 
-          {/* Blocks — reusable element clusters (offer blocks, etc.). Click to
-              insert; save the current selection via the ⋯/right-click menu. */}
-          {leftPanel === 'insert' && (
-          <section className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
-            <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-              <Squares2X2Icon className="h-3.5 w-3.5" />
-              Blocks
-            </h2>
-            {blocks.length === 0 ? (
-              <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
-                Select elements on the canvas, then <span className="text-[var(--foreground)]">Save as block</span> (right-click or the multi-select panel) to reuse them here.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {blocks.map((b) => (
-                  <div key={b.id} className="flex items-center gap-1 rounded-lg border border-[var(--border)] pr-1 transition-colors hover:border-[var(--primary)]">
-                    {renamingBlock === b.id ? (
-                      <input
-                        autoFocus
-                        value={blockNameDraft}
-                        onChange={(e) => setBlockNameDraft(e.target.value)}
-                        onBlur={() => renameBlock(b.id, blockNameDraft)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') renameBlock(b.id, blockNameDraft);
-                          else if (e.key === 'Escape') setRenamingBlock(null);
-                        }}
-                        className="min-w-0 flex-1 rounded-md border border-[var(--primary)] bg-[var(--background)] px-2 py-1.5 text-sm text-[var(--foreground)] outline-none"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => insertBlock(b.doc)}
-                        title="Insert this block"
-                        className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[var(--foreground)]"
-                      >
-                        <span className="truncate">{b.name}</span>
-                        <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)]">
-                          {b.accountKeys?.length ? `${b.accountKeys.length} acct${b.accountKeys.length > 1 ? 's' : ''}` : 'Global'}
-                        </span>
-                      </button>
-                    )}
-                    {renamingBlock !== b.id && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => { setRenamingBlock(b.id); setBlockNameDraft(b.name); }}
-                          title="Rename block"
-                          className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-                        >
-                          <PencilSquareIcon className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteBlock(b.id, b.name)}
-                          title="Delete block"
-                          className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500"
-                        >
-                          <TrashIcon className="h-3.5 w-3.5" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-          )}
+          {/* Default blocks — the seeded, global element clusters (offer blocks,
+              etc.). The user's own saved blocks live in the separate Blocks panel. */}
+          {leftPanel === 'insert' && (() => {
+            const defaults = blocks.filter(isDefaultBlock);
+            return (
+              <section className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
+                <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                  <Squares2X2Icon className="h-3.5 w-3.5" />
+                  Blocks
+                </h2>
+                {defaults.length === 0 ? (
+                  <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">No default blocks available.</p>
+                ) : (
+                  <div className="flex flex-col gap-1">{defaults.map(renderBlockRow)}</div>
+                )}
+              </section>
+            );
+          })()}
+
+          {/* Blocks panel — the user's own saved (custom) blocks. Click to insert,
+              rename, or delete. Default/global blocks live in the Insert popout. */}
+          {leftPanel === 'blocks' && (() => {
+            const custom = blocks.filter((b) => !isDefaultBlock(b));
+            return (
+              <section className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] p-4 shadow-2xl backdrop-blur-2xl">
+                <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                  <Squares2X2Icon className="h-3.5 w-3.5" />
+                  Blocks
+                </h2>
+                {custom.length === 0 ? (
+                  <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
+                    Select elements on the canvas, then <span className="text-[var(--foreground)]">Save as block</span> (right-click or the multi-select panel) to reuse them here.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1">{custom.map(renderBlockRow)}</div>
+                )}
+              </section>
+            );
+          })()}
 
           {/* Layers — the stack of placed elements (top of the list = front).
               Double-click to rename · lock icon to lock · drag to reorder (z). */}
