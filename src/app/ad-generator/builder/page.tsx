@@ -7827,6 +7827,8 @@ function BarBtn({
 function ColorSwatchInput({ title, value, onChange }: { title: string; value: string; onChange: (v: string) => void }) {
   const { accountData, accountKey } = useAccount();
   const [open, setOpen] = useState(false);
+  // Positioned once measured: null = rendered-but-hidden while we size it, so it
+  // never flashes at the wrong spot (mirrors the viewport-aware Tooltip).
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -7842,24 +7844,42 @@ function ColorSwatchInput({ title, value, onChange }: { title: string; value: st
     window.addEventListener('scroll', onScroll, true);
     return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('scroll', onScroll, true); };
   }, [open]);
+  // Measure the popover's real size and place it inside the viewport: below the
+  // trigger by default, flipped above if it would clip the bottom edge, and
+  // clamped horizontally. Re-runs on resize while open.
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return; }
+    const place = () => {
+      const b = btnRef.current?.getBoundingClientRect();
+      const p = popRef.current?.getBoundingClientRect();
+      if (!b || !p) return;
+      const M = 8; // viewport margin
+      const GAP = 6; // gap between trigger and popover
+      const left = Math.max(M, Math.min(b.left, window.innerWidth - p.width - M));
+      let top = b.bottom + GAP;
+      if (top + p.height > window.innerHeight - M) {
+        const above = b.top - GAP - p.height;
+        top = above >= M ? above : Math.max(M, window.innerHeight - p.height - M);
+      }
+      setPos({ top, left });
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [open]);
   // Brand colors only in a subaccount (accountKey set); admin/no-account = none.
   const palette = (accountKey ? accountData?.branding?.colors : undefined) as Record<string, string | undefined> | undefined;
   const brandSwatches = BRAND_COLOR_KEYS
     .map((k) => ({ key: k.key as string, label: k.label as string, value: palette?.[k.key] }))
     .filter((c): c is { key: string; label: string; value: string } => !!c.value);
   const editHref = accountKey ? `/settings/subaccounts/${encodeURIComponent(accountKey)}?tab=branding` : null;
-  const toggle = () => {
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - 224)) });
-    setOpen((v) => !v);
-  };
   return (
     <>
-      <button ref={btnRef} type="button" title={title} onClick={toggle} className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-[var(--muted)]">
+      <button ref={btnRef} type="button" title={title} onClick={() => setOpen((v) => !v)} className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-[var(--muted)]">
         <span className="h-4 w-4 rounded-full border border-[var(--border)]" style={{ background: value }} />
       </button>
-      {open && pos && createPortal(
-        <div ref={popRef} style={{ top: pos.top, left: pos.left }} className="fixed z-[200] w-52 rounded-xl border border-[var(--border)] bg-[var(--card-strong)] p-3 shadow-2xl backdrop-blur-2xl">
+      {open && createPortal(
+        <div ref={popRef} style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? 'visible' : 'hidden' }} className="fixed z-[200] w-52 rounded-xl border border-[var(--border)] bg-[var(--card-strong)] p-3 shadow-2xl backdrop-blur-2xl">
           {brandSwatches.length > 0 && (
             <div className="mb-3">
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Brand colors</p>
