@@ -6058,6 +6058,19 @@ function TokenTextArea({
       backRef.current.scrollLeft = taRef.current.scrollLeft;
     }
   };
+  // Auto-grow to fit the content (up to a cap, then scroll) so a multi-line value
+  // is never clipped. The textarea drives the wrapper height and the backdrop
+  // fills it (inset-0), so both grow together. Min-height keeps a 2-row floor.
+  useLayoutEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    // box-sizing:border-box → the height must include the border, or the last
+    // line clips by the border width; add (offsetHeight - clientHeight) back.
+    const chrome = ta.offsetHeight - ta.clientHeight;
+    ta.style.height = `${Math.min(ta.scrollHeight + chrome, 200)}px`;
+    syncScroll();
+  }, [value]);
   const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html =
     escHtml(value).replace(
@@ -6164,7 +6177,7 @@ function TokenTextArea({
         rows={2}
         placeholder={placeholder}
         spellCheck={false}
-        className="relative w-full resize-y rounded-md border border-[var(--border)] bg-transparent px-2 py-1.5 pr-8 text-xs leading-normal text-transparent caret-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)]"
+        className="relative block max-h-[200px] min-h-[3.25rem] w-full resize-none overflow-y-auto rounded-md border border-[var(--border)] bg-transparent px-2 py-1.5 pr-8 text-xs leading-normal text-transparent caret-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)]"
       />
       {options.length > 0 && (
         <div ref={pickRef} className="absolute right-1.5 top-1.5">
