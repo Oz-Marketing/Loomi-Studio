@@ -203,16 +203,26 @@ export function OfferCard({
         <div className="mt-5 border-t border-[var(--border)] pt-4">
           <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Vehicle color</h3>
           <div className="space-y-4">
-            {vehicleSlots.map((slot) => (
-              <div key={slot.imageKey}>
-                {vehicleSlots.length > 1 && <div className="mb-1.5 text-[11px] font-medium text-[var(--foreground)]">{slot.label}</div>}
-                <VehicleColorPicker
-                  vehicleName={data[slot.nameKey] ?? data.vehicleName ?? ''}
-                  selectedCode={data[slot.codeKey] ?? ''}
-                  onPick={(url, code) => setData((d) => ({ ...d, [slot.imageKey]: url, [slot.codeKey]: code }))}
-                />
-              </div>
-            ))}
+            {vehicleSlots.map((slot) => {
+              // The structured vehicle fields share the slot's prefix ('' / 'o2_')
+              // with vehicleName. Pass them so the color lookup keeps trim out of
+              // the model (see VehicleColorPicker).
+              const p = slot.nameKey.replace(/vehicleName$/, '');
+              return (
+                <div key={slot.imageKey}>
+                  {vehicleSlots.length > 1 && <div className="mb-1.5 text-[11px] font-medium text-[var(--foreground)]">{slot.label}</div>}
+                  <VehicleColorPicker
+                    vehicleName={data[slot.nameKey] ?? data.vehicleName ?? ''}
+                    year={data[`${p}_vehYear`]}
+                    make={data[`${p}_vehMake`]}
+                    model={data[`${p}_vehModel`]}
+                    trim={data[`${p}_vehTrim`]}
+                    selectedCode={data[slot.codeKey] ?? ''}
+                    onPick={(url, code) => setData((d) => ({ ...d, [slot.imageKey]: url, [slot.codeKey]: code }))}
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

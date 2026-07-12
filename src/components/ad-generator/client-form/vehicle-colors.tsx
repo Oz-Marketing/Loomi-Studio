@@ -67,7 +67,26 @@ function JellybeanTile({ vifnum, code, color }: { vifnum: number; code: string; 
  * the actual paint color is easy to read. Until an offer names a vehicle, it
  * shows a gentle hint instead of an empty grid.
  */
-export function VehicleColorPicker({ vehicleName, selectedCode, onPick }: { vehicleName: string; selectedCode: string; onPick: (url: string, colorCode: string) => void }) {
+export function VehicleColorPicker({
+  vehicleName,
+  selectedCode,
+  onPick,
+  year,
+  make,
+  model,
+  trim,
+}: {
+  vehicleName: string;
+  selectedCode: string;
+  onPick: (url: string, colorCode: string) => void;
+  /** Structured vehicle fields (what the incentive apply / YMM picker stash).
+   *  Preferred over parsing `vehicleName` so the trim stays SEPARATE from the
+   *  model — EVOX is keyed by model, so "Forester Premium" matches nothing. */
+  year?: string | number;
+  make?: string;
+  model?: string;
+  trim?: string;
+}) {
   const { accountKey } = useAccount();
   // One entry per distinct color NAME, carrying every (vifnum, code) that offers
   // it — the same paint can appear under multiple trims/codes and only some
@@ -77,12 +96,21 @@ export function VehicleColorPicker({ vehicleName, selectedCode, onPick }: { vehi
   const [notConfigured, setNotConfigured] = useState(false);
   const [picking, setPicking] = useState<string | null>(null);
 
-  // Parse "2026 Honda Accord" → year / make / model (the shape the incentive
-  // apply writes). Anything that doesn't match → no vehicle yet.
+  // Prefer the structured fields (year/make/model/trim) the incentive apply or
+  // YMM picker stashed — the trim stays its OWN param (EVOX matches by model, so
+  // a "Forester Premium" model is zero results). Fall back to parsing the
+  // composed "2026 Honda Accord" name only when the structured fields are absent.
   const ymm = useMemo(() => {
+    const y = year != null && String(year).trim() !== '' ? Number(year) : NaN;
+    const mk = (make ?? '').trim();
+    const md = (model ?? '').trim();
+    if (Number.isFinite(y) && mk && md) {
+      return { year: y, make: mk, model: md, trim: (trim ?? '').trim() || undefined };
+    }
     const m = vehicleName.trim().match(/^(\d{4})\s+(\S+)\s+(.+)$/);
-    return m ? { year: Number(m[1]), make: m[2], model: m[3] } : null;
-  }, [vehicleName]);
+    return m ? { year: Number(m[1]), make: m[2], model: m[3], trim: undefined as string | undefined } : null;
+  }, [year, make, model, trim, vehicleName]);
+  const displayName = ymm ? [ymm.year, ymm.make, ymm.model, ymm.trim].filter(Boolean).join(' ') : vehicleName;
 
   useEffect(() => {
     if (!ymm) {
@@ -95,7 +123,7 @@ export function VehicleColorPicker({ vehicleName, selectedCode, onPick }: { vehi
     fetch('/api/ad-generator/evox/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ year: ymm.year, make: ymm.make, model: ymm.model }),
+      body: JSON.stringify({ year: ymm.year, make: ymm.make, model: ymm.model, ...(ymm.trim ? { trim: ymm.trim } : {}) }),
     })
       .then((r) => r.json())
       .then((j: { configured?: boolean; vehicles?: EvoxVehicle[] }) => {
@@ -170,9 +198,9 @@ export function VehicleColorPicker({ vehicleName, selectedCode, onPick }: { vehi
       </p>
     );
   }
-  if (loading) return <p className="text-xs text-[var(--muted-foreground)]">Loading colors for {vehicleName}…</p>;
+  if (loading) return <p className="text-xs text-[var(--muted-foreground)]">Loading colors for {displayName}…</p>;
   if (notConfigured) return <p className="text-xs text-[var(--muted-foreground)]">Vehicle imagery isn’t available in this environment.</p>;
-  if (!swatches || !swatches.length) return <p className="text-xs text-[var(--muted-foreground)]">No stock colors found for {vehicleName}.</p>;
+  if (!swatches || !swatches.length) return <p className="text-xs text-[var(--muted-foreground)]">No stock colors found for {displayName}.</p>;
 
   return (
     <div className="flex flex-wrap gap-3">
