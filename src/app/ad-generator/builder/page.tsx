@@ -3575,6 +3575,18 @@ export default function AdBuilderPage() {
                           placeholder="Select make…"
                           previewFont={false}
                         />
+                        {/* Disclaimers are keyed by make + offer type; surface the
+                            manager here so it's reachable from the editor. New tab
+                            so the design isn't lost. */}
+                        <a
+                          href="/ad-generator/templates"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--primary)] transition-opacity hover:opacity-80"
+                        >
+                          Manage disclaimer templates
+                          <ArrowUpRightIcon className="h-3 w-3" />
+                        </a>
                       </div>
                     )}
 
