@@ -211,6 +211,28 @@ const OFFER_LABEL_OVERRIDE: Record<string, string> = {
   _o2_offerLabel: 'o2_offerLabel',
 };
 
+// `_offerValue`/`_o2_offerValue` are COMPUTED from exactly one source field per
+// offer type — so an inline artboard edit of the big number can write straight
+// back to that field (lease→monthlyPayment, apr→aprRate, …). Maps the computed
+// key to its offer prefix; the source key also needs the current offer type.
+const OFFER_VALUE_PREFIX: Record<string, string> = { _offerValue: '', _o2_offerValue: 'o2_' };
+function offerValueSourceKey(computedKey: string, offerType: string): string | null {
+  const prefix = OFFER_VALUE_PREFIX[computedKey];
+  if (prefix == null) return null;
+  switch (offerType) {
+    case 'apr':
+      return `${prefix}aprRate`;
+    case 'discount':
+      return `${prefix}discountAmount`;
+    case 'sales_price':
+      return `${prefix}salePrice`;
+    case 'custom':
+      return `${prefix}price`;
+    default:
+      return `${prefix}monthlyPayment`; // lease
+  }
+}
+
 // ── Content-source binding picker ──
 // The inspector's "Shows" control lets a designer point an element at a template
 // field, a computed offer value, brand data, or a static literal — so a
@@ -1607,6 +1629,7 @@ export default function AdBuilderPage() {
       const key = el.binding.key;
       if (!key.startsWith('_')) return 'field';
       if (key in OFFER_LABEL_OVERRIDE) return 'field'; // editable via its override field
+      if (key in OFFER_VALUE_PREFIX) return 'field'; // maps to the offer's source number field
     }
     return null;
   }, []);
@@ -1661,15 +1684,21 @@ export default function AdBuilderPage() {
       } else if (b?.kind === 'static') {
         setElement(cur.id, { binding: { kind: 'static', value: cur.value } });
       } else if (b?.kind === 'field') {
-        // Offer-label bindings write their free-text override field, not the
-        // derived `_offer*` key (which enrichOfferFields would recompute).
-        writeFieldValue(OFFER_LABEL_OVERRIDE[b.key] ?? b.key, cur.value);
+        // Computed offer fields write their SOURCE field, not the derived `_offer*`
+        // key (which enrichOfferFields would recompute + overwrite):
+        //  • the offer LABEL → its free-text override field;
+        //  • the offer VALUE (big number) → the current offer type's number field
+        //    (lease→monthlyPayment, apr→aprRate, …).
+        const prefix = OFFER_VALUE_PREFIX[b.key];
+        const valueKey =
+          prefix != null ? offerValueSourceKey(b.key, String(previewData[`${prefix}offerType`] ?? '')) : null;
+        writeFieldValue(valueKey ?? OFFER_LABEL_OVERRIDE[b.key] ?? b.key, cur.value);
       }
       // The auto-size boxes re-hug on the next canvas write via syncAutoBoxes —
       // the reliable point to measure (after the iframe reflects the new value).
       return null;
     });
-  }, [doc.elements, setElement, writeFieldValue]);
+  }, [doc.elements, setElement, writeFieldValue, previewData]);
 
   // In-place text editing: turn the ACTUAL rendered node inside the iframe into a
   // contenteditable so the caret sits in the real text (WYSIWYG), rather than a
