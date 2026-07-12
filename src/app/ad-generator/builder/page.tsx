@@ -99,7 +99,7 @@ import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
 import { useIndustries } from '@/lib/hooks/use-industries';
 import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, GradientFill, GradientStop, BlendMode, Binding } from '@/lib/ad-generator/doc-types';
 import { isFieldVisible, isClientField, type FieldSpec, type FieldType, type AdData, type AdSize } from '@/lib/ad-generator/types';
-import { buildBlockPayload, insertBlockIntoDoc, BLOCK_PAYLOAD_VERSION, type BlockPayload } from '@/lib/ad-generator/blocks';
+import { buildBlockPayload, insertBlockIntoDoc, type BlockPayload } from '@/lib/ad-generator/blocks';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/flows/builder/SearchableSelect';
 
 const CANVAS_PAD = 48; // breathing room around the ad inside the canvas pane
@@ -233,26 +233,6 @@ const OFFER_TOKENS_O2: { key: string; label: string }[] = [
   { key: '_o2_offerTerms', label: 'Offer 2 terms' },
 ];
 
-// One-click "insert offer block": the switchable amount block (label + $ + number
-// + % + terms) lifted from the Vehicle Offer starter, packaged as a block payload.
-// Inserting it re-seeds the single-offer FIELD KIT (`offerKit: 'single'`) — so the
-// offerType question + per-type fields exist, the `_offer*` tokens resolve, AND
-// they show up in the {{ }} variable picker. This is how a from-scratch template
-// gets the offer engine without hunting for magic token names.
-const OFFER_BLOCK_ELEMENT_IDS = ['offerLabel', 'offerCurrency', 'offerValue', 'offerPercent', 'offerTerms'] as const;
-const OFFER_BLOCK_PAYLOAD: BlockPayload = {
-  version: BLOCK_PAYLOAD_VERSION,
-  sourceSize: { w: 1080, h: 1080 },
-  elements: OFFER_BLOCK_ELEMENT_IDS.map((id) => singleOfferDoc.elements.find((e) => e.id === id))
-    .filter((e): e is DocElement => !!e)
-    .map((e) => structuredClone(e)),
-  boxes: Object.fromEntries(
-    OFFER_BLOCK_ELEMENT_IDS.map((id) => [id, singleOfferDoc.layouts.square?.[id]]).filter(([, b]) => b),
-  ) as Record<string, DocLayoutBox>,
-  offerKit: 'single',
-  requiredFields: [],
-  requiredDefaults: {},
-};
 
 function bindingToSourceValue(b: Binding | undefined): string {
   if (!b || b.kind === 'static') return 'static';
@@ -690,6 +670,9 @@ export default function AdBuilderPage() {
   type BlockRow = { id: string; name: string; accountKey: string | null; accountKeys: string[]; doc: BlockPayload };
   const [blocks, setBlocks] = useState<BlockRow[]>([]);
   const [blockDraft, setBlockDraft] = useState<BlockPayload | null>(null);
+  // Inline rename in the Insert → Blocks list.
+  const [renamingBlock, setRenamingBlock] = useState<string | null>(null);
+  const [blockNameDraft, setBlockNameDraft] = useState('');
 
   // A brand-new template starts on an empty artboard (no starter layout). The
   // vehicle-offer doc is still a registered code template (opened via ?ad / ?
@@ -2021,6 +2004,29 @@ export default function AdBuilderPage() {
       }
     },
     [confirm],
+  );
+
+  // Rename a saved block (optimistic; reverts on failure). Empty/unchanged = no-op.
+  const renameBlock = useCallback(
+    async (id: string, name: string) => {
+      setRenamingBlock(null);
+      const trimmed = name.trim();
+      const prevName = blocks.find((b) => b.id === id)?.name;
+      if (!trimmed || trimmed === prevName) return;
+      setBlocks((bs) => bs.map((b) => (b.id === id ? { ...b, name: trimmed } : b)));
+      try {
+        const res = await fetch(`/api/ad-generator/blocks/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `HTTP ${res.status}`);
+      } catch (err) {
+        toast.error(`Couldn't rename: ${err instanceof Error ? err.message : 'unknown error'}`);
+        if (prevName != null) setBlocks((bs) => bs.map((b) => (b.id === id ? { ...b, name: prevName } : b)));
+      }
+    },
+    [blocks],
   );
 
   // Make the selected element a background: full-bleed (0,0,1,1) on every size +
@@ -3765,23 +3771,6 @@ export default function AdBuilderPage() {
               <Squares2X2Icon className="h-3.5 w-3.5" />
               Blocks
             </h2>
-            {/* Built-in offer block — one click drops the switchable amount block
-                AND wires up the offer field kit, so the offer engine + `_offer*`
-                tokens are ready without any manual setup. Automotive templates. */}
-            {templateIsAutomotive && (
-              <button
-                type="button"
-                onClick={() => insertBlock(OFFER_BLOCK_PAYLOAD)}
-                title="Drops the label + $ + number + % + terms block and adds the offer fields — it reformats itself for lease / APR / cash / discount."
-                className="mb-3 flex w-full items-start gap-2 rounded-lg border border-[var(--primary)]/40 bg-[var(--primary)]/5 px-3 py-2 text-left transition-colors hover:bg-[var(--primary)]/10"
-              >
-                <Squares2X2Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]" />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-[var(--primary)]">Vehicle offer block</span>
-                  <span className="block text-[10px] leading-snug text-[var(--muted-foreground)]">Adds the offer fields + a block that reformats for lease / APR / cash / discount.</span>
-                </span>
-              </button>
-            )}
             {blocks.length === 0 ? (
               <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
                 Select elements on the canvas, then <span className="text-[var(--foreground)]">Save as block</span> (right-click or the multi-select panel) to reuse them here.
@@ -3789,26 +3778,52 @@ export default function AdBuilderPage() {
             ) : (
               <div className="flex flex-col gap-1">
                 {blocks.map((b) => (
-                  <div key={b.id} className="group flex items-center gap-1 rounded-lg border border-[var(--border)] pr-1 transition-colors hover:border-[var(--primary)]">
-                    <button
-                      type="button"
-                      onClick={() => insertBlock(b.doc)}
-                      title="Insert this block"
-                      className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[var(--foreground)]"
-                    >
-                      <span className="truncate">{b.name}</span>
-                      <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)]">
-                        {b.accountKeys?.length ? `${b.accountKeys.length} acct${b.accountKeys.length > 1 ? 's' : ''}` : 'Global'}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteBlock(b.id, b.name)}
-                      title="Delete block"
-                      className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-                    >
-                      <TrashIcon className="h-3.5 w-3.5" />
-                    </button>
+                  <div key={b.id} className="flex items-center gap-1 rounded-lg border border-[var(--border)] pr-1 transition-colors hover:border-[var(--primary)]">
+                    {renamingBlock === b.id ? (
+                      <input
+                        autoFocus
+                        value={blockNameDraft}
+                        onChange={(e) => setBlockNameDraft(e.target.value)}
+                        onBlur={() => renameBlock(b.id, blockNameDraft)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') renameBlock(b.id, blockNameDraft);
+                          else if (e.key === 'Escape') setRenamingBlock(null);
+                        }}
+                        className="min-w-0 flex-1 rounded-md border border-[var(--primary)] bg-[var(--background)] px-2 py-1.5 text-sm text-[var(--foreground)] outline-none"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => insertBlock(b.doc)}
+                        title="Insert this block"
+                        className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[var(--foreground)]"
+                      >
+                        <span className="truncate">{b.name}</span>
+                        <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                          {b.accountKeys?.length ? `${b.accountKeys.length} acct${b.accountKeys.length > 1 ? 's' : ''}` : 'Global'}
+                        </span>
+                      </button>
+                    )}
+                    {renamingBlock !== b.id && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => { setRenamingBlock(b.id); setBlockNameDraft(b.name); }}
+                          title="Rename block"
+                          className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                        >
+                          <PencilSquareIcon className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteBlock(b.id, b.name)}
+                          title="Delete block"
+                          className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-500"
+                        >
+                          <TrashIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -4195,27 +4210,12 @@ export default function AdBuilderPage() {
                           </div>
                           <div className="px-5 pb-5 pt-3">
                             <AdderGrid adders={adders} variant="onboarding" />
-                            {/* Start from a block — the built-in switchable offer
-                                block (automotive) + any saved blocks, so a blank
-                                canvas can begin from a pre-wired cluster. */}
-                            {(templateIsAutomotive || blocks.length > 0) && (
+                            {/* Start from a saved block — begin a blank canvas from
+                                a pre-wired cluster instead of single elements. */}
+                            {blocks.length > 0 && (
                               <div className="mt-4">
                                 <p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Or start from a block</p>
                                 <div className="flex flex-col gap-1.5">
-                                  {templateIsAutomotive && (
-                                    <button
-                                      type="button"
-                                      onClick={() => insertBlock(OFFER_BLOCK_PAYLOAD)}
-                                      title="Drops the label + $ + number + % + terms block and adds the offer fields — it reformats for lease / APR / cash / discount."
-                                      className="flex w-full items-start gap-2 rounded-lg border border-[var(--primary)]/40 bg-[var(--primary)]/5 px-3 py-2 text-left transition-colors hover:bg-[var(--primary)]/10"
-                                    >
-                                      <Squares2X2Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]" />
-                                      <span className="min-w-0">
-                                        <span className="block text-sm font-medium text-[var(--primary)]">Vehicle offer block</span>
-                                        <span className="block text-[10px] leading-snug text-[var(--muted-foreground)]">Offer fields + a block that reformats for lease / APR / cash / discount.</span>
-                                      </span>
-                                    </button>
-                                  )}
                                   {blocks.map((b) => (
                                     <button
                                       key={b.id}
