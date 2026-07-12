@@ -979,6 +979,20 @@ export default function AdBuilderPage() {
     return googleUrl ? { ...base, googleFontsUrl: googleUrl } : base;
   }, [accountData, effectiveFontCss, doc.defaults, doc.elements, adData]);
 
+  // Whether the design actually uses offers — an element gated by offer type, or
+  // bound to (or typing) a computed `_offer*` token. Gates the canvas-bar offer-
+  // type preview switcher so it only shows when flipping the type changes anything.
+  const usesOffer = useMemo(
+    () =>
+      doc.elements.some(
+        (el) =>
+          el.visibleWhen?.field === 'offerType' ||
+          (el.binding?.kind === 'field' && (el.binding.key.startsWith('_offer') || el.binding.key.startsWith('_o2_'))) ||
+          (el.binding?.kind === 'static' && /\{\{\s*(_(?:o2_)?offer|offerType)/i.test(el.binding.value)),
+      ),
+    [doc.elements],
+  );
+
   const html = useMemo(() => renderDoc(doc, previewData, size, { preview: true }), [doc, previewData, size]);
 
   // Patch the canvas iframe's document IN PLACE on every edit instead of swapping
@@ -4221,6 +4235,29 @@ export default function AdBuilderPage() {
                   <MagnifyingGlassMinusIcon className="h-4 w-4" />
                 </button>
               </div>
+
+              {/* Offer-type preview switcher — flips which offer block shows +
+                  how the computed offer text reads, without a field panel. Only
+                  when the design uses offers. Writes the preview `offerType`
+                  (doc defaults in template mode, ad data in ad mode). */}
+              {usesOffer && !viewAll && (
+                <div className="absolute bottom-3 left-14 z-20 flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card-strong)]/80 px-2.5 py-1 backdrop-blur-md">
+                  <span className="text-[11px] font-medium text-[var(--muted-foreground)]">Preview</span>
+                  <select
+                    value={String(previewData.offerType ?? 'lease')}
+                    onChange={(e) => writeFieldValue('offerType', e.target.value)}
+                    title="Preview offer type — flips which offer block shows and how the computed offer text reads"
+                    aria-label="Preview offer type"
+                    className="rounded-md border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                  >
+                    {OFFER_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Size navigation — single view: arrow-paginated with a toggle into
                   multi-artboard view. Multi view: per-size checkbox chips (which
