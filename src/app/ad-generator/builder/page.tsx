@@ -3791,12 +3791,32 @@ export default function AdBuilderPage() {
         {/* Canvas */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)]">
           <div className="relative flex flex-shrink-0 items-center justify-end gap-2 border-b border-[var(--border)] px-3 py-2">
-            {/* Compliance status for the tagged make — pinned to the left. */}
-            {doc.make && compliance && compliance.length > 0 && (
-              <div className="mr-auto">
+            {/* Left-pinned group: compliance status + the offer-type preview
+                switcher (flips which offer block shows + how the computed offer
+                text reads, without a field panel). */}
+            <div className="mr-auto flex items-center gap-2">
+              {doc.make && compliance && compliance.length > 0 && (
                 <ComplianceChip make={doc.make} compliance={compliance} missing={complianceMissing} onInsert={insertComplianceField} />
-              </div>
-            )}
+              )}
+              {usesOffer && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-[var(--muted-foreground)]">Preview</span>
+                  <select
+                    value={String(previewData.offerType ?? 'lease')}
+                    onChange={(e) => writeFieldValue('offerType', e.target.value)}
+                    title="Preview offer type — flips which offer block shows and how the computed offer text reads"
+                    aria-label="Preview offer type"
+                    className="h-8 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-medium text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                  >
+                    {OFFER_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
             {/* Zoom lives on the canvas (bottom-left); outlines + margins moved to
                 the left rail; the active size is shown on the canvas action bar. */}
             {/* Undo / Redo */}
@@ -4235,29 +4255,6 @@ export default function AdBuilderPage() {
                   <MagnifyingGlassMinusIcon className="h-4 w-4" />
                 </button>
               </div>
-
-              {/* Offer-type preview switcher — flips which offer block shows +
-                  how the computed offer text reads, without a field panel. Only
-                  when the design uses offers. Writes the preview `offerType`
-                  (doc defaults in template mode, ad data in ad mode). */}
-              {usesOffer && !viewAll && (
-                <div className="absolute bottom-3 left-14 z-20 flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card-strong)]/80 px-2.5 py-1 backdrop-blur-md">
-                  <span className="text-[11px] font-medium text-[var(--muted-foreground)]">Preview</span>
-                  <select
-                    value={String(previewData.offerType ?? 'lease')}
-                    onChange={(e) => writeFieldValue('offerType', e.target.value)}
-                    title="Preview offer type — flips which offer block shows and how the computed offer text reads"
-                    aria-label="Preview offer type"
-                    className="rounded-md border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
-                  >
-                    {OFFER_TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
 
               {/* Size navigation — single view: arrow-paginated with a toggle into
                   multi-artboard view. Multi view: per-size checkbox chips (which
