@@ -1,8 +1,9 @@
 /**
- * Vertical-alignment icons for the ad-builder inspector (Fit-to-box text).
- * Dotted-frame glyphs whose interior text-lines sit high / centered / low to
- * signal top / middle / bottom vertical alignment. Provided by the user
- * (icons8), inlined so they inherit `currentColor` for active/inactive states.
+ * Alignment icons for the ad-builder inspector — one consistent dotted-frame
+ * family for both axes. The vertical glyphs (top / middle / bottom) are the
+ * user-provided icons8 art; the horizontal glyphs (left / center / right) reuse
+ * that same extracted frame with left/centered/right-flush text lines so the two
+ * rows match. Inlined so they inherit `currentColor` for active/inactive states.
  */
 import type { SVGProps } from 'react';
 
@@ -15,9 +16,36 @@ const MIDDLE_D =
 const BOTTOM_D =
   'M 10 9 A 1 1 0 0 0 9 10 A 1 1 0 0 0 10 11 A 1 1 0 0 0 11 10 A 1 1 0 0 0 10 9 z M 14 9 A 1 1 0 0 0 13 10 A 1 1 0 0 0 14 11 A 1 1 0 0 0 15 10 A 1 1 0 0 0 14 9 z M 18 9 A 1 1 0 0 0 17 10 A 1 1 0 0 0 18 11 A 1 1 0 0 0 19 10 A 1 1 0 0 0 18 9 z M 22 9 A 1 1 0 0 0 21 10 A 1 1 0 0 0 22 11 A 1 1 0 0 0 23 10 A 1 1 0 0 0 22 9 z M 26 9 A 1 1 0 0 0 25 10 A 1 1 0 0 0 26 11 A 1 1 0 0 0 27 10 A 1 1 0 0 0 26 9 z M 30 9 A 1 1 0 0 0 29 10 A 1 1 0 0 0 30 11 A 1 1 0 0 0 31 10 A 1 1 0 0 0 30 9 z M 34 9 A 1 1 0 0 0 33 10 A 1 1 0 0 0 34 11 A 1 1 0 0 0 35 10 A 1 1 0 0 0 34 9 z M 38 9 A 1 1 0 0 0 37 10 A 1 1 0 0 0 38 11 A 1 1 0 0 0 39 10 A 1 1 0 0 0 38 9 z M 42 9 A 1 1 0 0 0 41 10 A 1 1 0 0 0 42 11 A 1 1 0 0 0 43 10 A 1 1 0 0 0 42 9 z M 46 9 A 1 1 0 0 0 45 10 A 1 1 0 0 0 46 11 A 1 1 0 0 0 47 10 A 1 1 0 0 0 46 9 z M 50 9 A 1 1 0 0 0 49 10 A 1 1 0 0 0 50 11 A 1 1 0 0 0 51 10 A 1 1 0 0 0 50 9 z M 54 9 A 1 1 0 0 0 53 10 A 1 1 0 0 0 54 11 A 1 1 0 0 0 55 10 A 1 1 0 0 0 54 9 z M 58 9 A 1 1 0 0 0 57 10 A 1 1 0 0 0 58 11 A 1 1 0 0 0 59 10 A 1 1 0 0 0 58 9 z M 62 9 A 1 1 0 0 0 61 10 A 1 1 0 0 0 62 11 A 1 1 0 0 0 63 10 A 1 1 0 0 0 62 9 z M 66 9 A 1 1 0 0 0 65 10 A 1 1 0 0 0 66 11 A 1 1 0 0 0 67 10 A 1 1 0 0 0 66 9 z M 70 9 A 1 1 0 0 0 69 10 A 1 1 0 0 0 70 11 A 1 1 0 0 0 71 10 A 1 1 0 0 0 70 9 z M 10 13 A 1 1 0 0 0 9 14 A 1 1 0 0 0 10 15 A 1 1 0 0 0 11 14 A 1 1 0 0 0 10 13 z M 70 13 A 1 1 0 0 0 69 14 A 1 1 0 0 0 70 15 A 1 1 0 0 0 71 14 A 1 1 0 0 0 70 13 z M 10 17 A 1 1 0 0 0 9 18 A 1 1 0 0 0 10 19 A 1 1 0 0 0 11 18 A 1 1 0 0 0 10 17 z M 70 17 A 1 1 0 0 0 69 18 A 1 1 0 0 0 70 19 A 1 1 0 0 0 71 18 A 1 1 0 0 0 70 17 z M 10 21 A 1 1 0 0 0 9 22 A 1 1 0 0 0 10 23 A 1 1 0 0 0 11 22 A 1 1 0 0 0 10 21 z M 70 21 A 1 1 0 0 0 69 22 A 1 1 0 0 0 70 23 A 1 1 0 0 0 71 22 A 1 1 0 0 0 70 21 z M 10 25 A 1 1 0 0 0 9 26 A 1 1 0 0 0 10 27 A 1 1 0 0 0 11 26 A 1 1 0 0 0 10 25 z M 70 25 A 1 1 0 0 0 69 26 A 1 1 0 0 0 70 27 A 1 1 0 0 0 71 26 A 1 1 0 0 0 70 25 z M 10 29 A 1 1 0 0 0 9 30 A 1 1 0 0 0 10 31 A 1 1 0 0 0 11 30 A 1 1 0 0 0 10 29 z M 70 29 A 1 1 0 0 0 69 30 A 1 1 0 0 0 70 31 A 1 1 0 0 0 71 30 A 1 1 0 0 0 70 29 z M 10 33 A 1 1 0 0 0 9 34 A 1 1 0 0 0 10 35 A 1 1 0 0 0 11 34 A 1 1 0 0 0 10 33 z M 70 33 A 1 1 0 0 0 69 34 A 1 1 0 0 0 70 35 A 1 1 0 0 0 71 34 A 1 1 0 0 0 70 33 z M 10 37 A 1 1 0 0 0 9 38 A 1 1 0 0 0 10 39 A 1 1 0 0 0 11 38 A 1 1 0 0 0 10 37 z M 70 37 A 1 1 0 0 0 69 38 A 1 1 0 0 0 70 39 A 1 1 0 0 0 71 38 A 1 1 0 0 0 70 37 z M 20.001953 39 L 20.001953 41 L 60.001953 41 L 60.001953 39 L 20.001953 39 z M 10 41 A 1 1 0 0 0 9 42 A 1 1 0 0 0 10 43 A 1 1 0 0 0 11 42 A 1 1 0 0 0 10 41 z M 70 41 A 1 1 0 0 0 69 42 A 1 1 0 0 0 70 43 A 1 1 0 0 0 71 42 A 1 1 0 0 0 70 41 z M 10 45 A 1 1 0 0 0 9 46 A 1 1 0 0 0 10 47 A 1 1 0 0 0 11 46 A 1 1 0 0 0 10 45 z M 70 45 A 1 1 0 0 0 69 46 A 1 1 0 0 0 70 47 A 1 1 0 0 0 71 46 A 1 1 0 0 0 70 45 z M 26.001953 47 L 26.001953 49 L 54.001953 49 L 54.001953 47 L 26.001953 47 z M 10 49 A 1 1 0 0 0 9 50 A 1 1 0 0 0 10 51 A 1 1 0 0 0 11 50 A 1 1 0 0 0 10 49 z M 70 49 A 1 1 0 0 0 69 50 A 1 1 0 0 0 70 51 A 1 1 0 0 0 71 50 A 1 1 0 0 0 70 49 z M 10 53 A 1 1 0 0 0 9 54 A 1 1 0 0 0 10 55 A 1 1 0 0 0 11 54 A 1 1 0 0 0 10 53 z M 70 53 A 1 1 0 0 0 69 54 A 1 1 0 0 0 70 55 A 1 1 0 0 0 71 54 A 1 1 0 0 0 70 53 z M 20.001953 55 L 20.001953 57 L 60.001953 57 L 60.001953 55 L 20.001953 55 z M 10 57 A 1 1 0 0 0 9 58 A 1 1 0 0 0 10 59 A 1 1 0 0 0 11 58 A 1 1 0 0 0 10 57 z M 70 57 A 1 1 0 0 0 69 58 A 1 1 0 0 0 70 59 A 1 1 0 0 0 71 58 A 1 1 0 0 0 70 57 z M 10 61 A 1 1 0 0 0 9 62 A 1 1 0 0 0 10 63 A 1 1 0 0 0 11 62 A 1 1 0 0 0 10 61 z M 70 61 A 1 1 0 0 0 69 62 A 1 1 0 0 0 70 63 A 1 1 0 0 0 71 62 A 1 1 0 0 0 70 61 z M 10 65 A 1 1 0 0 0 9 66 A 1 1 0 0 0 10 67 A 1 1 0 0 0 11 66 A 1 1 0 0 0 10 65 z M 70 65 A 1 1 0 0 0 69 66 A 1 1 0 0 0 70 67 A 1 1 0 0 0 71 66 A 1 1 0 0 0 70 65 z M 10 69 A 1 1 0 0 0 9 70 A 1 1 0 0 0 10 71 A 1 1 0 0 0 11 70 A 1 1 0 0 0 10 69 z M 14 69 A 1 1 0 0 0 13 70 A 1 1 0 0 0 14 71 A 1 1 0 0 0 15 70 A 1 1 0 0 0 14 69 z M 18 69 A 1 1 0 0 0 17 70 A 1 1 0 0 0 18 71 A 1 1 0 0 0 19 70 A 1 1 0 0 0 18 69 z M 22 69 A 1 1 0 0 0 21 70 A 1 1 0 0 0 22 71 A 1 1 0 0 0 23 70 A 1 1 0 0 0 22 69 z M 26 69 A 1 1 0 0 0 25 70 A 1 1 0 0 0 26 71 A 1 1 0 0 0 27 70 A 1 1 0 0 0 26 69 z M 30 69 A 1 1 0 0 0 29 70 A 1 1 0 0 0 30 71 A 1 1 0 0 0 31 70 A 1 1 0 0 0 30 69 z M 34 69 A 1 1 0 0 0 33 70 A 1 1 0 0 0 34 71 A 1 1 0 0 0 35 70 A 1 1 0 0 0 34 69 z M 38 69 A 1 1 0 0 0 37 70 A 1 1 0 0 0 38 71 A 1 1 0 0 0 39 70 A 1 1 0 0 0 38 69 z M 42 69 A 1 1 0 0 0 41 70 A 1 1 0 0 0 42 71 A 1 1 0 0 0 43 70 A 1 1 0 0 0 42 69 z M 46 69 A 1 1 0 0 0 45 70 A 1 1 0 0 0 46 71 A 1 1 0 0 0 47 70 A 1 1 0 0 0 46 69 z M 50 69 A 1 1 0 0 0 49 70 A 1 1 0 0 0 50 71 A 1 1 0 0 0 51 70 A 1 1 0 0 0 50 69 z M 54 69 A 1 1 0 0 0 53 70 A 1 1 0 0 0 54 71 A 1 1 0 0 0 55 70 A 1 1 0 0 0 54 69 z M 58 69 A 1 1 0 0 0 57 70 A 1 1 0 0 0 58 71 A 1 1 0 0 0 59 70 A 1 1 0 0 0 58 69 z M 62 69 A 1 1 0 0 0 61 70 A 1 1 0 0 0 62 71 A 1 1 0 0 0 63 70 A 1 1 0 0 0 62 69 z M 66 69 A 1 1 0 0 0 65 70 A 1 1 0 0 0 66 71 A 1 1 0 0 0 67 70 A 1 1 0 0 0 66 69 z M 70 69 A 1 1 0 0 0 69 70 A 1 1 0 0 0 70 71 A 1 1 0 0 0 71 70 A 1 1 0 0 0 70 69 z';
 
+// The dotted frame is identical across the three icons8 glyphs. Every frame dot
+// is an arc (`A`) subpath; the interior bars are the only `L`-based rectangles.
+// Split one glyph on its `M` commands and keep the arc-only subpaths to recover
+// the frame alone — reused so the horizontal-align icons get the exact same
+// dotted border, making both families visually consistent.
+const FRAME_D = TOP_D.split(/(?=M)/).filter((s) => !s.includes('L')).join('');
+
+// A 2-unit-tall bar rect in the 0..80 glyph space (matches icons8's bar metrics).
+const bar = (x1: number, x2: number, y: number) =>
+  `M ${x1} ${y} L ${x1} ${y + 2} L ${x2} ${y + 2} L ${x2} ${y} z`;
+
+// Horizontal-align glyphs: four text-like lines (full / short / full / short),
+// with the short lines flush left, centered, or flush right. Same frame + bar
+// thickness as the vertical icons.
+const ROWS = [27, 35, 43, 51];
+const SHORT = { left: [20, 48], center: [26, 54], right: [32, 60] } as const;
+const hbars = (which: keyof typeof SHORT) => {
+  const [sx1, sx2] = SHORT[which];
+  return [bar(20, 60, ROWS[0]), bar(sx1, sx2, ROWS[1]), bar(20, 60, ROWS[2]), bar(sx1, sx2, ROWS[3])].join(' ');
+};
+const LEFT_D = `${FRAME_D} ${hbars('left')}`;
+const CENTER_D = `${FRAME_D} ${hbars('center')}`;
+const RIGHT_D = `${FRAME_D} ${hbars('right')}`;
+
+// viewBox cropped tight to the frame (dots occupy ~8..72) so the glyph fills the
+// icon box with almost no padding — the icons8 art is heavily inset, so cropping
+// "blows it up" to stay legible at inspector size.
 function Glyph({ d, ...props }: SVGProps<SVGSVGElement> & { d: string }) {
   return (
-    <svg viewBox="0 0 80 80" fill="currentColor" xmlns="http://www.w3.org/2000/svg" {...props}>
+    <svg viewBox="8 8 64 64" fill="currentColor" xmlns="http://www.w3.org/2000/svg" {...props}>
       <path d={d} />
     </svg>
   );
@@ -31,4 +59,13 @@ export function VAlignMiddleIcon(props: SVGProps<SVGSVGElement>) {
 }
 export function VAlignBottomIcon(props: SVGProps<SVGSVGElement>) {
   return <Glyph d={BOTTOM_D} {...props} />;
+}
+export function HAlignLeftIcon(props: SVGProps<SVGSVGElement>) {
+  return <Glyph d={LEFT_D} {...props} />;
+}
+export function HAlignCenterIcon(props: SVGProps<SVGSVGElement>) {
+  return <Glyph d={CENTER_D} {...props} />;
+}
+export function HAlignRightIcon(props: SVGProps<SVGSVGElement>) {
+  return <Glyph d={RIGHT_D} {...props} />;
 }

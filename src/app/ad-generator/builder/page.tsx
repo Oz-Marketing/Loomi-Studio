@@ -96,7 +96,7 @@ import { vehicleOffer } from '@/lib/ad-generator/templates/vehicle-offer';
 import { requiredFieldsFor, FIELD_LABELS, type OemOfferRule } from '@/lib/ad-generator/compliance';
 import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } from '@/lib/ad-generator/layer-tree';
 import { TextElementIcon, ShapeElementIcon, ButtonElementIcon, DashboardLayoutIcon, LayersIcon, OutlinesIcon, MarginsIcon, CropIcon } from '@/components/ad-generator/builder-icons';
-import { VAlignTopIcon, VAlignMiddleIcon, VAlignBottomIcon } from '@/components/ad-generator/valign-icons';
+import { VAlignTopIcon, VAlignMiddleIcon, VAlignBottomIcon, HAlignLeftIcon, HAlignCenterIcon, HAlignRightIcon } from '@/components/ad-generator/valign-icons';
 import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
 import { useIndustries } from '@/lib/hooks/use-industries';
 import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, GradientFill, GradientStop, BlendMode, Binding } from '@/lib/ad-generator/doc-types';
@@ -6235,13 +6235,13 @@ function MultiSelectPanel({
             <PanelSection title="Alignment">
               <div className="flex items-center gap-1">
                 <BarBtn title="Align left" active={(sample?.align ?? 'left') === 'left'} onClick={() => onElAll({ align: 'left' })}>
-                  <Bars3BottomLeftIcon className="h-4 w-4" />
+                  <HAlignLeftIcon className="h-5 w-5" />
                 </BarBtn>
                 <BarBtn title="Align center" active={sample?.align === 'center'} onClick={() => onElAll({ align: 'center' })}>
-                  <Bars3Icon className="h-4 w-4" />
+                  <HAlignCenterIcon className="h-5 w-5" />
                 </BarBtn>
                 <BarBtn title="Align right" active={sample?.align === 'right'} onClick={() => onElAll({ align: 'right' })}>
-                  <Bars3BottomRightIcon className="h-4 w-4" />
+                  <HAlignRightIcon className="h-5 w-5" />
                 </BarBtn>
                 <span className="mx-1 h-6 w-px bg-[var(--border)]" />
                 <BarBtn title="Uppercase" active={!!sample?.uppercase} onClick={() => onElAll({ uppercase: !sample?.uppercase })}>
@@ -6651,26 +6651,26 @@ function SelectionPanel({
             <PanelSection title="Alignment">
               <div className="flex items-center gap-1">
                 <BarBtn title="Align left" active={(el.align ?? 'left') === 'left'} onClick={() => onEl({ align: 'left' })}>
-                  <Bars3BottomLeftIcon className="h-4 w-4" />
+                  <HAlignLeftIcon className="h-5 w-5" />
                 </BarBtn>
                 <BarBtn title="Align center" active={el.align === 'center'} onClick={() => onEl({ align: 'center' })}>
-                  <Bars3Icon className="h-4 w-4" />
+                  <HAlignCenterIcon className="h-5 w-5" />
                 </BarBtn>
                 <BarBtn title="Align right" active={el.align === 'right'} onClick={() => onEl({ align: 'right' })}>
-                  <Bars3BottomRightIcon className="h-4 w-4" />
+                  <HAlignRightIcon className="h-5 w-5" />
                 </BarBtn>
                 {/* Vertical alignment — only meaningful inside a Fit-to-box frame. */}
                 {isFit && (
                   <>
                     <span className="mx-1 h-6 w-px bg-[var(--border)]" />
                     <BarBtn title="Align top" active={(el.vAlign ?? 'middle') === 'top'} onClick={() => onEl({ vAlign: 'top' })}>
-                      <VAlignTopIcon className="h-4 w-4" />
+                      <VAlignTopIcon className="h-5 w-5" />
                     </BarBtn>
                     <BarBtn title="Align middle" active={(el.vAlign ?? 'middle') === 'middle'} onClick={() => onEl({ vAlign: undefined })}>
-                      <VAlignMiddleIcon className="h-4 w-4" />
+                      <VAlignMiddleIcon className="h-5 w-5" />
                     </BarBtn>
                     <BarBtn title="Align bottom" active={el.vAlign === 'bottom'} onClick={() => onEl({ vAlign: 'bottom' })}>
-                      <VAlignBottomIcon className="h-4 w-4" />
+                      <VAlignBottomIcon className="h-5 w-5" />
                     </BarBtn>
                   </>
                 )}
