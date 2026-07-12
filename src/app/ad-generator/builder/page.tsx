@@ -691,6 +691,8 @@ export default function AdBuilderPage() {
   };
   const [sizeId, setSizeId] = useState(doc.sizes[0].id);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // Collapse the right settings panel to reclaim the full canvas width (sticky).
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   // The group the user has "drilled into" via double-click (Figma-style): while
   // set, clicks act on individual members of this group instead of selecting the
   // whole group as a unit. Cleared when the selection leaves the group.
@@ -1045,7 +1047,12 @@ export default function AdBuilderPage() {
   // The ad scales to fill the canvas pane (measured), with a little padding.
   const [canvasRef, canvasSize] = useElementSize<HTMLDivElement>();
   const frameRef = useRef<HTMLDivElement>(null); // the artboard frame (for panel alignment)
-  const availW = canvasSize.width - CANVAS_PAD;
+  // Reserve room on the right for the selection/settings panel so the artboard
+  // fits + centers in the VISIBLE area rather than under the overlay panel. The
+  // artboard can still be panned under the panel; this only sets the rest fit.
+  const RIGHT_PANEL_W = 320; // w-72 panel (288) + right-4 gap + breathing room
+  const rightReserve = selectedIds.length > 0 && !inspectorCollapsed ? RIGHT_PANEL_W : 0;
+  const availW = canvasSize.width - CANVAS_PAD - rightReserve;
   const availH = canvasSize.height - CANVAS_PAD;
   // The ordered set of sizes shown together in multi-artboard view — the checked
   // ones, or all sizes when nothing's checked. Also the export selection.
@@ -4009,7 +4016,9 @@ export default function AdBuilderPage() {
               <div
                 className={viewAll ? 'grid place-items-center' : undefined}
                 style={{
-                  transform: `translate(${pan.x}px, ${pan.y}px)`,
+                  // Offset left by half the reserved panel width so the centered
+                  // artboard sits in the visible area, not under the right panel.
+                  transform: `translate(${pan.x - rightReserve / 2}px, ${pan.y}px)`,
                   willChange: 'transform',
                   ...(viewAll ? { gridTemplateColumns: `repeat(${allGrid.cols}, max-content)`, gap: GRID_GAP } : {}),
                 }}
@@ -4466,10 +4475,22 @@ export default function AdBuilderPage() {
                 </div>
               )}
 
-              {selected && selectedBox && !selectedBox.hidden && (
+              {selected && selectedBox && !selectedBox.hidden && inspectorCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => setInspectorCollapsed(false)}
+                  title="Show settings"
+                  aria-label="Show settings"
+                  className="absolute right-4 top-4 z-[70] inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card-strong)] text-[var(--muted-foreground)] shadow-lg backdrop-blur-2xl transition-colors hover:text-[var(--foreground)]"
+                >
+                  <ChevronLeftIcon className="h-4 w-4" />
+                </button>
+              )}
+              {selected && selectedBox && !selectedBox.hidden && !inspectorCollapsed && (
                 <SelectionPanel
                   el={selected}
                   box={selectedBox}
+                  onCollapse={() => setInspectorCollapsed(true)}
                   sizeW={size.width}
                   sizeH={size.height}
                   fontOptions={fontOptions}
@@ -6284,6 +6305,7 @@ function SelectionPanel({
   onBox,
   onSetSizing,
   onClose,
+  onCollapse,
   onFillArtboard,
   shifted,
   cropping,
@@ -6305,6 +6327,8 @@ function SelectionPanel({
    *  Re-hugs when switching to hug. */
   onSetSizing: (mode: 'hug' | 'fit') => void;
   onClose: () => void;
+  /** Collapse the panel (hide it, keep the selection) to reclaim canvas width. */
+  onCollapse: () => void;
   /** Make this element a full-bleed background (fill artboard + send to back on
    *  every size). Shown for Image + Shape. */
   onFillArtboard: () => void;
@@ -6357,9 +6381,14 @@ function SelectionPanel({
           />
           <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: `${kindColor}1f`, color: kindColor }}>{typeLabel}</span>
         </div>
-        <button type="button" onClick={onClose} title="Deselect" aria-label="Deselect" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
-          <XMarkIcon className="h-4 w-4" />
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button type="button" onClick={onCollapse} title="Collapse panel (keeps the selection)" aria-label="Collapse panel" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
+            <ChevronRightIcon className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={onClose} title="Deselect" aria-label="Deselect" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col divide-y divide-[var(--border)] px-3 py-0.5">
