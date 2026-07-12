@@ -469,6 +469,19 @@ function elName(el: DocElement): string {
   return b.key;
 }
 
+/** If a text element's content is a SINGLE `{{field}}` token (and nothing else),
+ *  return that field key. Inline editing such a box then edits the field's VALUE
+ *  — showing the resolved value and writing the typed value back to the field —
+ *  instead of exposing the raw `{{token}}`. Mixed content (e.g. "${{monthlyPayment}}/mo")
+ *  returns null and edits the literal string as before. Mirrors the `{{ }}`
+ *  double-brace tokens that doc-renderer's interpolateTokens resolves. */
+const PURE_FIELD_TOKEN_RE = /^\s*\{\{\s*([\w.]+)\s*\}\}\s*$/;
+function pureFieldTokenKey(el: DocElement | null | undefined): string | null {
+  if (!el || el.type !== 'text' || el.locked || el.binding?.kind !== 'static') return null;
+  const m = PURE_FIELD_TOKEN_RE.exec(el.binding.value ?? '');
+  return m ? m[1] : null;
+}
+
 /** Binary-search a Fit-to-box text node's font so its (wrapped) text is as large
  *  as fits the box's inner width AND height. Mirrors the FIT_SCRIPT injected for
  *  export — the builder writes the canvas via innerHTML, so scripts there don't
@@ -1563,7 +1576,15 @@ export default function AdBuilderPage() {
       const el = doc.elements.find((e) => e.id === elId);
       const target = textEditTarget(el);
       if (!el || !target) return;
-      const cur = el.binding!.kind === 'static' ? el.binding!.value : String(previewData[(el.binding as { key: string }).key] ?? '');
+      // A pure `{{field}}` box edits the field's resolved VALUE, not the token
+      // literal — so the designer sees "499", not "{{monthlyPayment}}".
+      const tokenKey = pureFieldTokenKey(el);
+      const cur =
+        tokenKey != null
+          ? String(previewData[tokenKey] ?? '')
+          : el.binding!.kind === 'static'
+            ? el.binding!.value
+            : String(previewData[(el.binding as { key: string }).key] ?? '');
       setSelectedIds([elId]);
       setEditingText({ id: elId, value: cur });
     },
@@ -1611,7 +1632,14 @@ export default function AdBuilderPage() {
       if (!cur) return null;
       const el = doc.elements.find((e) => e.id === cur.id);
       const b = el?.binding;
-      if (b?.kind === 'static') {
+      const tokenKey = pureFieldTokenKey(el);
+      if (tokenKey != null) {
+        // Pure `{{field}}` box: save the typed value to the field default and
+        // KEEP the token binding intact, so the box stays a live variable that
+        // now resolves to the new value (e.g. 499 → 599).
+        const key = OFFER_LABEL_OVERRIDE[tokenKey] ?? tokenKey;
+        setDoc((prev) => ({ ...prev, defaults: { ...prev.defaults, [key]: cur.value } }));
+      } else if (b?.kind === 'static') {
         setElement(cur.id, { binding: { kind: 'static', value: cur.value } });
       } else if (b?.kind === 'field') {
         // Offer-label bindings write their free-text override field, not the
