@@ -224,11 +224,18 @@ interface RenderCtx {
 
 function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: RenderCtx): string {
   const { width, height, brand, brandStack } = ctx;
+  // Conditional visibility (`visibleWhen`): the element shows only when the gating
+  // field's value is in the allowed set (e.g. a `%` badge only for `offerType: apr`).
+  // On export the wrong-type element is omitted entirely; in the builder it's kept
+  // but dimmed (like a per-size hidden element) so the designer can still edit it.
+  const condHidden =
+    !!el.visibleWhen && !el.visibleWhen.in.includes(String(data[el.visibleWhen.field] ?? ''));
+  if (condHidden && !ctx.preview) return '';
   // data-el-id lets the builder find + move this node live during a drag.
   const idAttr = ` data-el-id="${esc(el.id)}"`;
   // In the builder, a hidden element is dimmed/blurred (still visible so it can
   // be selected) rather than removed; on export it's omitted.
-  const dim = ctx.preview && box.hidden ? 'opacity:0.35;filter:blur(1.5px);' : '';
+  const dim = ctx.preview && (box.hidden || condHidden) ? 'opacity:0.35;filter:blur(1.5px);' : '';
   // Element-level compositing: opacity (any type) + blend mode. When dimmed in
   // preview, the dim opacity wins so "hidden" stays legible; blend still applies.
   const opacityFx = el.opacity != null && el.opacity < 100 ? `opacity:${clamp01(el.opacity / 100)};` : '';

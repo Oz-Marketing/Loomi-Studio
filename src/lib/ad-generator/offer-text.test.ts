@@ -10,8 +10,11 @@ describe('assembleOffer', () => {
       dueAtSigning: '2999',
     });
     expect(o).toEqual({
-      label: 'LEASE FOR',
+      label: 'PER MONTH LEASE',
       main: '$299/mo',
+      value: '299',
+      currency: '$',
+      percent: '',
       terms: '36-month lease · $2,999 due at signing',
     });
   });
@@ -23,14 +26,17 @@ describe('assembleOffer', () => {
       aprTerm: '60',
       financialInstitution: 'Toyota Financial',
     });
-    expect(o?.label).toBe('FINANCE AT');
+    expect(o?.label).toBe('APR');
     expect(o?.main).toBe('1.9% APR');
+    expect(o?.value).toBe('1.9');
+    expect(o?.currency).toBe('');
+    expect(o?.percent).toBe('%');
     expect(o?.terms).toBe('for 60 months · through Toyota Financial');
   });
 
   it('handles discount Off-MSRP vs Cash Back styles', () => {
     const off = assembleOffer({ offerType: 'discount', discountAmount: '3000', msrp: '42000', discountLabelStyle: 'off_msrp' });
-    expect(off).toEqual({ label: 'SAVE', main: '$3,000', terms: 'Off MSRP $42,000' });
+    expect(off).toEqual({ label: 'OFF MSRP', main: '$3,000', value: '3,000', currency: '$', percent: '', terms: 'Off MSRP $42,000' });
 
     const cash = assembleOffer({ offerType: 'discount', discountAmount: '3000', msrp: '42000', discountLabelStyle: 'cash_back' });
     expect(cash?.label).toBe('CASH BACK');
@@ -39,7 +45,7 @@ describe('assembleOffer', () => {
 
   it('assembles a sales-price offer', () => {
     const o = assembleOffer({ offerType: 'sales_price', salePrice: '28995', msrp: '34000' });
-    expect(o).toEqual({ label: 'SALE PRICE', main: '$28,995', terms: 'MSRP $34,000' });
+    expect(o).toEqual({ label: 'SALES PRICE', main: '$28,995', value: '28,995', currency: '$', percent: '', terms: 'MSRP $34,000' });
   });
 
   it('lets offerLabel override the default label', () => {
@@ -66,7 +72,7 @@ describe('assembleOffer', () => {
 
   it('enriches the _offer* display fields the doc templates bind to', () => {
     const e = enrichOfferFields({ offerType: 'lease', monthlyPayment: '299', leaseTerm: '36' });
-    expect(e._offerLabel).toBe('LEASE FOR');
+    expect(e._offerLabel).toBe('PER MONTH LEASE');
     expect(e._offerMain).toBe('$299/mo');
     expect(e._offerTerms).toContain('36-month lease');
   });

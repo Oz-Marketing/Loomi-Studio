@@ -22,12 +22,21 @@ export const OFFER_TYPES: { value: OfferType; label: string }[] = [
 
 /** The assembled on-image offer block. */
 export interface OfferBlock {
-  /** Small label above the number (e.g. "LEASE FOR"). */
+  /** Small label above the number (e.g. "PER MONTH LEASE"). */
   label: string;
-  /** The big headline number (e.g. "$299/mo", "1.9% APR"). */
+  /** The big headline number, symbols included (e.g. "$299/mo", "1.9% APR"). */
   main: string;
   /** Supporting line(s), joined (e.g. "36-month lease · $2,999 due at signing"). */
   terms: string;
+  /** The bare headline NUMBER only, no symbols (e.g. "299", "1.9", "40,000") — so
+   *  the `$` prefix / `%` suffix can be their own styled, conditionally-shown
+   *  elements (per the offer-block mockups). */
+  value: string;
+  /** Leading currency symbol for this offer type: "$" for money amounts, "" for
+   *  APR (which carries a trailing "%" instead). */
+  currency: string;
+  /** Trailing rate symbol: "%" for APR, "" otherwise. */
+  percent: string;
 }
 
 // ── formatting ──────────────────────────────────────────────────────────────
@@ -46,6 +55,14 @@ function money(v: string | undefined): string | null {
   return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
+/** The bare number with thousands separators — NO currency/percent symbol (they
+ *  render as separate elements). Keeps up to 2 decimals (APR rates like "1.9"). */
+function plain(v: string | undefined): string | null {
+  const n = num(v);
+  if (n == null) return null;
+  return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
 function joinTerms(parts: (string | null | undefined)[]): string {
   return parts.filter((p) => p && String(p).trim() !== '').join(' · ');
 }
@@ -53,9 +70,9 @@ function joinTerms(parts: (string | null | undefined)[]): string {
 const PLACEHOLDER = '—';
 
 const DEFAULT_LABEL: Record<Exclude<OfferType, 'custom' | 'discount'>, string> = {
-  lease: 'LEASE FOR',
-  apr: 'FINANCE AT',
-  sales_price: 'SALE PRICE',
+  lease: 'PER MONTH LEASE',
+  apr: 'APR',
+  sales_price: 'SALES PRICE',
 };
 
 /**
@@ -80,9 +97,14 @@ export function enrichOfferFields(data: AdData): AdData {
     // Only synthesize a block if this prefix's offer is actually in play.
     if (!(`${prefix}offerType` in data) && prefix !== '') continue;
     const offer = assembleOffer(data, prefix);
-    out[`_${prefix}offerLabel`] = offer ? offer.label : data[`${prefix}offerLabel`] || 'LEASE FOR';
+    out[`_${prefix}offerLabel`] = offer ? offer.label : data[`${prefix}offerLabel`] || 'PER MONTH LEASE';
     out[`_${prefix}offerMain`] = offer ? offer.main : data[`${prefix}price`] || '$299/mo';
     out[`_${prefix}offerTerms`] = offer ? offer.terms : data[`${prefix}terms`] || '';
+    // Split pieces so the number + its $ / % symbol can be separate styled,
+    // conditionally-shown elements (offer-block mockups).
+    out[`_${prefix}offerValue`] = offer ? offer.value : data[`${prefix}price`] || '299';
+    out[`_${prefix}offerCurrency`] = offer ? offer.currency : '';
+    out[`_${prefix}offerPercent`] = offer ? offer.percent : '';
   }
   return out;
 }
@@ -103,6 +125,9 @@ export function assembleOffer(data: AdData, prefix = ''): OfferBlock | null {
       return {
         label: override || DEFAULT_LABEL.lease,
         main: pay ? `${pay}/mo` : PLACEHOLDER,
+        value: plain(g('monthlyPayment')) ?? PLACEHOLDER,
+        currency: '$',
+        percent: '',
         terms: joinTerms([
           term != null ? `${term}-month lease` : null,
           due ? `${due} due at signing` : null,
@@ -115,6 +140,9 @@ export function assembleOffer(data: AdData, prefix = ''): OfferBlock | null {
       return {
         label: override || DEFAULT_LABEL.apr,
         main: rate != null ? `${rate}% APR` : PLACEHOLDER,
+        value: plain(g('aprRate')) ?? PLACEHOLDER,
+        currency: '',
+        percent: '%',
         terms: joinTerms([
           term != null ? `for ${term} months` : null,
           g('financialInstitution') ? `through ${g('financialInstitution')}` : null,
@@ -125,8 +153,11 @@ export function assembleOffer(data: AdData, prefix = ''): OfferBlock | null {
       const amt = money(g('discountAmount'));
       const cashBack = g('discountLabelStyle') === 'cash_back';
       return {
-        label: override || (cashBack ? 'CASH BACK' : 'SAVE'),
+        label: override || (cashBack ? 'CASH BACK' : 'OFF MSRP'),
         main: amt ?? PLACEHOLDER,
+        value: plain(g('discountAmount')) ?? PLACEHOLDER,
+        currency: '$',
+        percent: '',
         terms: joinTerms([
           msrp ? (cashBack ? `MSRP ${msrp}` : `Off MSRP ${msrp}`) : null,
           g('discountSource') || null,
@@ -138,6 +169,9 @@ export function assembleOffer(data: AdData, prefix = ''): OfferBlock | null {
       return {
         label: override || DEFAULT_LABEL.sales_price,
         main: sale ?? PLACEHOLDER,
+        value: plain(g('salePrice')) ?? PLACEHOLDER,
+        currency: '$',
+        percent: '',
         terms: joinTerms([msrp ? `MSRP ${msrp}` : null]),
       };
     }

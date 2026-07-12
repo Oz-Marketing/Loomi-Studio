@@ -219,11 +219,17 @@ const OFFER_LABEL_OVERRIDE: Record<string, string> = {
 const OFFER_TOKENS: { key: string; label: string }[] = [
   { key: '_offerLabel', label: 'Offer label' },
   { key: '_offerMain', label: 'Offer amount' },
+  { key: '_offerValue', label: 'Offer number (no symbol)' },
+  { key: '_offerCurrency', label: 'Offer $ symbol' },
+  { key: '_offerPercent', label: 'Offer % symbol' },
   { key: '_offerTerms', label: 'Offer terms' },
 ];
 const OFFER_TOKENS_O2: { key: string; label: string }[] = [
   { key: '_o2_offerLabel', label: 'Offer 2 label' },
   { key: '_o2_offerMain', label: 'Offer 2 amount' },
+  { key: '_o2_offerValue', label: 'Offer 2 number (no symbol)' },
+  { key: '_o2_offerCurrency', label: 'Offer 2 $ symbol' },
+  { key: '_o2_offerPercent', label: 'Offer 2 % symbol' },
   { key: '_o2_offerTerms', label: 'Offer 2 terms' },
 ];
 
@@ -268,6 +274,9 @@ function buildContentSources(el: DocElement, fields: FieldSpec[]): SearchableSel
         ? [
             { key: '_offerLabel', label: 'Offer 1 label' },
             { key: '_offerMain', label: 'Offer 1 amount' },
+            { key: '_offerValue', label: 'Offer 1 number (no symbol)' },
+            { key: '_offerCurrency', label: 'Offer 1 $ symbol' },
+            { key: '_offerPercent', label: 'Offer 1 % symbol' },
             { key: '_offerTerms', label: 'Offer 1 terms' },
           ]
         : OFFER_TOKENS;
@@ -4580,6 +4589,7 @@ export default function AdBuilderPage() {
                     if (mode === 'hug') hugBoxToContent(selected.id);
                   }}
                   fitFontPx={fitFontPx}
+                  hasOfferField={doc.fields.some((f) => f.key === 'offerType')}
                   onClose={clearSelection}
                   onFillArtboard={() => fillArtboardAndSendBack(selected.id)}
                   shifted={false}
@@ -6416,6 +6426,7 @@ function SelectionPanel({
   onBox,
   onSetSizing,
   fitFontPx,
+  hasOfferField,
   onClose,
   onCollapse,
   collapsed,
@@ -6442,6 +6453,9 @@ function SelectionPanel({
   /** Text/Fit-to-box only: the measured auto-scaled font size (px), for a
    *  read-only readout. Null when unavailable (not yet fit / not fit mode). */
   fitFontPx: number | null;
+  /** Whether the template has an `offerType` field — gates the per-offer-type
+   *  "Show for" (element visibleWhen) control. */
+  hasOfferField: boolean;
   onClose: () => void;
   /** Collapse the panel (hide it, keep the selection) to reclaim canvas width. */
   onCollapse: () => void;
@@ -6664,6 +6678,41 @@ function SelectionPanel({
             </label>
           </div>
         </PanelSection>
+
+        {/* Show for — per-offer-type visibility (element `visibleWhen`). Only for
+            templates with an offerType question. All checked = always shown; check
+            a subset to show this element only for those offer types. */}
+        {hasOfferField && (
+          <PanelSection title="Show for">
+            <div className="flex flex-wrap items-center gap-1">
+              {OFFER_TYPES.map((t) => {
+                const all = OFFER_TYPES.map((x) => x.value);
+                const cur = el.visibleWhen?.field === 'offerType' ? el.visibleWhen.in : all;
+                const active = cur.includes(t.value);
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => {
+                      const next = active ? cur.filter((v) => v !== t.value) : [...cur, t.value];
+                      onEl({ visibleWhen: next.length === all.length ? undefined : { field: 'offerType', in: next } });
+                    }}
+                    className={`rounded-full border px-2 py-1 text-[11px] font-medium transition-colors ${
+                      active
+                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+              <Tooltip label="This element renders only for the checked offer types (hidden on export, dimmed in the editor). All checked = always shown.">
+                <InformationCircleIcon className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]" />
+              </Tooltip>
+            </div>
+          </PanelSection>
+        )}
 
         {el.type === 'text' && (
           <>

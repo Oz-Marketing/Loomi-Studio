@@ -91,6 +91,12 @@ export interface DocElement {
   groupId?: string;
   /** What the element displays. Omitted for plain shapes. */
   binding?: Binding;
+  /** Conditional visibility: render this element ONLY when the value of field
+   *  `field` is one of `in` (e.g. `{ field: 'offerType', in: ['apr'] }` shows a
+   *  `%` badge only for APR offers). Lets one template carry all offer types —
+   *  the wrong-type pieces are omitted on export and dimmed (still selectable) on
+   *  the builder canvas. Independent of a size's per-size `hidden` flag. */
+  visibleWhen?: { field: string; in: string[] };
   // ── text ──
   /** Font family; empty / undefined = the account's brand font stack. */
   fontFamily?: string;
