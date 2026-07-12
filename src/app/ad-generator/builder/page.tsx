@@ -25,8 +25,6 @@ import { toast } from 'sonner';
 import {
   PhotoIcon,
   Bars3BottomLeftIcon,
-  Bars3Icon,
-  Bars3BottomRightIcon,
   BuildingStorefrontIcon,
   ArrowLeftIcon,
   EyeIcon,
