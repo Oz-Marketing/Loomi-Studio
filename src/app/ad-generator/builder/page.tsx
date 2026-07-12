@@ -4486,10 +4486,11 @@ export default function AdBuilderPage() {
                   <ChevronLeftIcon className="h-4 w-4" />
                 </button>
               )}
-              {selected && selectedBox && !selectedBox.hidden && !inspectorCollapsed && (
+              {selected && selectedBox && !selectedBox.hidden && (
                 <SelectionPanel
                   el={selected}
                   box={selectedBox}
+                  collapsed={inspectorCollapsed}
                   onCollapse={() => setInspectorCollapsed(true)}
                   sizeW={size.width}
                   sizeH={size.height}
@@ -6306,6 +6307,7 @@ function SelectionPanel({
   onSetSizing,
   onClose,
   onCollapse,
+  collapsed,
   onFillArtboard,
   shifted,
   cropping,
@@ -6329,6 +6331,8 @@ function SelectionPanel({
   onClose: () => void;
   /** Collapse the panel (hide it, keep the selection) to reclaim canvas width. */
   onCollapse: () => void;
+  /** When true, the panel slides off to the right (kept mounted for the animation). */
+  collapsed: boolean;
   /** Make this element a full-bleed background (fill artboard + send to back on
    *  every size). Shown for Image + Shape. */
   onFillArtboard: () => void;
@@ -6363,11 +6367,24 @@ function SelectionPanel({
   };
   // Field/offer tokens a designer can drop into text as {{key}}.
   const insertableVars = contentSources.filter((o) => o.value.startsWith('field:'));
+  // Slide in on mount, out when collapsed (kept mounted so both directions animate).
+  const [shownIn, setShownIn] = useState(false);
+  useEffect(() => {
+    const r = requestAnimationFrame(() => setShownIn(true));
+    return () => cancelAnimationFrame(r);
+  }, []);
+  const visible = shownIn && !collapsed;
+  // Deselect slides the panel out first, then unmounts (so close animates too).
+  const close = () => {
+    setShownIn(false);
+    setTimeout(onClose, 200);
+  };
 
   return (
     <div
       data-adgen-panel
-      className={`absolute bottom-4 top-4 z-[70] flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl ${shifted ? 'right-[360px]' : 'right-4'}`}
+      className={`absolute bottom-4 top-4 z-[70] flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card-strong)] shadow-2xl backdrop-blur-2xl transition-[transform,opacity] duration-200 ease-out ${shifted ? 'right-[360px]' : 'right-4'} ${visible ? '' : 'pointer-events-none'}`}
+      style={{ transform: visible ? 'translateX(0)' : 'translateX(340px)', opacity: visible ? 1 : 0 }}
     >
       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
@@ -6385,7 +6402,7 @@ function SelectionPanel({
           <button type="button" onClick={onCollapse} title="Collapse panel (keeps the selection)" aria-label="Collapse panel" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
             <ChevronRightIcon className="h-4 w-4" />
           </button>
-          <button type="button" onClick={onClose} title="Deselect" aria-label="Deselect" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
+          <button type="button" onClick={close} title="Deselect" aria-label="Deselect" className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
             <XMarkIcon className="h-4 w-4" />
           </button>
         </div>
