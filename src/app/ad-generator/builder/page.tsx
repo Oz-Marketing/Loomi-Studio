@@ -96,6 +96,7 @@ import { vehicleOffer } from '@/lib/ad-generator/templates/vehicle-offer';
 import { requiredFieldsFor, FIELD_LABELS, type OemOfferRule } from '@/lib/ad-generator/compliance';
 import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } from '@/lib/ad-generator/layer-tree';
 import { TextElementIcon, ShapeElementIcon, ButtonElementIcon, DashboardLayoutIcon, LayersIcon, OutlinesIcon, MarginsIcon, CropIcon } from '@/components/ad-generator/builder-icons';
+import { VAlignTopIcon, VAlignMiddleIcon, VAlignBottomIcon } from '@/components/ad-generator/valign-icons';
 import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
 import { useIndustries } from '@/lib/hooks/use-industries';
 import type { TemplateDoc, DocElement, DocElementType, DocLayoutBox, GradientFill, GradientStop, BlendMode, Binding } from '@/lib/ad-generator/doc-types';
@@ -1339,6 +1340,25 @@ export default function AdBuilderPage() {
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
   const selected = selectedId ? doc.elements.find((e) => e.id === selectedId) ?? null : null;
   const selectedBox = selectedId ? layout[selectedId] : undefined;
+  // Live readout of the auto-scaled font size for the selected Fit-to-box text.
+  // The font is computed at render time (fitTextNode), never stored on the box,
+  // so we measure the rendered node's computed size and surface it (grayed) in
+  // the inspector. Re-measures after the fit settles (double-rAF + fonts.ready)
+  // and whenever the selection, doc render, or box geometry changes.
+  const [fitFontPx, setFitFontPx] = useState<number | null>(null);
+  useEffect(() => {
+    if (!selectedId) { setFitFontPx(null); return; }
+    let raf1 = 0, raf2 = 0;
+    const measure = () => {
+      const node = iframeRef.current?.contentDocument?.querySelector<HTMLElement>(
+        `[data-el-id="${selectedId}"][data-fit]`,
+      );
+      setFitFontPx(node ? Math.round(parseFloat(getComputedStyle(node).fontSize)) || null : null);
+    };
+    raf1 = requestAnimationFrame(() => { raf2 = requestAnimationFrame(measure); });
+    iframeRef.current?.contentDocument?.fonts?.ready?.then(measure).catch(() => {});
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+  }, [selectedId, html, selectedBox?.w, selectedBox?.h]);
   // Crop mode is tied to a single selected image; drop it the moment the
   // selection changes (or clears) so we never crop something that isn't focused.
   useEffect(() => {
@@ -4506,6 +4526,7 @@ export default function AdBuilderPage() {
                     updEl({ autoSize: mode === 'hug' ? true : undefined });
                     if (mode === 'hug') hugBoxToContent(selected.id);
                   }}
+                  fitFontPx={fitFontPx}
                   onClose={clearSelection}
                   onFillArtboard={() => fillArtboardAndSendBack(selected.id)}
                   shifted={false}
@@ -6305,6 +6326,7 @@ function SelectionPanel({
   onEl,
   onBox,
   onSetSizing,
+  fitFontPx,
   onClose,
   onCollapse,
   collapsed,
@@ -6328,6 +6350,9 @@ function SelectionPanel({
   /** Text only: set the sizing mode — fixed (wrap) / hug (box follows text).
    *  Re-hugs when switching to hug. */
   onSetSizing: (mode: 'hug' | 'fit') => void;
+  /** Text/Fit-to-box only: the measured auto-scaled font size (px), for a
+   *  read-only readout. Null when unavailable (not yet fit / not fit mode). */
+  fitFontPx: number | null;
   onClose: () => void;
   /** Collapse the panel (hide it, keep the selection) to reclaim canvas width. */
   onCollapse: () => void;
@@ -6550,10 +6575,17 @@ function SelectionPanel({
             <PanelSection title="Font">
               <FontSelect value={el.fontFamily ?? ''} onChange={(v) => onEl({ fontFamily: v || undefined })} options={fontOptions} />
               <div className="mt-2 flex items-center gap-2">
-                {/* Fit to box: the font auto-scales to the frame, so the size
-                    stepper is replaced by an "auto" note. */}
+                {/* Fit to box: the font auto-scales to the frame, so instead of an
+                    editable stepper we surface the measured auto size (grayed) so
+                    the designer can still see the actual rendered pixels. */}
                 {isFit ? (
-                  <div className="flex-1 rounded-md border border-[var(--border)] bg-[var(--muted)]/40 px-2 py-1.5 text-center text-[11px] italic text-[var(--muted-foreground)]">Auto — fits the box</div>
+                  <div
+                    className="flex flex-1 items-center justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--muted)]/40 px-2 py-1.5 text-center text-[11px] text-[var(--muted-foreground)]"
+                    title="Auto-scaled to fill the box"
+                  >
+                    <span className="tabular-nums">{fitFontPx != null ? fitFontPx : '—'}</span>
+                    <span>px</span>
+                  </div>
                 ) : (
                   <div className="flex flex-1 items-center gap-1">
                     <BarBtn title="Smaller" onClick={() => applyFontSize(fontSize - 2)}>
@@ -6577,6 +6609,19 @@ function SelectionPanel({
                 <div className="w-28 shrink-0">
                   <FontSelect value={String(el.fontWeight ?? 400)} onChange={(v) => onEl({ fontWeight: Number(v) })} options={WEIGHT_OPTIONS} previewFont={false} />
                 </div>
+              </div>
+              {/* Uppercase — a font-casing toggle, so it lives under Font. */}
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-[var(--foreground)]">Uppercase</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!el.uppercase}
+                  onClick={() => onEl({ uppercase: !el.uppercase })}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${el.uppercase ? 'bg-[var(--primary)]' : 'border border-[var(--border)] bg-[var(--muted)]'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${el.uppercase ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
               </div>
             </PanelSection>
 
@@ -6619,20 +6664,16 @@ function SelectionPanel({
                   <>
                     <span className="mx-1 h-6 w-px bg-[var(--border)]" />
                     <BarBtn title="Align top" active={(el.vAlign ?? 'middle') === 'top'} onClick={() => onEl({ vAlign: 'top' })}>
-                      <span className="flex h-4 w-4 flex-col justify-start"><span className="h-[2px] w-full rounded bg-current" /></span>
+                      <VAlignTopIcon className="h-4 w-4" />
                     </BarBtn>
                     <BarBtn title="Align middle" active={(el.vAlign ?? 'middle') === 'middle'} onClick={() => onEl({ vAlign: undefined })}>
-                      <span className="flex h-4 w-4 flex-col justify-center"><span className="h-[2px] w-full rounded bg-current" /></span>
+                      <VAlignMiddleIcon className="h-4 w-4" />
                     </BarBtn>
                     <BarBtn title="Align bottom" active={el.vAlign === 'bottom'} onClick={() => onEl({ vAlign: 'bottom' })}>
-                      <span className="flex h-4 w-4 flex-col justify-end"><span className="h-[2px] w-full rounded bg-current" /></span>
+                      <VAlignBottomIcon className="h-4 w-4" />
                     </BarBtn>
                   </>
                 )}
-                <span className="mx-1 h-6 w-px bg-[var(--border)]" />
-                <BarBtn title="Uppercase" active={!!el.uppercase} onClick={() => onEl({ uppercase: !el.uppercase })}>
-                  <span className="text-[11px] font-bold leading-none">Aa</span>
-                </BarBtn>
               </div>
             </PanelSection>
 
