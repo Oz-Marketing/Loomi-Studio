@@ -367,21 +367,9 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
     bg +
     padding +
     radius;
-  if (el.autoSize) {
-    // HUG (default): the element sizes to its content (width:max-content, no wrap;
-    // explicit newlines still break via white-space:pre) and is ANCHORED by
-    // `align` — the box's left/center/right edge stays fixed while the text
-    // grows from it. Hugs whatever value renders, incl. dynamic client data.
-    // The stored w/h aren't a clamp here — they only drive the builder's handles.
-    const anchorX = el.align === 'center' ? (box.x + box.w / 2) * width : el.align === 'right' ? (box.x + box.w) * width : box.x * width;
-    const anchorY = (box.y + box.h / 2) * height;
-    const shiftX = el.align === 'center' ? '-50%' : el.align === 'right' ? '-100%' : '0';
-    const posAuto =
-      `position:absolute;left:${anchorX}px;top:${anchorY}px;transform:translate(${shiftX},-50%);` +
-      `width:max-content;max-width:none;white-space:pre;`;
-    return `<div${idAttr} data-hug style="${dim}${fx}${posAuto}${common}">${value}</div>`;
-  }
-  // FIT TO BOX: a fixed W×H frame. The font auto-scales (fit script / builder
+  // Text has two modes now: WRAP (fixed font, wraps) and FILL (font auto-scales).
+  // The retired HUG mode (`autoSize`) is treated as WRAP so old elements migrate.
+  // FILL: a fixed W×H frame. The font auto-scales (fit script / builder
   // parent) so the text always fills/fits the frame and never overflows — for any
   // value, incl. dynamic client data — wrapping to the width, aligned by `align`
   // (horizontal) + `vAlign` (vertical). Text can't gap away from or collide with
@@ -408,7 +396,7 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
   // visible on big numbers like a price). It's inline-block + max-width:100% so
   // it still wraps at the frame width AND shrink-wraps to the ink for the fit to
   // measure. The fit script/parent measure THIS node, not a Range.
-  const marker = el.wrap ? 'data-wrap' : 'data-fit';
+  const marker = el.wrap || el.autoSize ? 'data-wrap' : 'data-fit';
   const inner = `<div data-fit-inner style="display:inline-block;max-width:100%;white-space:pre-wrap;text-box:trim-both cap alphabetic;">${value}</div>`;
   return `<div${idAttr} ${marker} style="${dim}${fx}${styles}">${inner}</div>`;
 }

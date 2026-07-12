@@ -122,24 +122,18 @@ export interface DocElement {
   paddingBottom?: number;
   paddingLeft?: number;
   align?: 'left' | 'center' | 'right';
-  /** Text vertical alignment WITHIN a Fit-to-box frame (ignored in Hug). */
+  /** Text vertical alignment within the fixed frame. */
   vAlign?: 'top' | 'middle' | 'bottom';
-  /** Text sizing mode (default Hug):
-   *  - HUG (`autoSize` truthy, the default for new text): the box hugs its text —
-   *    never wraps (explicit newlines still break), grows/shrinks with the value,
-   *    anchored by `align`. No fixed W/H.
-   *  - FIT TO BOX (`autoSize` falsy, `wrap` falsy): a fixed W×H frame; the text
-   *    wraps to the width and the font auto-scales at render time so it always
-   *    fills/fits the frame and never overflows — for any value — aligned by
-   *    `align` (horizontal) + `vAlign` (vertical). Used for a price that must keep
-   *    a stable footprint.
-   *  - WRAP (`autoSize` falsy, `wrap` truthy): a fixed W×H frame; the text wraps
-   *    at your CHOSEN font size (not auto-scaled), stays contained (clipped), and
-   *    both W and H are resizable. Used for paragraph text like disclaimers. */
-  autoSize?: boolean;
-  /** WRAP mode — see `autoSize`. Only meaningful when `autoSize` is falsy: keeps a
-   *  fixed font and wraps (vs Fit-to-box, which auto-scales the font to fill). */
+  /** WRAP mode (the default for new text). A fixed W×H frame; the text wraps at
+   *  the element's CHOSEN font size (not auto-scaled), stays contained (clipped),
+   *  and both W and H are resizable. When falsy (and `autoSize` falsy) the element
+   *  is FILL instead: a fixed W×H frame whose font auto-scales at render time to
+   *  fill the box (for a price that must keep a stable footprint). Aligned by
+   *  `align` (horizontal) + `vAlign` (vertical) in both modes. */
   wrap?: boolean;
+  /** DEPRECATED — the retired "Hug" mode. Existing elements with `autoSize` truthy
+   *  are treated as WRAP (see `wrap`); no new element sets it. */
+  autoSize?: boolean;
   // ── image / logo ──
   /** `contain` fits inside the box, `cover` fills + crops, `tile` repeats the
    *  image to fill (for seamless textures/patterns). */
