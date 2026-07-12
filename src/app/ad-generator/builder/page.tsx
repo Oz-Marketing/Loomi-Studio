@@ -92,7 +92,7 @@ import { enrichOfferFields, OFFER_TYPES } from '@/lib/ad-generator/offer-text';
 import { EVOX_MAKES } from '@/components/ad-generator/client-form/evox-makes';
 import { vehicleOffer } from '@/lib/ad-generator/templates/vehicle-offer';
 import { requiredFieldsFor, FIELD_LABELS, type OemOfferRule } from '@/lib/ad-generator/compliance';
-import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type LayerNode } from '@/lib/ad-generator/layer-tree';
+import { buildLayerTree, flattenLayerTree, normalizeGroupZ, pruneEmptyGroups, type LayerNode } from '@/lib/ad-generator/layer-tree';
 import { TextElementIcon, ShapeElementIcon, ButtonElementIcon, DashboardLayoutIcon, LayersIcon, OutlinesIcon, MarginsIcon, CropIcon } from '@/components/ad-generator/builder-icons';
 import { VAlignTopIcon, VAlignMiddleIcon, VAlignBottomIcon, HAlignLeftIcon, HAlignCenterIcon, HAlignRightIcon } from '@/components/ad-generator/valign-icons';
 import { catalogByCategory } from '@/lib/ad-generator/ad-size-catalog';
@@ -1829,7 +1829,10 @@ export default function AdBuilderPage() {
         }
         layouts[sid] = next;
       }
-      return { ...prev, elements: prev.elements.filter((e) => e.id !== id), layouts };
+      const elements = prev.elements.filter((e) => e.id !== id);
+      // Deleting the last member of a group leaves an empty group node behind —
+      // prune it so the Layers panel doesn't keep a childless group row.
+      return { ...prev, elements, layouts, groups: pruneEmptyGroups(elements, prev.groups ?? []) };
     });
     setSelectedIds((ids) => ids.filter((x) => x !== id));
   }, []);
@@ -2546,19 +2549,7 @@ export default function AdBuilderPage() {
       for (const sid of Object.keys(prev.layouts)) {
         layouts[sid] = Object.fromEntries(Object.entries(prev.layouts[sid]).filter(([k]) => !ids.has(k)));
       }
-      const parentOf = new Map((prev.groups ?? []).map((g) => [g.id, g.parentId ?? null]));
-      const stillUsed = (gid: string) =>
-        elements.some((e) => {
-          let g = e.groupId ?? null;
-          const seen = new Set<string>();
-          while (g && !seen.has(g)) {
-            if (g === gid) return true;
-            seen.add(g);
-            g = parentOf.get(g) ?? null;
-          }
-          return false;
-        });
-      const groups = (prev.groups ?? []).filter((g) => stillUsed(g.id));
+      const groups = pruneEmptyGroups(elements, prev.groups ?? []);
       return { ...prev, elements, layouts, groups };
     });
     clearSelection();

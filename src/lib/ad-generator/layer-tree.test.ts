@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildLayerTree, flattenLayerTree, normalizeGroupZ, type GroupMeta } from './layer-tree';
+import { buildLayerTree, flattenLayerTree, normalizeGroupZ, pruneEmptyGroups, type GroupMeta } from './layer-tree';
 
 describe('layer-tree (nested)', () => {
   it('nests a group at its frontmost member', () => {
@@ -34,6 +34,22 @@ describe('layer-tree (nested)', () => {
     const groups: GroupMeta[] = [{ id: 'g1' }, { id: 'g2', parentId: 'g1' }];
     const tree = buildLayerTree([{ id: 'a', groupId: 'g2' }, { id: 'b', groupId: 'g1' }, { id: 'c' }], groups);
     expect(flattenLayerTree(tree)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('pruneEmptyGroups drops groups whose last element was deleted', () => {
+    const groups: GroupMeta[] = [{ id: 'g1' }, { id: 'g2' }];
+    // g1 still has member `a`; g2's members were all deleted.
+    expect(pruneEmptyGroups([{ id: 'a', groupId: 'g1' }], groups).map((g) => g.id)).toEqual(['g1']);
+    // Nothing left → both groups pruned.
+    expect(pruneEmptyGroups([], groups)).toEqual([]);
+  });
+
+  it('pruneEmptyGroups keeps a parent group that only holds a non-empty subgroup', () => {
+    const groups: GroupMeta[] = [{ id: 'g1' }, { id: 'g2', parentId: 'g1' }];
+    // `a` sits in the nested g2 → both g2 and its parent g1 must survive.
+    expect(pruneEmptyGroups([{ id: 'a', groupId: 'g2' }], groups).map((g) => g.id).sort()).toEqual(['g1', 'g2']);
+    // Remove `a` → the whole nested chain is empty and both prune away.
+    expect(pruneEmptyGroups([{ id: 'b' }], groups)).toEqual([]);
   });
 
   it('normalizeGroupZ pulls a nested group together and reassigns z', () => {

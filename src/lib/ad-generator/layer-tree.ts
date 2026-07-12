@@ -83,6 +83,27 @@ export function buildLayerTree(order: ElementRef[], groups: GroupMeta[]): LayerN
   return build(ROOT);
 }
 
+/**
+ * Drop groups that no longer contain any element — directly OR through a nested
+ * subgroup. Call after removing elements so an emptied group's node disappears
+ * from the Layers panel instead of lingering as a childless row. Cycle-safe.
+ */
+export function pruneEmptyGroups<E extends ElementRef, G extends GroupMeta>(elements: E[], groups: G[]): G[] {
+  const parentOf = new Map(groups.map((g) => [g.id, g.parentId ?? null]));
+  const used = (gid: string) =>
+    elements.some((e) => {
+      let g = e.groupId ?? null;
+      const seen = new Set<string>();
+      while (g && !seen.has(g)) {
+        if (g === gid) return true;
+        seen.add(g);
+        g = parentOf.get(g) ?? null;
+      }
+      return false;
+    });
+  return groups.filter((g) => used(g.id));
+}
+
 /** Flatten a tree to a front→back element-id list (group descendants contiguous). */
 export function flattenLayerTree(nodes: LayerNode[]): string[] {
   const out: string[] = [];
