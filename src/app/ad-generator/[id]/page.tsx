@@ -15,7 +15,7 @@
  * campaignId (future multi-channel Campaign link).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -284,6 +284,28 @@ export default function AdGeneratorPage() {
   );
 
   const size = useMemo(() => template.sizes.find((s) => s.id === sizeId) ?? template.sizes[0], [template, sizeId]);
+
+  // Style the read-only disclaimer PREVIEW to match the disclaimer element's
+  // actual look (font / weight / color / alignment / line-height) instead of
+  // generic form chrome — so the preview reflects the ad, not a gray box. Font
+  // size is floored for form readability (the element's own size can be tiny).
+  const disclaimerPreviewStyle = useMemo<CSSProperties | undefined>(() => {
+    const doc = docSnapshot;
+    if (!doc) return undefined;
+    const el = doc.elements.find((e) => e.binding?.kind === 'field' && e.binding.key === 'disclaimer');
+    if (!el) return undefined;
+    const box = doc.layouts?.[sizeId]?.[el.id];
+    const SYS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+    const stack = selectedFontFamily ? `'${selectedFontFamily}', ${SYS}` : SYS;
+    return {
+      fontFamily: el.fontFamily ? `'${el.fontFamily}', ${stack}` : stack,
+      fontWeight: el.fontWeight ?? 400,
+      color: el.color === 'brand' ? brandColor || '#0f172a' : el.color || '#0f172a',
+      textAlign: (el.align ?? 'left') as CSSProperties['textAlign'],
+      lineHeight: el.lineHeight ?? 1.3,
+      fontSize: Math.max(12, Math.round(box?.fontSize ?? 13)),
+    };
+  }, [docSnapshot, sizeId, brandColor, selectedFontFamily]);
   const renderData = useMemo(() => ({ ...data, ...brandingData }), [data, brandingData]);
 
   // Which of the template's sizes this ad includes (multi-select, persisted in
@@ -760,6 +782,7 @@ export default function AdGeneratorPage() {
                           value={data.disclaimer ?? ''}
                           onChange={(v) => set('disclaimer', v)}
                           readOnly={!isManager}
+                          previewStyle={disclaimerPreviewStyle}
                         />
                       );
                     }

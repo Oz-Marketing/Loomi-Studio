@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { PhotoIcon, TruckIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
@@ -152,6 +152,7 @@ export function DisclaimerField({
   value,
   onChange,
   readOnly = false,
+  previewStyle,
 }: {
   field: FieldSpec;
   renderData: AdData;
@@ -160,6 +161,9 @@ export function DisclaimerField({
   /** Clients can't override the disclaimer — it still auto-fills, but shows
    *  read-only (only admins & up can edit/override). */
   readOnly?: boolean;
+  /** Inline styles derived from the disclaimer element so the read-only preview
+   *  reflects the ad's actual look (font / color / alignment) instead of chrome. */
+  previewStyle?: CSSProperties;
 }) {
   const offerType = renderData.offerType || 'custom';
   const [templates, setTemplates] = useState<DisclaimerTemplateOption[]>([]);
@@ -219,7 +223,10 @@ export function DisclaimerField({
     return (
       <div>
         <label className="mb-1 block text-xs font-medium text-[var(--foreground)]">{field.label}</label>
-        <div className="w-full whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2 text-xs leading-snug text-[var(--muted-foreground)]">
+        <div
+          className={`w-full whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-2${previewStyle ? '' : ' text-xs leading-snug text-[var(--muted-foreground)]'}`}
+          style={previewStyle}
+        >
           {value || '—'}
         </div>
       </div>
