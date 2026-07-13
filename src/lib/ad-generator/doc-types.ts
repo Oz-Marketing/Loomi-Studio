@@ -131,6 +131,13 @@ export interface DocElement {
    *  fill the box (for a price that must keep a stable footprint). Aligned by
    *  `align` (horizontal) + `vAlign` (vertical) in both modes. */
   wrap?: boolean;
+  /** SHRINK-ON-OVERFLOW mode. Like WRAP — a fixed W×H frame, text renders at the
+   *  element's CHOSEN font size — but if the text would overflow the frame the
+   *  font auto-shrinks (down only) just enough to fit. It never grows past the
+   *  chosen size (that's FILL). The chosen font size is the CAP. Takes precedence
+   *  over `wrap`. Good for the terms line / disclaimer that must stay one size
+   *  until a long value forces it smaller. */
+  shrink?: boolean;
   /** DEPRECATED — the retired "Hug" mode. Existing elements with `autoSize` truthy
    *  are treated as WRAP (see `wrap`); no new element sets it. */
   autoSize?: boolean;

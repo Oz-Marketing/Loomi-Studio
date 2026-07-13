@@ -398,7 +398,14 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
   // visible on big numbers like a price). It's inline-block + max-width:100% so
   // it still wraps at the frame width AND shrink-wraps to the ink for the fit to
   // measure. The fit script/parent measure THIS node, not a Range.
-  const marker = el.wrap || el.autoSize ? 'data-wrap' : 'data-fit';
+  // SHRINK: fit like FILL but capped at the chosen font size — so it holds that
+  // size and only scales DOWN when a value would overflow (never up). `data-fit-max`
+  // carries the cap. WRAP: fixed font, wraps. FILL (default): maximize to the frame.
+  const marker = el.shrink
+    ? `data-fit data-fit-max="${box.fontSize ?? 16}"`
+    : el.wrap || el.autoSize
+      ? 'data-wrap'
+      : 'data-fit';
   const inner = `<div data-fit-inner style="display:inline-block;max-width:100%;white-space:pre-wrap;text-box:trim-both cap alphabetic;">${value}</div>`;
   return `<div${idAttr} ${marker} style="${dim}${fx}${styles}">${inner}</div>`;
 }
@@ -490,17 +497,22 @@ const FIT_SCRIPT = `(function(){
       // Measure the trimmed inner box so the fit fills the frame with GLYPH INK,
       // not the taller line box; fall back to a Range if the inner is absent.
       var inner=el.querySelector('[data-fit-inner]');
-      var lo=1, hi=Math.max(2,availH*2);
-      for(var i=0;i<18;i++){
-        var mid=(lo+hi)/2;
-        el.style.fontSize=mid+'px';
+      function fits(px){
+        el.style.fontSize=px+'px';
         var w, h;
         // width via scrollWidth (unbreakable text overflows the max-width cap),
         // height via the trimmed box rect.
         if(inner){ w=inner.scrollWidth; h=inner.getBoundingClientRect().height; }
         else { var r=document.createRange(); r.selectNodeContents(el); var rr=r.getBoundingClientRect(); w=rr.width; h=rr.height; }
-        if(w<=availW+0.5 && h<=availH+0.5) lo=mid; else hi=mid;
+        return w<=availW+0.5 && h<=availH+0.5;
       }
+      // data-fit-max caps the size (SHRINK): hold the chosen size, only shrink to
+      // fit on overflow — never grow past it. Absent (FILL) → maximize to frame.
+      var capAttr=el.getAttribute('data-fit-max');
+      var cap=capAttr?parseFloat(capAttr):0;
+      if(cap>0 && fits(cap)){ el.style.fontSize=cap+'px'; return; }
+      var lo=1, hi=cap>0?cap:Math.max(2,availH*2);
+      for(var i=0;i<18;i++){ var mid=(lo+hi)/2; if(fits(mid)) lo=mid; else hi=mid; }
       el.style.fontSize=lo+'px';
     }catch(e){}
   }

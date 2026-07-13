@@ -538,20 +538,31 @@ function fitTextNode(node: HTMLElement) {
   // width via scrollWidth (true content width — an unbreakable number overflows
   // the max-width cap, so getBoundingClientRect would under-report it); height
   // via the trimmed box rect. Editing replaces the inner → Range fallback.
-  const measure = (): { width: number; height: number } => {
-    if (inner) return { width: inner.scrollWidth, height: inner.getBoundingClientRect().height };
-    const r = node.ownerDocument.createRange();
-    r.selectNodeContents(node);
-    const rr = r.getBoundingClientRect();
-    return { width: rr.width, height: rr.height };
+  const fits = (px: number): boolean => {
+    node.style.fontSize = `${px}px`;
+    const rect = inner
+      ? { width: inner.scrollWidth, height: inner.getBoundingClientRect().height }
+      : (() => {
+          const r = node.ownerDocument.createRange();
+          r.selectNodeContents(node);
+          const rr = r.getBoundingClientRect();
+          return { width: rr.width, height: rr.height };
+        })();
+    return rect.width <= availW + 0.5 && rect.height <= availH + 0.5;
   };
+  // `data-fit-max` caps the size (SHRINK mode): hold the chosen size, only shrink
+  // to fit on overflow — never grow past it. Absent (FILL) → maximize to the frame.
+  const capAttr = node.getAttribute('data-fit-max');
+  const cap = capAttr ? parseFloat(capAttr) : 0;
+  if (cap > 0 && fits(cap)) {
+    node.style.fontSize = `${cap}px`;
+    return;
+  }
   let lo = 1;
-  let hi = Math.max(2, availH * 2);
+  let hi = cap > 0 ? cap : Math.max(2, availH * 2);
   for (let i = 0; i < 18; i++) {
     const mid = (lo + hi) / 2;
-    node.style.fontSize = `${mid}px`;
-    const rect = measure();
-    if (rect.width <= availW + 0.5 && rect.height <= availH + 0.5) lo = mid;
+    if (fits(mid)) lo = mid;
     else hi = mid;
   }
   node.style.fontSize = `${lo}px`;
@@ -4453,7 +4464,7 @@ export default function AdBuilderPage() {
                   accountKey={accountKey ?? undefined}
                   onEl={updEl}
                   onBox={(patch) => setBox(size.id, selected.id, { ...selectedBox, ...patch }, `box:${selected.id}:${Object.keys(patch).sort().join(',')}`)}
-                  onSetSizing={(mode) => updEl({ wrap: mode === 'wrap' ? true : undefined, autoSize: undefined })}
+                  onSetSizing={(mode) => updEl({ wrap: mode === 'wrap' ? true : undefined, shrink: mode === 'shrink' ? true : undefined, autoSize: undefined })}
                   fitFontPx={fitFontPx}
                   hasOfferField={doc.fields.some((f) => f.key === 'offerType')}
                   onClose={clearSelection}
@@ -5266,7 +5277,7 @@ function SelectionPanel({
   onBox: (patch: Partial<DocLayoutBox>) => void;
   /** Text only: set the sizing mode — hug (box follows text) / wrap (fixed frame,
    *  fixed font, wraps) / fit (fixed frame, font auto-scales). Re-hugs on hug. */
-  onSetSizing: (mode: 'wrap' | 'fit') => void;
+  onSetSizing: (mode: 'wrap' | 'fit' | 'shrink') => void;
   /** Text/Fit-to-box only: the measured auto-scaled font size (px), for a
    *  read-only readout. Null when unavailable (not yet fit / not fit mode). */
   fitFontPx: number | null;
@@ -5291,10 +5302,14 @@ function SelectionPanel({
   const [picking, setPicking] = useState(false);
   const isImageEl = el.type === 'image' || el.type === 'logo' || el.type === 'background';
   // Text sizing mode (default Wrap). Wrap: a fixed W×H frame; the text wraps at
-  // YOUR font size (W/H + font editable). Fill: a fixed W×H frame; the text
-  // auto-scales to fill it (W/H editable, the font stepper becomes an "auto"
-  // note). The retired Hug mode (`autoSize`) is folded into Wrap.
-  const sizingMode: 'wrap' | 'fit' = el.wrap || el.autoSize ? 'wrap' : 'fit';
+  // YOUR font size (W/H + font editable). Shrink: same, but the font auto-shrinks
+  // to fit when a value overflows (your size is the CAP — font editable). Fill: a
+  // fixed W×H frame; the text auto-scales to fill it (the font stepper becomes an
+  // "auto" note). The retired Hug mode (`autoSize`) is folded into Wrap.
+  const sizingMode: 'wrap' | 'fit' | 'shrink' = el.shrink ? 'shrink' : el.wrap || el.autoSize ? 'wrap' : 'fit';
+  // Only FILL fully auto-sizes the font (the stepper is replaced by the measured
+  // px). Shrink keeps an editable font size (the cap) even though it may render
+  // smaller — so it's treated like Wrap for the font control.
   const isFit = el.type === 'text' && sizingMode === 'fit';
   // Font-size input keeps a local draft string while focused so a multi-digit
   // value (e.g. "12") isn't snapped to the min (4) on the first keystroke.
@@ -5552,13 +5567,14 @@ function SelectionPanel({
               </div>
             </PanelSection>
 
-            {/* Sizing — how the box and text relate. Two modes (default Wrap):
+            {/* Sizing — how the box and text relate. Three modes (default Wrap):
                 • Wrap: a fixed W×H frame; the text wraps at YOUR font size, contained.
+                • Shrink: same, but the font auto-shrinks to fit when a value overflows.
                 • Fill: a fixed W×H frame; the text auto-scales to fill it (value 'fit'). */}
             <PanelSection title="Sizing">
               <div className="flex items-center gap-2">
                 <div className="flex flex-1 items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-0.5">
-                  {([['wrap', 'Wrap'], ['fit', 'Fill']] as const).map(([m, labelText]) => (
+                  {([['wrap', 'Wrap'], ['shrink', 'Shrink'], ['fit', 'Fill']] as const).map(([m, labelText]) => (
                     <button
                       key={m}
                       type="button"
@@ -5573,7 +5589,7 @@ function SelectionPanel({
                     </button>
                   ))}
                 </div>
-                <Tooltip label="Wrap: a fixed frame — drag W and H and the text wraps at your chosen font size, staying contained. Fill: a fixed frame — the text auto-scales to fill the box.">
+                <Tooltip label="Wrap: a fixed frame — the text wraps at your chosen font size, staying contained. Shrink: keeps your font size but auto-shrinks it to fit when a value is too long (never grows). Fill: the text auto-scales to fill the box.">
                   <InformationCircleIcon className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]" />
                 </Tooltip>
               </div>
