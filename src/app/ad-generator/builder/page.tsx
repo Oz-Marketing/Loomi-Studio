@@ -767,7 +767,7 @@ export default function AdBuilderPage() {
         ...makeDefaultElement(id, 'text'),
         binding: { kind: 'field', key },
         visibleWhen: { field: 'offerType', in: [offerType] },
-        wrap: true,
+        shrink: true,
       };
       const layouts = { ...prev.layouts };
       for (const sid of Object.keys(prev.layouts)) {
@@ -1981,8 +1981,9 @@ export default function AdBuilderPage() {
         };
         const layouts = { ...prev.layouts };
         for (const s of prev.sizes) layouts[s.id] = { ...layouts[s.id], [id]: { ...box } };
-        // New text hugs its content by default (no wrap; resize scales the font).
-        const el = type === 'text' ? { ...makeDefaultElement(id, type), wrap: true } : makeDefaultElement(id, type);
+        // New text defaults to SHRINK — holds its font size, scales down to fit
+        // only if a value overflows the frame.
+        const el = type === 'text' ? { ...makeDefaultElement(id, type), shrink: true } : makeDefaultElement(id, type);
         return { ...prev, elements: [...prev.elements, el], layouts };
       });
       setSelectedIds([id]);
@@ -2012,8 +2013,8 @@ export default function AdBuilderPage() {
         // hex (not `'brand'`, which rendered a colour the swatch didn't reflect).
         bg: '#000000',
         padding: 14,
-        // A button pill hugs its label (grows with the text, no wrap).
-        wrap: true,
+        // Fixed frame; the label holds its size and shrinks to fit if long.
+        shrink: true,
       };
       return { ...prev, elements: [...prev.elements, el], layouts };
     });
@@ -2764,8 +2765,8 @@ export default function AdBuilderPage() {
       // Text sizing: an AUTO-SIZE ("hug") text box scales its font on any resize
       // (the box tracks the text, so widening the box grows the text). A classic
       // fixed text box resizes freely, and ⌘/Ctrl scales its font instead. Either
-      // Text boxes are fixed W×H frames now (Wrap / Fill) — resizing just changes
-      // the frame: Wrap re-wraps at the fixed font, Fill auto-fits (via moveNode).
+      // Text boxes are fixed W×H frames now (Shrink / Fill) — resizing just changes
+      // the frame: both re-fit the font to the new frame (via moveNode / fitTextNode).
       // Only Shift locks the aspect ratio (for any element).
       if (d.handle !== 'move' && e.shiftKey) box = lockAspect(d.handle, d.start, box, d.nw, d.nh);
       let gx: number | null = null;
@@ -4464,7 +4465,7 @@ export default function AdBuilderPage() {
                   accountKey={accountKey ?? undefined}
                   onEl={updEl}
                   onBox={(patch) => setBox(size.id, selected.id, { ...selectedBox, ...patch }, `box:${selected.id}:${Object.keys(patch).sort().join(',')}`)}
-                  onSetSizing={(mode) => updEl({ wrap: mode === 'wrap' ? true : undefined, shrink: mode === 'shrink' ? true : undefined, autoSize: undefined })}
+                  onSetSizing={(mode) => updEl({ shrink: mode === 'shrink' ? true : undefined, wrap: undefined, autoSize: undefined })}
                   fitFontPx={fitFontPx}
                   hasOfferField={doc.fields.some((f) => f.key === 'offerType')}
                   onClose={clearSelection}
@@ -5277,7 +5278,7 @@ function SelectionPanel({
   onBox: (patch: Partial<DocLayoutBox>) => void;
   /** Text only: set the sizing mode — hug (box follows text) / wrap (fixed frame,
    *  fixed font, wraps) / fit (fixed frame, font auto-scales). Re-hugs on hug. */
-  onSetSizing: (mode: 'wrap' | 'fit' | 'shrink') => void;
+  onSetSizing: (mode: 'fit' | 'shrink') => void;
   /** Text/Fit-to-box only: the measured auto-scaled font size (px), for a
    *  read-only readout. Null when unavailable (not yet fit / not fit mode). */
   fitFontPx: number | null;
@@ -5301,15 +5302,15 @@ function SelectionPanel({
   const kindColor = KIND_COLOR[elementKind(el)];
   const [picking, setPicking] = useState(false);
   const isImageEl = el.type === 'image' || el.type === 'logo' || el.type === 'background';
-  // Text sizing mode (default Wrap). Wrap: a fixed W×H frame; the text wraps at
-  // YOUR font size (W/H + font editable). Shrink: same, but the font auto-shrinks
-  // to fit when a value overflows (your size is the CAP — font editable). Fill: a
-  // fixed W×H frame; the text auto-scales to fill it (the font stepper becomes an
-  // "auto" note). The retired Hug mode (`autoSize`) is folded into Wrap.
-  const sizingMode: 'wrap' | 'fit' | 'shrink' = el.shrink ? 'shrink' : el.wrap || el.autoSize ? 'wrap' : 'fit';
+  // Text sizing mode (default Shrink). Shrink: a fixed W×H frame; the text holds
+  // YOUR font size (the CAP — font editable) and auto-shrinks to fit only when a
+  // value overflows. Fill: a fixed W×H frame; the text auto-scales up + down to
+  // fill it (the font stepper becomes an "auto" note). Retired Wrap/Hug
+  // (`wrap`/`autoSize`) fold into Shrink.
+  const sizingMode: 'fit' | 'shrink' = el.shrink || el.wrap || el.autoSize ? 'shrink' : 'fit';
   // Only FILL fully auto-sizes the font (the stepper is replaced by the measured
   // px). Shrink keeps an editable font size (the cap) even though it may render
-  // smaller — so it's treated like Wrap for the font control.
+  // smaller.
   const isFit = el.type === 'text' && sizingMode === 'fit';
   // Font-size input keeps a local draft string while focused so a multi-digit
   // value (e.g. "12") isn't snapped to the min (4) on the first keystroke.
@@ -5567,14 +5568,14 @@ function SelectionPanel({
               </div>
             </PanelSection>
 
-            {/* Sizing — how the box and text relate. Three modes (default Wrap):
-                • Wrap: a fixed W×H frame; the text wraps at YOUR font size, contained.
-                • Shrink: same, but the font auto-shrinks to fit when a value overflows.
+            {/* Sizing — how the box and text relate. Two modes (default Shrink):
+                • Shrink: a fixed W×H frame; the text holds YOUR font size and auto-
+                  shrinks to fit only when a value overflows.
                 • Fill: a fixed W×H frame; the text auto-scales to fill it (value 'fit'). */}
             <PanelSection title="Sizing">
               <div className="flex items-center gap-2">
                 <div className="flex flex-1 items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-0.5">
-                  {([['wrap', 'Wrap'], ['shrink', 'Shrink'], ['fit', 'Fill']] as const).map(([m, labelText]) => (
+                  {([['shrink', 'Shrink'], ['fit', 'Fill']] as const).map(([m, labelText]) => (
                     <button
                       key={m}
                       type="button"
@@ -5589,7 +5590,7 @@ function SelectionPanel({
                     </button>
                   ))}
                 </div>
-                <Tooltip label="Wrap: a fixed frame — the text wraps at your chosen font size, staying contained. Shrink: keeps your font size but auto-shrinks it to fit when a value is too long (never grows). Fill: the text auto-scales to fill the box.">
+                <Tooltip label="Shrink: a fixed frame — the text keeps your chosen font size, and auto-shrinks it to fit only when a value is too long (it never grows). Fill: the text auto-scales up and down to fill the box.">
                   <InformationCircleIcon className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]" />
                 </Tooltip>
               </div>
@@ -5606,7 +5607,7 @@ function SelectionPanel({
                 <BarBtn title="Align right" active={el.align === 'right'} onClick={() => onEl({ align: 'right' })}>
                   <HAlignRightIcon className="h-5 w-5" />
                 </BarBtn>
-                {/* Vertical alignment — every text box is a fixed frame now (Wrap/Fill). */}
+                {/* Vertical alignment — every text box is a fixed frame now (Shrink/Fill). */}
                 {el.type === 'text' && (
                   <>
                     <span className="mx-1 h-6 w-px bg-[var(--border)]" />

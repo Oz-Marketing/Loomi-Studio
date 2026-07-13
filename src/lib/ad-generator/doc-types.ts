@@ -124,22 +124,18 @@ export interface DocElement {
   align?: 'left' | 'center' | 'right';
   /** Text vertical alignment within the fixed frame. */
   vAlign?: 'top' | 'middle' | 'bottom';
-  /** WRAP mode (the default for new text). A fixed W×H frame; the text wraps at
-   *  the element's CHOSEN font size (not auto-scaled), stays contained (clipped),
-   *  and both W and H are resizable. When falsy (and `autoSize` falsy) the element
-   *  is FILL instead: a fixed W×H frame whose font auto-scales at render time to
-   *  fill the box (for a price that must keep a stable footprint). Aligned by
+  /** SHRINK-ON-OVERFLOW mode (the default for new text). A fixed W×H frame; the
+   *  text renders at the element's CHOSEN font size and only auto-shrinks (down
+   *  only) when a value would overflow the frame — it never grows past the chosen
+   *  size (that's FILL). The chosen font size is the CAP. When falsy the element is
+   *  FILL instead: the font auto-scales (up + down) to fill the box. Aligned by
    *  `align` (horizontal) + `vAlign` (vertical) in both modes. */
-  wrap?: boolean;
-  /** SHRINK-ON-OVERFLOW mode. Like WRAP — a fixed W×H frame, text renders at the
-   *  element's CHOSEN font size — but if the text would overflow the frame the
-   *  font auto-shrinks (down only) just enough to fit. It never grows past the
-   *  chosen size (that's FILL). The chosen font size is the CAP. Takes precedence
-   *  over `wrap`. Good for the terms line / disclaimer that must stay one size
-   *  until a long value forces it smaller. */
   shrink?: boolean;
+  /** DEPRECATED — the retired "Wrap" mode (fixed font, clip on overflow). Existing
+   *  elements with `wrap` truthy are treated as SHRINK; no new element sets it. */
+  wrap?: boolean;
   /** DEPRECATED — the retired "Hug" mode. Existing elements with `autoSize` truthy
-   *  are treated as WRAP (see `wrap`); no new element sets it. */
+   *  are treated as SHRINK; no new element sets it. */
   autoSize?: boolean;
   // ── image / logo ──
   /** `contain` fits inside the box, `cover` fills + crops, `tile` repeats the

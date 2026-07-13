@@ -369,8 +369,9 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
     bg +
     padding +
     radius;
-  // Text has two modes now: WRAP (fixed font, wraps) and FILL (font auto-scales).
-  // The retired HUG mode (`autoSize`) is treated as WRAP so old elements migrate.
+  // Text has two modes now: SHRINK (holds the chosen font, shrinks to fit on
+  // overflow) and FILL (font auto-scales to fill). The retired WRAP/HUG modes
+  // (`wrap`/`autoSize`) fold into SHRINK so old elements migrate.
   // FILL: a fixed W×H frame. The font auto-scales (fit script / builder
   // parent) so the text always fills/fits the frame and never overflows — for any
   // value, incl. dynamic client data — wrapping to the width, aligned by `align`
@@ -388,24 +389,19 @@ function renderElement(el: DocElement, box: DocLayoutBox, data: AdData, ctx: Ren
     fitPad +
     common +
     'overflow:hidden;';
-  // WRAP: a fixed W×H frame like Fit, but the font stays at the element's chosen
-  // size (no auto-scale). `data-wrap` keeps it out of the fit script/parent, so
-  // it never rescales — the text just wraps at the frame width and is clipped by
-  // overflow:hidden. Used for paragraph copy (disclaimers) that must stay legible.
-  // The value lives in a `text-box`-trimmed inner box so the FRAME hugs the
-  // glyph ink (cap height → alphabetic baseline), not the font's line box — this
-  // kills the ascent/descent "leading" gap above and below the text (most
-  // visible on big numbers like a price). It's inline-block + max-width:100% so
-  // it still wraps at the frame width AND shrink-wraps to the ink for the fit to
-  // measure. The fit script/parent measure THIS node, not a Range.
-  // SHRINK: fit like FILL but capped at the chosen font size — so it holds that
-  // size and only scales DOWN when a value would overflow (never up). `data-fit-max`
-  // carries the cap. WRAP: fixed font, wraps. FILL (default): maximize to the frame.
-  const marker = el.shrink
+  // Two sizing modes (see doc-types). SHRINK (default): a fixed W×H frame; the
+  // text holds the element's CHOSEN font size and only scales DOWN to fit when a
+  // value would overflow — never up. `data-fit-max` carries the chosen size as the
+  // cap. FILL: the font auto-scales (up + down) to maximize within the frame; no
+  // cap. Both go through the fit script/parent (`data-fit`). Legacy `wrap`/`autoSize`
+  // (the retired Wrap/Hug modes) fold into SHRINK. The value lives in a `text-box`-
+  // trimmed inner box so the FRAME hugs the glyph ink (cap height → baseline), not
+  // the font's line box — killing the ascent/descent "leading" gap (most visible on
+  // big numbers). It's inline-block + max-width:100% so it wraps at the frame width
+  // AND shrink-wraps to the ink for the fit to measure THIS node, not a Range.
+  const marker = el.shrink || el.wrap || el.autoSize
     ? `data-fit data-fit-max="${box.fontSize ?? 16}"`
-    : el.wrap || el.autoSize
-      ? 'data-wrap'
-      : 'data-fit';
+    : 'data-fit';
   const inner = `<div data-fit-inner style="display:inline-block;max-width:100%;white-space:pre-wrap;text-box:trim-both cap alphabetic;">${value}</div>`;
   return `<div${idAttr} ${marker} style="${dim}${fx}${styles}">${inner}</div>`;
 }

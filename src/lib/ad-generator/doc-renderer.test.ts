@@ -409,28 +409,30 @@ describe('renderDoc', () => {
     expect(html).toContain('data-el-id="bar"');
   });
 
-  it('marks text sizing modes: FILL=data-fit (no cap), SHRINK=data-fit + capped, WRAP=data-wrap', () => {
+  it('marks text sizing modes: FILL=data-fit (no cap), SHRINK=data-fit capped; legacy wrap→shrink', () => {
     const modes: TemplateDoc = {
       ...doc,
       elements: [
         { id: 'fill', type: 'text', binding: { kind: 'static', value: 'A' } },
         { id: 'shrink', type: 'text', binding: { kind: 'static', value: 'B' }, shrink: true },
-        { id: 'wrap', type: 'text', binding: { kind: 'static', value: 'C' }, wrap: true },
+        { id: 'legacy', type: 'text', binding: { kind: 'static', value: 'C' }, wrap: true },
       ],
       layouts: {
         square: {
           fill: { x: 0, y: 0, w: 0.5, h: 0.2, fontSize: 40 },
           shrink: { x: 0, y: 0.3, w: 0.5, h: 0.2, fontSize: 40 },
-          wrap: { x: 0, y: 0.6, w: 0.5, h: 0.2, fontSize: 40 },
+          legacy: { x: 0, y: 0.6, w: 0.5, h: 0.2, fontSize: 40 },
         },
       },
     };
     const html = renderDoc(modes, {}, SIZE, { preview: true });
     // FILL: data-fit with no cap (maximizes). SHRINK: data-fit capped at the
-    // chosen font size (holds it, only shrinks on overflow). WRAP: data-wrap.
+    // chosen font size (holds it, only shrinks on overflow). Legacy `wrap` folds
+    // into SHRINK (capped). No element renders the retired data-wrap marker.
     expect(html).toMatch(/data-el-id="fill"[^>]*\sdata-fit(?![-\w])/);
     expect(html).not.toMatch(/data-el-id="fill"[^>]*data-fit-max/);
     expect(html).toMatch(/data-el-id="shrink"[^>]*data-fit-max="40"/);
-    expect(html).toMatch(/data-el-id="wrap"[^>]*data-wrap/);
+    expect(html).toMatch(/data-el-id="legacy"[^>]*data-fit-max="40"/);
+    expect(html).not.toContain('data-wrap');
   });
 });
