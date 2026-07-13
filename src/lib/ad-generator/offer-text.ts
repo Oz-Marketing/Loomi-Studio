@@ -44,23 +44,33 @@ export interface OfferBlock {
 /** Parse a possibly-formatted numeric string ("$2,999", "1.9%") to a number. */
 function num(v: string | undefined): number | null {
   if (v == null || String(v).trim() === '') return null;
-  const n = Number(String(v).replace(/[^0-9.]/g, ''));
+  const cleaned = String(v).replace(/[^0-9.]/g, '');
+  // No digits (e.g. a placeholder like "X,XXX") → not a number, so callers can
+  // pass it through instead of coercing `Number("")` to 0.
+  if (cleaned === '' || cleaned === '.') return null;
+  const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
 }
 
-/** Format a value as USD (no cents by default), or null if not numeric. */
+/** Format a value as USD (no cents by default). A non-empty, non-numeric value
+ *  (a preview placeholder like "X,XXX", or pre-formatted text) passes straight
+ *  through with a "$" — so the canvas can show obvious placeholders. Null only
+ *  when truly empty. */
 function money(v: string | undefined): string | null {
   const n = num(v);
-  if (n == null) return null;
-  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (n != null) return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const s = (v ?? '').trim();
+  if (!s) return null;
+  return s.startsWith('$') ? s : '$' + s;
 }
 
 /** The bare number with thousands separators — NO currency/percent symbol (they
- *  render as separate elements). Keeps up to 2 decimals (APR rates like "1.9"). */
+ *  render as separate elements). Keeps up to 2 decimals (APR rates like "1.9").
+ *  A non-numeric value (placeholder / pre-formatted) passes through unchanged. */
 function plain(v: string | undefined): string | null {
   const n = num(v);
-  if (n == null) return null;
-  return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  if (n != null) return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return (v ?? '').trim() || null;
 }
 
 function joinTerms(parts: (string | null | undefined)[]): string {
@@ -98,11 +108,11 @@ export function enrichOfferFields(data: AdData): AdData {
     if (!(`${prefix}offerType` in data) && prefix !== '') continue;
     const offer = assembleOffer(data, prefix);
     out[`_${prefix}offerLabel`] = offer ? offer.label : data[`${prefix}offerLabel`] || 'PER MONTH LEASE';
-    out[`_${prefix}offerMain`] = offer ? offer.main : data[`${prefix}price`] || '$299/mo';
+    out[`_${prefix}offerMain`] = offer ? offer.main : data[`${prefix}price`] || '$X,XXX/mo';
     out[`_${prefix}offerTerms`] = offer ? offer.terms : data[`${prefix}terms`] || '';
     // Split pieces so the number + its $ / % symbol can be separate styled,
     // conditionally-shown elements (offer-block mockups).
-    out[`_${prefix}offerValue`] = offer ? offer.value : data[`${prefix}price`] || '299';
+    out[`_${prefix}offerValue`] = offer ? offer.value : data[`${prefix}price`] || 'X,XXX';
     out[`_${prefix}offerCurrency`] = offer ? offer.currency : '';
     out[`_${prefix}offerPercent`] = offer ? offer.percent : '';
   }
@@ -120,7 +130,7 @@ export function assembleOffer(data: AdData, prefix = ''): OfferBlock | null {
   switch (type) {
     case 'lease': {
       const pay = money(g('monthlyPayment'));
-      const term = num(g('leaseTerm'));
+      const term = plain(g('leaseTerm'));
       const due = money(g('dueAtSigning'));
       return {
         label: override || DEFAULT_LABEL.lease,
@@ -129,23 +139,23 @@ export function assembleOffer(data: AdData, prefix = ''): OfferBlock | null {
         currency: '$',
         percent: '',
         terms: joinTerms([
-          term != null ? `${term}-month lease` : null,
+          term ? `${term}-month lease` : null,
           due ? `${due} due at signing` : null,
         ]),
       };
     }
     case 'apr': {
-      const rate = num(g('aprRate'));
-      const term = num(g('aprTerm'));
+      const rate = plain(g('aprRate'));
+      const term = plain(g('aprTerm'));
       return {
         label: override || DEFAULT_LABEL.apr,
-        main: rate != null ? `${rate}% APR` : PLACEHOLDER,
-        value: plain(g('aprRate')) ?? PLACEHOLDER,
+        main: rate ? `${rate}% APR` : PLACEHOLDER,
+        value: rate ?? PLACEHOLDER,
         currency: '',
         percent: '%',
         // Just the financing term — the financial institution still rides in the
         // disclaimer, but the on-image terms line stays clean.
-        terms: joinTerms([term != null ? `for ${term} months` : null]),
+        terms: joinTerms([term ? `for ${term} months` : null]),
       };
     }
     case 'discount': {

@@ -19,9 +19,26 @@ import { vehicleOffer } from './templates/vehicle-offer';
  */
 export const SYSTEM_FIELDS: FieldSpec[] = vehicleOffer.fields;
 
-/** Canonical preview / starter values so a fresh canvas reads real immediately
- *  (and the "required fields" check passes) without the designer entering data. */
-export const SYSTEM_FIELD_DEFAULTS: Record<string, string> = { ...vehicleOffer.defaults };
+/** Canonical preview / starter values so a fresh canvas reads real immediately.
+ *  The offer NUMBERS default to obvious placeholders ("X,XXX", "X.X", …) — NOT
+ *  fake-real values like "299" — so the design never looks like a configured
+ *  offer; the actual numbers come from the client at generation. They're
+ *  non-numeric, so the offer engine passes them straight through. */
+export const SYSTEM_FIELD_DEFAULTS: Record<string, string> = {
+  ...vehicleOffer.defaults,
+  monthlyPayment: 'XXX',
+  leaseTerm: 'XX',
+  dueAtSigning: 'X,XXX',
+  securityDeposit: 'XXX',
+  aprRate: 'X.X',
+  aprTerm: 'XX',
+  costPerThousand: 'XX.XX',
+  discountAmount: 'X,XXX',
+  salePrice: 'XX,XXX',
+  msrp: 'XX,XXX',
+  price: '$X,XXX/mo',
+  terms: '',
+};
 
 /** System fields keyed by their `key` — for O(1) lookups (labels, gating, etc.). */
 export const SYSTEM_FIELD_BY_KEY: Record<string, FieldSpec> = Object.fromEntries(

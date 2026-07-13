@@ -65,6 +65,17 @@ describe('assembleOffer', () => {
     expect(o?.terms).toBe('');
   });
 
+  it('passes non-numeric placeholder values straight through (obvious preview placeholders)', () => {
+    const lease = assembleOffer({ offerType: 'lease', monthlyPayment: 'XXX', leaseTerm: 'XX', dueAtSigning: 'X,XXX' });
+    expect(lease?.main).toBe('$XXX/mo');
+    expect(lease?.value).toBe('XXX');
+    expect(lease?.terms).toBe('XX-month lease · $X,XXX due at signing');
+    const apr = assembleOffer({ offerType: 'apr', aprRate: 'X.X', aprTerm: 'XX' });
+    expect(apr?.main).toBe('X.X% APR');
+    expect(apr?.value).toBe('X.X');
+    expect(apr?.terms).toBe('for XX months');
+  });
+
   it('returns null for custom (free-text price/terms are used instead)', () => {
     expect(assembleOffer({ offerType: 'custom', price: '$299/mo' })).toBeNull();
     expect(assembleOffer({})).toBeNull(); // defaults to custom
