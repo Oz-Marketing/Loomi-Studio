@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { sanitizeInlineHtml } from '../sanitize-inline';
 
 export interface TextProps {
   text?: string;
@@ -47,7 +48,9 @@ export const TextBlock: React.FC<TextProps> = ({
   };
 
   if (allowHtml) {
-    return <p style={style} dangerouslySetInnerHTML={{ __html: text }} />;
+    // Sanitize before injecting — allows links + inline formatting while
+    // stripping scripts/handlers on the public /f page.
+    return <p style={style} dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(text) }} />;
   }
   return <p style={style}>{text}</p>;
 };

@@ -62,6 +62,12 @@ export const ColumnsBlock: React.FC<ColumnsProps> = ({
 
   return (
     <div
+      // Marks the flex row so the responsive stylesheets (editor mobile
+      // preview + public /f layout) can flip it to a column on narrow
+      // viewports. Gated on stackOnMobile so it switches together with
+      // the child `loomi-form-stack` class below — when stacking is off,
+      // neither the row-flip nor the full-width children kick in.
+      data-form-columns-row={stackOnMobile ? '' : undefined}
       style={{
         backgroundColor: bgColor || 'transparent',
         border,

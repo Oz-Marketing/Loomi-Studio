@@ -13,6 +13,7 @@
  * + help text + margin) so per-field styling stays consistent.
  */
 import * as React from 'react';
+import { sanitizeInlineHtml } from '../sanitize-inline';
 
 // ── Shared types ──────────────────────────────────────────────────
 
@@ -344,7 +345,9 @@ export const FieldConsent: React.FC<FieldConsentProps> = (props) => {
           lineHeight: 1.5,
         }}
       >
-        {props.label}
+        {/* Consent text is authored HTML so builders can embed links
+            (Privacy Policy / Terms). Sanitized to inline tags only. */}
+        <span dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(props.label ?? '') }} />
         {props.required && (
           <span style={{ color: '#dc2626', marginLeft: 4 }} aria-hidden>
             *
