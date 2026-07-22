@@ -58,12 +58,15 @@ export interface DailySpendPoint {
 
 export type PacingHealthVerdict = 'healthy' | 'soft' | 'low';
 
-/** The four Meta recommendation states (fixed identifiers, per spec). */
-export type MetaRecommendationState =
-  | 'on_track'
-  | 'adjust'
-  | 'delivery_low'
-  | 'shortfall';
+/**
+ * Meta recommendation states. `shortfall` is deliberately no longer emitted:
+ * the rec box is now unconditional catch-up arithmetic (never "impossible"),
+ * and an unrecoverable gap emerges from reading the (large) catch-up number
+ * against a low pacing-health reading — the operator makes that call, the tool
+ * doesn't declare it. `delivery_low` is a pacing-health descriptor (the ad is
+ * behind AND underdelivering), not a rec-box takeover.
+ */
+export type MetaRecommendationState = 'on_track' | 'adjust' | 'delivery_low';
 
 /** The four Google recommendation states. Same set as Meta except the third:
  *  Google's is `delivery_limited` because the cause is usually traffic (low
@@ -221,6 +224,96 @@ export function computeMetaPacingHealth(
   };
 }
 
+// ─── Meta: budget-change detection + pacing-health hover ────────────────────
+
+/** A detected daily-budget step-change in the stored spend series. */
+export interface BudgetChange {
+  /** First post-change day (YYYY-MM-DD) — the "ramping since" anchor. */
+  date: string;
+  prevBudget: number; // $ before the change
+  newBudget: number; // $ after the change
+}
+
+/** Budgets within this many dollars are the same reading (cent noise). */
+const BUDGET_CHANGE_EPS = 0.005;
+
+/**
+ * The most recent daily-budget step-change in the series: the day whose stored
+ * budget-in-effect differs from the prior stored day's. Relies on
+ * writeDailySpendSeries preserving each past day's real budget (an incremental
+ * re-pull that overwrote history with today's budget would erase this). Returns
+ * null when fewer than two budgeted days exist or the budget never moved.
+ */
+export function detectBudgetChange(series: DailySpendPoint[]): BudgetChange | null {
+  const budgeted = series
+    .filter((p) => p.dailyBudget != null && p.dailyBudget > 0)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  let change: BudgetChange | null = null;
+  for (let i = 1; i < budgeted.length; i++) {
+    const prev = budgeted[i - 1].dailyBudget as number;
+    const cur = budgeted[i].dailyBudget as number;
+    // Last match wins → the most recent change is what "ramping" keys off.
+    if (Math.abs(cur - prev) > BUDGET_CHANGE_EPS) {
+      change = { date: budgeted[i].date, prevBudget: prev, newBudget: cur };
+    }
+  }
+  return change;
+}
+
+/**
+ * Whether the rolling health window still straddles a budget change — i.e. it
+ * contains pre-change (old-budget) days, so the low pacing % is "hasn't ramped
+ * yet," not a delivery fault. True while the change sits strictly inside the
+ * window (some window day predates it); false once the window is entirely
+ * post-change (the annotation drops on its own) or there was no change.
+ */
+export function budgetRampStatus(
+  series: DailySpendPoint[],
+  todayIso: string,
+): { change: BudgetChange | null; ramping: boolean } {
+  const change = detectBudgetChange(series);
+  if (!change) return { change: null, ramping: false };
+  const windowStart = addDaysIso(todayIso, -(HEALTH_WINDOW_DAYS - 1));
+  return { change, ramping: change.date > windowStart };
+}
+
+/** One day in the pacing-health hover breakdown. */
+export interface HealthHoverDay {
+  date: string; // YYYY-MM-DD
+  spend: number; // $ that day
+  budget: number | null; // $ budget in effect that day
+  /** spend ÷ that-day's-budget (the proportional bar fill), or null when the
+   *  budget is unknown. Unclamped — the bar clamps for display. */
+  ratio: number | null;
+  isToday: boolean; // a partial, in-progress day
+}
+
+/**
+ * The per-day rows behind the pacing-health percentage: the rolling window's
+ * days (last 7 dates incl. today), each paired with the budget in effect that
+ * day and its delivery ratio. Reads the stored series only — the hover makes no
+ * live API call. Days without a synced point simply don't appear.
+ */
+export function buildHealthHoverRows(
+  series: DailySpendPoint[],
+  todayIso: string,
+): HealthHoverDay[] {
+  const windowStart = addDaysIso(todayIso, -(HEALTH_WINDOW_DAYS - 1));
+  return series
+    .filter((p) => p.date >= windowStart && p.date <= todayIso)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .map((p) => ({
+      date: p.date,
+      spend: p.spend,
+      budget: p.dailyBudget,
+      ratio:
+        p.dailyBudget != null && p.dailyBudget > 0 ? p.spend / p.dailyBudget : null,
+      isToday: p.date === todayIso,
+    }));
+}
+
 // ─── Meta: per-account overage allowance ────────────────────────────────────
 
 /**
@@ -299,20 +392,23 @@ export interface MetaRecommendation {
   /** Most the ad could plausibly spend per day ($): daily × (1 + headroom),
    *  headroom = raise_step_cap for a delivering ad (bigger single jumps risk
    *  re-triggering learning), the account overage for a low ad (its broken
-   *  run rate understates what fixing delivery unlocks). */
+   *  run rate understates what fixing delivery unlocks). Advisory context now —
+   *  no longer gates a state. */
   recoverableCapacity: number;
-  /** For `adjust`: which way the correction points. */
+  /** For `adjust`: which way the correction points (raise vs trim). Advisory —
+   *  the rec box shows the catch-up number regardless of state. */
   direction: 'raise' | 'trim' | null;
   /** The correction is a big single move (> raise_step_cap either way) —
    *  "large jump, stage it and monitor." */
   largeJump: boolean;
   /** target − actual ($). */
   remainingBudget: number;
-  /** For `shortfall`: what the ad will realistically still spend
-   *  (run_rate × days remaining — the demonstrated rate, not a theoretical
-   *  raise it won't achieve). */
+  /** Diagnostic: what the ad will realistically still spend at its demonstrated
+   *  rate (run_rate × days remaining). Read against remainingBudget, a large
+   *  shortfall is what tells the operator recovery is unrealistic — the tool
+   *  presents it, never declares it. */
   maxSpendable: number;
-  /** For `shortfall`: remainingBudget − maxSpendable ($). */
+  /** Diagnostic: remainingBudget − maxSpendable ($) — the emergent gap. */
   gap: number;
   /** Resolved on-track tolerance (fraction of target). */
   tolerance: number;
@@ -322,13 +418,16 @@ export interface MetaRecommendation {
 }
 
 /**
- * The Meta four-state machine. Evaluated top to bottom, first match wins;
- * feasibility (can the dollars be spent in the time left) is checked before
- * cause (delivery vs budget), because an unrecoverable gap is unrecoverable
- * regardless of why. There is deliberately no calendar trigger: shortfall
- * fires when the rising required rate crosses the roughly-flat recoverable
- * capacity — near the end for a behind ad, earlier for a badly behind ad,
- * never for one on pace.
+ * The Meta state machine (a descriptor now, not the rec-box driver).
+ * Evaluated top to bottom, first match wins. The rec box reads the arithmetic
+ * fields directly (requiredRate / remainingBudget) and never the state; the
+ * state only colors the pacing-health descriptor and prose:
+ *   - on_track: current behavior lands within tolerance of target.
+ *   - adjust:   off target with a correction to make (raise or trim).
+ *   - delivery_low: behind AND underdelivering (health verdict low) — a bigger
+ *     number won't help; the fix is diagnosing delivery.
+ * `shortfall` is gone: an unrecoverable gap is left for the operator to read
+ * off the (large) catch-up number vs a low pacing-health reading, not declared.
  */
 export function buildMetaRecommendation(
   input: MetaRecommendationInput,
@@ -388,24 +487,23 @@ export function buildMetaRecommendation(
     };
   }
 
-  // 3. Behind → is the gap closable in the time left?
-  if (requiredRate <= recoverableCapacity) {
-    if (verdict !== 'low') {
-      return {
-        state: 'adjust',
-        ...base,
-        direction: 'raise',
-        largeJump:
-          dailyBudget > 0 &&
-          (base.requiredRate - dailyBudget) / dailyBudget > RAISE_STEP_CAP,
-      };
-    }
-    // Fixing delivery unlocks the achievable rate — a bigger number won't.
+  // 3. Behind. If the ad is also underdelivering (low health verdict), the
+  //    honest read is "diagnose delivery" — the rec box still shows the
+  //    catch-up number, but a bigger budget won't fix a delivery problem.
+  //    Otherwise it's a straightforward raise; largeJump flags a big single
+  //    move (including the old "shortfall" case, where the catch-up rate far
+  //    outruns the current daily — shown, never blocked).
+  if (verdict === 'low') {
     return { state: 'delivery_low', ...base };
   }
-
-  // 4. Cannot catch up even at max plausible spend.
-  return { state: 'shortfall', ...base };
+  return {
+    state: 'adjust',
+    ...base,
+    direction: 'raise',
+    largeJump:
+      dailyBudget > 0 &&
+      (base.requiredRate - dailyBudget) / dailyBudget > RAISE_STEP_CAP,
+  };
 }
 
 // ─── Google: month-to-date pacing health + state machine ────────────────────
