@@ -12,12 +12,35 @@ import { toast } from '@/lib/toast';
  * brand kit next (Phase 2 inheritance). Its sub-accounts are managed in the
  * Sub-Accounts tab, so this stays focused on the org itself.
  */
+interface LogoSet {
+  light: string;
+  dark: string;
+  white: string;
+  black: string;
+}
+
+function parseLogos(raw: string | null | undefined): LogoSet {
+  try {
+    const v = raw ? JSON.parse(raw) : {};
+    return {
+      light: typeof v.light === 'string' ? v.light : '',
+      dark: typeof v.dark === 'string' ? v.dark : '',
+      white: typeof v.white === 'string' ? v.white : '',
+      black: typeof v.black === 'string' ? v.black : '',
+    };
+  } catch {
+    return { light: '', dark: '', white: '', black: '' };
+  }
+}
+
 export function OrganizationSettingsTab() {
   const { organizationId, organizationData, refreshOrganizations } = useAccount();
   const { markClean } = useUnsavedChanges();
 
   const [name, setName] = useState('');
   const [savedName, setSavedName] = useState('');
+  const [logos, setLogos] = useState<LogoSet>({ light: '', dark: '', white: '', black: '' });
+  const [savedLogosSig, setSavedLogosSig] = useState('');
   const [saving, setSaving] = useState(false);
   const [titleActionsEl, setTitleActionsEl] = useState<HTMLElement | null>(null);
 
@@ -29,6 +52,9 @@ export function OrganizationSettingsTab() {
     if (organizationData) {
       setName(organizationData.name);
       setSavedName(organizationData.name);
+      const parsed = parseLogos(organizationData.logos);
+      setLogos(parsed);
+      setSavedLogosSig(JSON.stringify(parsed));
     }
   }, [organizationData]);
 
@@ -40,18 +66,29 @@ export function OrganizationSettingsTab() {
     );
   }
 
-  const dirty = name.trim().length > 0 && name.trim() !== savedName;
+  const nameDirty = name.trim().length > 0 && name.trim() !== savedName;
+  const logosDirty = JSON.stringify(logos) !== savedLogosSig;
+  const dirty = nameDirty || logosDirty;
 
   const save = async () => {
     setSaving(true);
     try {
+      // Persist logos as JSON (same shape as Account.logos). Empty optional
+      // slots are dropped so the org brand kit stays tidy.
+      const logosPayload = {
+        light: logos.light,
+        dark: logos.dark,
+        ...(logos.white ? { white: logos.white } : {}),
+        ...(logos.black ? { black: logos.black } : {}),
+      };
       const r = await fetch(`/api/organizations/${organizationId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name: name.trim(), logos: JSON.stringify(logosPayload) }),
       });
       if (!r.ok) throw new Error(String(r.status));
       setSavedName(name.trim());
+      setSavedLogosSig(JSON.stringify(logos));
       markClean();
       await refreshOrganizations();
       toast.success('Organization saved!');
@@ -82,9 +119,34 @@ export function OrganizationSettingsTab() {
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
           </div>
           <p className="text-[11px] text-[var(--muted-foreground)]">
-            Manage this organization&apos;s sub-accounts in the Sub-Accounts tab. Brand kit &amp; org-owned
-            templates are coming with inheritance.
+            Manage this organization&apos;s sub-accounts in the Sub-Accounts tab.
           </p>
+        </div>
+      </section>
+
+      <section className={sectionCardClass}>
+        <h3 className={sectionHeadingClass}>Branding</h3>
+        <p className="text-[11px] text-[var(--muted-foreground)] -mt-2 mb-4">
+          The organization brand kit — inherited by its sub-accounts unless they override it.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {([
+            ['Light Logo URL', 'light'],
+            ['Dark Logo URL', 'dark'],
+            ['White Logo URL (optional)', 'white'],
+            ['Black Logo URL (optional)', 'black'],
+          ] as const).map(([label, key]) => (
+            <div key={key}>
+              <label className="block text-[10px] text-[var(--muted-foreground)] mb-1">{label}</label>
+              <input
+                type="text"
+                value={logos[key]}
+                onChange={(e) => setLogos((prev) => ({ ...prev, [key]: e.target.value }))}
+                placeholder="https://..."
+                className={inputClass}
+              />
+            </div>
+          ))}
         </div>
       </section>
 

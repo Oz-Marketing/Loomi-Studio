@@ -161,6 +161,12 @@ const adminNavItems: NavEntry[] = [
 // render; absolute items — Reporting / Ad Generator / Tools — stay global).
 const subaccountAdminNavItems: NavEntry[] = adminNavItems;
 
+// Agency View — the platform-management tier. It doesn't run campaigns; it
+// owns the shared template library + settings. So its nav is just the agency
+// dashboard + templates (Settings lives in the footer). Everything operational
+// belongs to organizations & sub-accounts.
+const agencyNavItems: NavEntry[] = [dashboardNav, templatesNav];
+
 // Client users: while the platform is still being rolled out to accounts, a
 // client's entire experience is the Ad Generator — they fill in a designer-built
 // template's offer + vehicle and export. Everything else stays hidden until
@@ -211,7 +217,8 @@ export function Sidebar() {
   let prefix = '';
 
   if (isAdmin && !inSubaccountRoute) {
-    navItems = adminNavItems;
+    // Agency View: trimmed to the platform-management essentials.
+    navItems = agencyNavItems;
   } else if (slug) {
     prefix = `/subaccount/${slug}`;
     navItems = isClientRole ? subaccountClientNavItems : subaccountAdminNavItems;
