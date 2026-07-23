@@ -1704,9 +1704,12 @@ model MetaAdsPacerDailySpend {
   objectId    String // Meta ad-set id / Google campaign id
   date        String // YYYY-MM-DD in the platform-reported (account) timezone
   spend       String // $ (string to match the other money fields)
-  // Daily budget in effect that day ($), when known. Written as the CURRENT
-  // budget at sync time — exact for the day of the sync, an approximation for
-  // backfilled history. Feeds only the overage derivation (never pacing math).
+  // Daily budget in effect that day ($), when known. Captured as the current
+  // budget the first time each day is synced, then PRESERVED across later
+  // re-pulls (reconcileSeriesBudgets) so a mid-flight raise doesn't overwrite
+  // pre-change history — exact from the day snapshotting began, an
+  // approximation only for the initial pre-tool backfill. Feeds the overage
+  // derivation and the pacing-health "ramping" annotation / budget-change divider.
   dailyBudget String?
 
   @@unique([planId, platform, objectId, date])

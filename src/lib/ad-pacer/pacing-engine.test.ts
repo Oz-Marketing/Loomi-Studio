@@ -5,6 +5,9 @@ import {
   buildMetaRecommendation,
   buildGoogleRecommendation,
   onTrackTolerance,
+  detectBudgetChange,
+  budgetRampStatus,
+  buildHealthHoverRows,
   type DailySpendPoint,
   type PacingHealth,
 } from './pacing-engine';
@@ -272,7 +275,10 @@ describe('buildMetaRecommendation', () => {
     expect(rec.state).toBe('delivery_low');
   });
 
-  it('shortfall (end of month, unrecoverable even at max plausible spend)', () => {
+  it('behind + underdelivering at end of month → delivery_low (gap surfaced, not declared)', () => {
+    // Formerly `shortfall`. The state no longer exists — a low health verdict
+    // reads as delivery_low; the emergent gap (maxSpendable/gap) is still
+    // computed for the operator to read, never announced as impossible.
     const rec = buildMetaRecommendation({
       target: 360,
       actualSpend: 230,
@@ -282,10 +288,27 @@ describe('buildMetaRecommendation', () => {
       health: health({ pacingRatio: 0.69, runRate: 8, verdict: 'low' }),
       overageAllowance: 0.75,
     })!;
-    expect(rec.state).toBe('shortfall');
-    expect(rec.recoverableCapacity).toBeCloseTo(20.21, 2); // trigger threshold
+    expect(rec.state).toBe('delivery_low');
     expect(rec.maxSpendable).toBeCloseTo(12, 2); // realistic: run_rate × days
     expect(rec.gap).toBeCloseTo(118, 2); // 130 − 12
+  });
+
+  it('behind, healthy verdict, catch-up far above current daily → adjust/raise + largeJump (no shortfall)', () => {
+    // The old "unrecoverable but delivering fine" case: the rec box still hands
+    // over the catch-up number and flags the big jump; it never says impossible.
+    const rec = buildMetaRecommendation({
+      target: 360,
+      actualSpend: 230,
+      daysRemaining: 1.5,
+      totalDays: 30,
+      dailyBudget: 11.55,
+      health: health({ pacingRatio: 1, runRate: 11.55, verdict: 'healthy' }),
+      overageAllowance: 0.75,
+    })!;
+    expect(rec.state).toBe('adjust');
+    expect(rec.direction).toBe('raise');
+    expect(rec.requiredRate).toBeCloseTo(86.67, 2); // (360−230)/1.5, shown not blocked
+    expect(rec.largeJump).toBe(true);
   });
 
   it('resolves with an assumed budget-rate when health is unknown, flagged', () => {
@@ -461,5 +484,110 @@ describe('buildGoogleRecommendation', () => {
         ...JULY,
       }),
     ).toBeNull();
+  });
+});
+
+// ─── Budget-change detection + ramping (Meta spec M2/M4) ─────────────────────
+
+// The Kawasaki SXS window: 5 pre-raise days at $6, raised to $19.09 on Jul 21.
+const KAWASAKI: DailySpendPoint[] = [
+  { date: '2026-07-16', spend: 5.4, dailyBudget: 6 },
+  { date: '2026-07-17', spend: 4.8, dailyBudget: 6 },
+  { date: '2026-07-18', spend: 5.1, dailyBudget: 6 },
+  { date: '2026-07-19', spend: 4.2, dailyBudget: 6 },
+  { date: '2026-07-20', spend: 5.55, dailyBudget: 6 },
+  { date: '2026-07-21', spend: 6.8, dailyBudget: 19.09 },
+  { date: '2026-07-22', spend: 1.99, dailyBudget: 19.09 },
+];
+
+describe('detectBudgetChange', () => {
+  it('finds the raise between the last pre-change day and the first post-change day', () => {
+    const c = detectBudgetChange(KAWASAKI);
+    expect(c).toEqual({ date: '2026-07-21', prevBudget: 6, newBudget: 19.09 });
+  });
+
+  it('returns null when the budget never moves', () => {
+    const flat = KAWASAKI.map((p) => ({ ...p, dailyBudget: 6 }));
+    expect(detectBudgetChange(flat)).toBeNull();
+  });
+
+  it('ignores cent-level noise', () => {
+    const noisy: DailySpendPoint[] = [
+      { date: '2026-07-20', spend: 5, dailyBudget: 6.0 },
+      { date: '2026-07-21', spend: 5, dailyBudget: 6.004 },
+    ];
+    expect(detectBudgetChange(noisy)).toBeNull();
+  });
+
+  it('reports the MOST RECENT change when the budget stepped twice', () => {
+    const twice: DailySpendPoint[] = [
+      { date: '2026-07-18', spend: 5, dailyBudget: 6 },
+      { date: '2026-07-19', spend: 8, dailyBudget: 10 },
+      { date: '2026-07-20', spend: 15, dailyBudget: 19.09 },
+    ];
+    expect(detectBudgetChange(twice)).toEqual({
+      date: '2026-07-20',
+      prevBudget: 10,
+      newBudget: 19.09,
+    });
+  });
+
+  it('skips days with no stored budget without treating the gap as a change', () => {
+    const gappy: DailySpendPoint[] = [
+      { date: '2026-07-19', spend: 4, dailyBudget: 6 },
+      { date: '2026-07-20', spend: 4, dailyBudget: null },
+      { date: '2026-07-21', spend: 4, dailyBudget: 6 },
+    ];
+    expect(detectBudgetChange(gappy)).toBeNull();
+  });
+});
+
+describe('budgetRampStatus', () => {
+  it('ramping while the window still contains pre-change days', () => {
+    // On Jul 22 the window starts Jul 16 — the Jul 21 raise sits inside it.
+    const s = budgetRampStatus(KAWASAKI, '2026-07-22');
+    expect(s.ramping).toBe(true);
+    expect(s.change?.date).toBe('2026-07-21');
+  });
+
+  it('clean once the window is entirely post-change (annotation drops itself)', () => {
+    // A week later (Jul 28) the window starts Jul 22 — all post-raise.
+    const s = budgetRampStatus(KAWASAKI, '2026-07-28');
+    expect(s.ramping).toBe(false);
+    expect(s.change?.date).toBe('2026-07-21'); // still detected, just not ramping
+  });
+
+  it('not ramping when there was no change', () => {
+    const flat = KAWASAKI.map((p) => ({ ...p, dailyBudget: 6 }));
+    expect(budgetRampStatus(flat, '2026-07-22')).toEqual({ change: null, ramping: false });
+  });
+});
+
+describe('buildHealthHoverRows', () => {
+  it('returns the window days with spend, budget, ratio, and today flagged', () => {
+    const rows = buildHealthHoverRows(KAWASAKI, '2026-07-22');
+    expect(rows).toHaveLength(7);
+    expect(rows[0]).toMatchObject({ date: '2026-07-16', spend: 5.4, budget: 6 });
+    expect(rows[0].ratio).toBeCloseTo(0.9, 5); // 5.40 / 6.00
+    expect(rows.at(-1)).toMatchObject({ date: '2026-07-22', isToday: true });
+    expect(rows.every((r, i) => i === rows.length - 1 || !r.isToday)).toBe(true);
+  });
+
+  it('excludes days older than the 7-day window', () => {
+    const withOld: DailySpendPoint[] = [
+      { date: '2026-07-10', spend: 9, dailyBudget: 6 }, // outside the window
+      ...KAWASAKI,
+    ];
+    const rows = buildHealthHoverRows(withOld, '2026-07-22');
+    expect(rows.find((r) => r.date === '2026-07-10')).toBeUndefined();
+    expect(rows).toHaveLength(7);
+  });
+
+  it('carries a null ratio when the budget is unknown', () => {
+    const rows = buildHealthHoverRows(
+      [{ date: '2026-07-22', spend: 2, dailyBudget: null }],
+      '2026-07-22',
+    );
+    expect(rows[0].ratio).toBeNull();
   });
 });
