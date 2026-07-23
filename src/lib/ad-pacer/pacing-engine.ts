@@ -141,6 +141,15 @@ export interface MetaPacingHealthInput {
   cumulativeSpend: number | null;
   nowMs: number;
   timeZone: string;
+  /** When the spend series was last synced (ms epoch), i.e. the "data edge" —
+   *  the moment up to which spend is known. Pacing health is a BACKWARD-looking
+   *  measure, so its denominator (day count) ends here, NOT at now(): counting
+   *  budget for the sync-lag gap (a day of budget with no spend to compare
+   *  against) silently deflates the reading. Null falls back to now() (a fresh
+   *  or unknown sync collapses to the live clock — the pre-fix behavior). The
+   *  forward-looking surfaces (projection, days-remaining, rec box) keep using
+   *  now() and are unaffected. */
+  syncedAtMs?: number | null;
 }
 
 /**
@@ -148,14 +157,41 @@ export interface MetaPacingHealthInput {
  * rolling 7-day window (capped at how long the ad has been live) against
  * Meta's own 7-day averaging mechanic — recent enough to catch a break
  * quickly, wide enough to ignore single-day swings.
+ *
+ * The window ENDS at the data edge (last synced spend), not the live clock, so
+ * a stale sync describes a slightly older window instead of dividing real
+ * spend by phantom (budgeted-but-unsynced) days. The numerator is unchanged —
+ * only the day-count denominator moves to the data edge, keeping the invariant
+ * "days summed == days counted."
  */
 export function computeMetaPacingHealth(
   input: MetaPacingHealthInput,
 ): PacingHealth {
   const { dailyBudget, liveDateIso, series, nowMs, timeZone } = input;
   const todayIso = zonedTodayIso(nowMs, timeZone);
-  const todayRow = series.find((p) => p.date === todayIso);
-  const spendToday = todayRow ? todayRow.spend : null;
+
+  // ── Data edge: where the numerator's real coverage ends. ──
+  // The sync moment (capped at now — data can't be from the future).
+  const anchorMs = Math.min(input.syncedAtMs ?? nowMs, nowMs);
+  const anchorIso = zonedTodayIso(anchorMs, timeZone);
+  const lastDataIso = series.length
+    ? series.reduce((mx, p) => (p.date > mx ? p.date : mx), series[0].date)
+    : null;
+  let edgeIso: string;
+  let edgeMs: number;
+  if (lastDataIso != null && lastDataIso < anchorIso) {
+    // Sync ran but its own day has no synced spend yet → the honest edge is the
+    // END of the last day that does have data (a complete past day).
+    const [ly, lm, ld] = lastDataIso.split('-').map(Number);
+    edgeIso = lastDataIso;
+    edgeMs = zonedMidnightMs(ly, lm, ld, timeZone) + DAY_MS;
+  } else {
+    // Fresh/normal: the trailing partial day, at the sync moment.
+    edgeIso = anchorIso;
+    edgeMs = anchorMs;
+  }
+  const edgeRow = series.find((p) => p.date === edgeIso);
+  const spendToday = edgeRow ? edgeRow.spend : null;
 
   if (!(dailyBudget > 0) || !liveDateIso) return noHealth(spendToday);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(liveDateIso);
@@ -168,28 +204,20 @@ export function computeMetaPacingHealth(
     Number(m[3]),
     timeZone,
   );
-  const daysLive = (nowMs - liveMs) / DAY_MS;
-  if (daysLive < HEALTH_MIN_DAYS) return noHealth(spendToday);
-
-  const todayFraction = Math.min(
-    1,
-    Math.max(0, (nowMs - zonedMidnightMs(
-      Number(todayIso.slice(0, 4)),
-      Number(todayIso.slice(5, 7)),
-      Number(todayIso.slice(8, 10)),
-      timeZone,
-    )) / DAY_MS),
-  );
+  // Days from go-live to the DATA EDGE (not now) — the span the denominator
+  // must match.
+  const daysToEdge = (edgeMs - liveMs) / DAY_MS;
+  if (daysToEdge < HEALTH_MIN_DAYS) return noHealth(spendToday);
 
   let windowDays: number;
   let windowSpend: number;
-  if (daysLive <= HEALTH_WINDOW_DAYS) {
-    // All-time equals the window. Prefer summing the series (exact); fall
-    // back to the cumulative figure already on the card.
-    windowDays = daysLive;
+  if (daysToEdge <= HEALTH_WINDOW_DAYS) {
+    // All-time equals the window (go-live → data edge). Prefer summing the
+    // series (exact); fall back to the cumulative figure already on the card.
+    windowDays = daysToEdge;
     if (series.length > 0) {
       windowSpend = series.reduce(
-        (s, p) => (p.date >= liveDateIso && p.date <= todayIso ? s + p.spend : s),
+        (s, p) => (p.date >= liveDateIso && p.date <= edgeIso ? s + p.spend : s),
         0,
       );
     } else if (input.cumulativeSpend != null) {
@@ -198,16 +226,18 @@ export function computeMetaPacingHealth(
       return noHealth(spendToday);
     }
   } else {
-    // Rolling window: the last 7 calendar dates (today plus the 6 before it)
-    // span exactly 6 + fraction-of-today days ending "now" — day-level data
-    // can't split the 7th-back day, so the span is matched to what's summed.
+    // Rolling window: the last HEALTH_WINDOW_DAYS calendar dates. The START
+    // stays clock-anchored (today − 6) so the numerator is unchanged; only the
+    // END/day-count moves to the data edge. span = data_edge − window_start.
     if (series.length === 0) return noHealth(spendToday); // needs the series
     const startIso = addDaysIso(todayIso, -(HEALTH_WINDOW_DAYS - 1));
     windowSpend = series.reduce(
-      (s, p) => (p.date >= startIso && p.date <= todayIso ? s + p.spend : s),
+      (s, p) => (p.date >= startIso && p.date <= edgeIso ? s + p.spend : s),
       0,
     );
-    windowDays = Math.min(daysLive, HEALTH_WINDOW_DAYS - 1 + todayFraction);
+    const [sy, sm, sd] = startIso.split('-').map(Number);
+    const startMs = zonedMidnightMs(sy, sm, sd, timeZone);
+    windowDays = Math.min(daysToEdge, (edgeMs - startMs) / DAY_MS);
   }
 
   const expected = dailyBudget * windowDays;
