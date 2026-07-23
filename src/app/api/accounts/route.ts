@@ -9,6 +9,17 @@ import { normalizeAccountOutputPayload } from '@/lib/account-output';
 import { getIndustryDefaults } from '@/data/industry-defaults';
 import { hasUnrestrictedAccountAccess } from '@/lib/roles';
 
+/** Parse an org's logos JSON string into a {light,dark,white,black} map. */
+function parseLogos(raw: string | null | undefined): Record<string, string> | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' ? (v as Record<string, string>) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   const { session, error } = await requireAuth();
   if (error) return error;
@@ -22,6 +33,19 @@ export async function GET() {
         ? await accountService.getAccounts(userAccountKeys)
         : [];
 
+    // Org brand-kit inheritance: a sub-account inherits its organization's
+    // logos per-field (its own value wins; the org fills any gap). We expose
+    // the resolved set as `logos` (so every display consumer inherits for free)
+    // and the account's raw values as `ownLogos` (so edit forms don't persist
+    // the inherited values back onto the account).
+    const orgLogos: Record<string, Record<string, string>> = {};
+    if (accounts.some((a) => a.organizationId)) {
+      for (const org of await orgService.getOrganizations()) {
+        const parsed = parseLogos(org.logos);
+        if (parsed) orgLogos[org.id] = parsed;
+      }
+    }
+
     // Return as key-indexed account map: { [accountKey]: accountData }
     const result: Record<string, Record<string, unknown>> = {};
     for (const account of accounts) {
@@ -33,6 +57,18 @@ export async function GET() {
       data.ghlConfigured = Boolean(data.ghlApiKey);
       delete data.ghlApiKey;
       normalizeAccountOutputPayload(data);
+      // After normalize, data.logos is the account's own parsed logo object.
+      data.ownLogos = data.logos ?? null;
+      const parentLogos = account.organizationId ? orgLogos[account.organizationId] : undefined;
+      if (parentLogos) {
+        const own = (data.logos as Record<string, string> | undefined) ?? {};
+        data.logos = {
+          light: own.light || parentLogos.light || '',
+          dark: own.dark || parentLogos.dark || '',
+          ...((own.white || parentLogos.white) ? { white: own.white || parentLogos.white } : {}),
+          ...((own.black || parentLogos.black) ? { black: own.black || parentLogos.black } : {}),
+        };
+      }
       result[key] = data;
     }
     return NextResponse.json(result);

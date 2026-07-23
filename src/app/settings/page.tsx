@@ -172,8 +172,13 @@ function AccountSettingsTab() {
   const {
     accountKey,
     accountData,
+    organizations,
     refreshAccounts,
   } = useAccount();
+  // Name of the parent org (if any) — for the "inherits the org brand kit" hint.
+  const parentOrgName = accountData?.organizationId
+    ? Object.values(organizations).find((o) => o.id === accountData.organizationId)?.name ?? null
+    : null;
   const { markClean } = useUnsavedChanges();
   const categorySuggestions = useIndustries();
 
@@ -195,21 +200,24 @@ function AccountSettingsTab() {
 
   useEffect(() => {
     if (accountData) {
+      // Edit the account's OWN logos (not the org-inherited resolved set), so
+      // saving never persists inherited values back onto the sub-account.
+      const own = accountData.ownLogos ?? accountData.logos;
       setDealer(accountData.dealer || '');
       setCategory(accountData.category || '');
       setOems(getAccountOems(accountData));
-      setLogoLight(accountData.logos?.light || '');
-      setLogoDark(accountData.logos?.dark || '');
-      setLogoWhite(accountData.logos?.white || '');
-      setLogoBlack(accountData.logos?.black || '');
+      setLogoLight(own?.light || '');
+      setLogoDark(own?.dark || '');
+      setLogoWhite(own?.white || '');
+      setLogoBlack(own?.black || '');
       snapshotRef.current = {
         dealer: accountData.dealer || '',
         category: accountData.category || '',
         oems: JSON.stringify(getAccountOems(accountData)),
-        logoLight: accountData.logos?.light || '',
-        logoDark: accountData.logos?.dark || '',
-        logoWhite: accountData.logos?.white || '',
-        logoBlack: accountData.logos?.black || '',
+        logoLight: own?.light || '',
+        logoDark: own?.dark || '',
+        logoWhite: own?.white || '',
+        logoBlack: own?.black || '',
       };
     }
   }, [accountData]);
@@ -331,6 +339,11 @@ function AccountSettingsTab() {
 
       <section className={sectionCardClass}>
         <h3 className={sectionHeadingClass}>Logos</h3>
+        {parentOrgName && (
+          <p className="text-[11px] text-[var(--muted-foreground)] -mt-2 mb-3">
+            Leave a slot empty to inherit <span className="font-medium text-[var(--foreground)]">{parentOrgName}</span>&apos;s brand kit.
+          </p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             { label: 'Light Logo URL', value: logoLight, setter: setLogoLight },

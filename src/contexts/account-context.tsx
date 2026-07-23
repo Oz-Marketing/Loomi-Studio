@@ -32,12 +32,22 @@ export interface AccountData {
   postalCode?: string;
   website?: string;
   timezone?: string;
+  /** Resolved logos for DISPLAY — a sub-account's own values, with its
+   *  organization's brand kit filling any gaps. */
   logos: {
     light: string;
     dark: string;
     white?: string;
     black?: string;
   };
+  /** The sub-account's OWN logos (no org inheritance) — for edit forms, so
+   *  saving never persists inherited values back onto the account. */
+  ownLogos?: {
+    light?: string;
+    dark?: string;
+    white?: string;
+    black?: string;
+  } | null;
   storefrontImage?: string;
   branding?: {
     colors?: {
