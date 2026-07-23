@@ -57,7 +57,9 @@ export async function GET() {
 
 /**
  * POST /api/organizations — create an organization (elevated roles only).
- * Body: { key, name, accountKeys?: string[] }
+ * Body: { key, name, accountKeys?: string[], primaryAccountKey?: string }
+ * `primaryAccountKey` (must be one of accountKeys) designates the org's house
+ * account — the "promote a sub-account into a group" flow passes both.
  */
 export async function POST(req: NextRequest) {
   const { error } = await requireRole(...ELEVATED_ROLES);
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
       key?: string;
       name?: string;
       accountKeys?: unknown;
+      primaryAccountKey?: string;
     };
 
     const name = body.name?.trim();
@@ -97,7 +100,19 @@ export async function POST(req: NextRequest) {
       await orgService.setOrganizationAccounts(org.id, accountKeys);
     }
 
-    return NextResponse.json({ id: org.id, key: org.key, slug: org.slug, name: org.name });
+    // Designate the primary ("house") account when it's among the members.
+    const primaryAccountKey = body.primaryAccountKey?.trim();
+    if (primaryAccountKey && accountKeys.includes(primaryAccountKey)) {
+      await orgService.updateOrganization(org.id, { primaryAccountKey });
+    }
+
+    return NextResponse.json({
+      id: org.id,
+      key: org.key,
+      slug: org.slug,
+      name: org.name,
+      primaryAccountKey: primaryAccountKey && accountKeys.includes(primaryAccountKey) ? primaryAccountKey : null,
+    });
   } catch (err) {
     console.error('[api/organizations] POST failed:', err);
     return NextResponse.json({ error: String(err) }, { status: 500 });

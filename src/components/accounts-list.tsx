@@ -188,6 +188,16 @@ export function AccountsList({
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to create'); setCreating(false); return; }
 
+      // For a brand-new organization, the founding account is its primary
+      // ("house") account so the org operates a studio, not just a roll-up.
+      if (newOrgChoice === 'new' && organizationId) {
+        await fetch(`/api/organizations/${organizationId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ primaryAccountKey: newKey.trim() }),
+        }).catch(() => {/* non-fatal: primary can be set later in org settings */});
+      }
+
       toast.success('Sub-account created!');
       if (organizationId) await refreshOrganizations();
       resetCreate();
@@ -209,20 +219,21 @@ export function AccountsList({
     if (!promoteKey || !promoteName.trim() || promoting) return;
     setPromoting(true);
     try {
+      // One atomic create: the account becomes the org's sole member AND its
+      // primary ("house") account, so the org operates its studio immediately.
       const orgKey = toCamelCaseSlug(promoteName);
       const orgRes = await fetch('/api/organizations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: orgKey, name: promoteName.trim() }),
+        body: JSON.stringify({
+          key: orgKey,
+          name: promoteName.trim(),
+          accountKeys: [promoteKey],
+          primaryAccountKey: promoteKey,
+        }),
       });
       const org = await orgRes.json();
       if (!orgRes.ok) { toast.error(org.error || 'Failed to create organization'); setPromoting(false); return; }
-      const attachRes = await fetch(`/api/organizations/${org.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountKeys: [promoteKey] }),
-      });
-      if (!attachRes.ok) throw new Error(String(attachRes.status));
       toast.success(`Promoted to ${promoteName.trim()}`);
       setPromoteKey(null);
       await refreshOrganizations();
