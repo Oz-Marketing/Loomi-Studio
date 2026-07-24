@@ -20,6 +20,38 @@ function parseLogos(raw: string | null | undefined): Record<string, string> | nu
   }
 }
 
+type OrgBranding = { colors?: Record<string, string>; fonts?: Record<string, string> };
+
+/** Parse a branding JSON string into { colors, fonts }. Accepts an already-
+ *  parsed object (the accounts payload is normalized before we merge). */
+function parseBranding(raw: string | null | undefined | OrgBranding): OrgBranding | null {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw as OrgBranding;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' ? (v as OrgBranding) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Merge a child's branding over the org's, per sub-field (child wins). */
+function mergeBranding(org: OrgBranding, own: OrgBranding | undefined): OrgBranding {
+  const pick = (a?: Record<string, string>, b?: Record<string, string>) => {
+    const out: Record<string, string> = { ...(b ?? {}) };
+    for (const [k, v] of Object.entries(a ?? {})) {
+      if (!out[k]) out[k] = v; // org fills only the gaps the child left empty
+    }
+    return out;
+  };
+  const colors = pick(org.colors, own?.colors);
+  const fonts = pick(org.fonts, own?.fonts);
+  const result: OrgBranding = {};
+  if (Object.keys(colors).length) result.colors = colors;
+  if (Object.keys(fonts).length) result.fonts = fonts;
+  return result;
+}
+
 export async function GET() {
   const { session, error } = await requireAuth();
   if (error) return error;
@@ -34,15 +66,14 @@ export async function GET() {
         : [];
 
     // Org brand-kit inheritance: a sub-account inherits its organization's
-    // logos per-field (its own value wins; the org fills any gap). We expose
-    // the resolved set as `logos` (so every display consumer inherits for free)
-    // and the account's raw values as `ownLogos` (so edit forms don't persist
-    // the inherited values back onto the account).
-    const orgLogos: Record<string, Record<string, string>> = {};
+    // logos + branding (colors/fonts) per-field — its own value wins, the org
+    // fills any gap. We expose the resolved set as `logos`/`branding` (so every
+    // display consumer inherits for free) and the account's raw values as
+    // `ownLogos`/`ownBranding` (so edit forms don't persist inherited values).
+    const orgBrand: Record<string, { logos: Record<string, string> | null; branding: OrgBranding | null }> = {};
     if (accounts.some((a) => a.organizationId)) {
       for (const org of await orgService.getOrganizations()) {
-        const parsed = parseLogos(org.logos);
-        if (parsed) orgLogos[org.id] = parsed;
+        orgBrand[org.id] = { logos: parseLogos(org.logos), branding: parseBranding(org.branding) };
       }
     }
 
@@ -57,17 +88,22 @@ export async function GET() {
       data.ghlConfigured = Boolean(data.ghlApiKey);
       delete data.ghlApiKey;
       normalizeAccountOutputPayload(data);
-      // After normalize, data.logos is the account's own parsed logo object.
+      // After normalize, data.logos / data.branding are the account's own parsed
+      // objects. Keep the raw own values, then resolve against the parent org.
       data.ownLogos = data.logos ?? null;
-      const parentLogos = account.organizationId ? orgLogos[account.organizationId] : undefined;
-      if (parentLogos) {
+      data.ownBranding = data.branding ?? null;
+      const parent = account.organizationId ? orgBrand[account.organizationId] : undefined;
+      if (parent?.logos) {
         const own = (data.logos as Record<string, string> | undefined) ?? {};
         data.logos = {
-          light: own.light || parentLogos.light || '',
-          dark: own.dark || parentLogos.dark || '',
-          ...((own.white || parentLogos.white) ? { white: own.white || parentLogos.white } : {}),
-          ...((own.black || parentLogos.black) ? { black: own.black || parentLogos.black } : {}),
+          light: own.light || parent.logos.light || '',
+          dark: own.dark || parent.logos.dark || '',
+          ...((own.white || parent.logos.white) ? { white: own.white || parent.logos.white } : {}),
+          ...((own.black || parent.logos.black) ? { black: own.black || parent.logos.black } : {}),
         };
+      }
+      if (parent?.branding) {
+        data.branding = mergeBranding(parent.branding, data.branding as OrgBranding | undefined);
       }
       result[key] = data;
     }

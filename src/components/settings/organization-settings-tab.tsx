@@ -33,6 +33,25 @@ function parseLogos(raw: string | null | undefined): LogoSet {
   }
 }
 
+// The org brand kit's colors + fonts (same shape as Account.branding), which
+// cascade to sub-accounts that leave a field empty.
+const BRAND_COLORS = ['primary', 'secondary', 'accent', 'background', 'text'] as const;
+const BRAND_FONTS = ['heading', 'body'] as const;
+type BrandingSet = { colors: Record<string, string>; fonts: Record<string, string> };
+
+function parseBranding(raw: string | null | undefined): BrandingSet {
+  const empty: BrandingSet = { colors: {}, fonts: {} };
+  try {
+    const v = raw ? JSON.parse(raw) : {};
+    return {
+      colors: v && typeof v.colors === 'object' ? { ...v.colors } : {},
+      fonts: v && typeof v.fonts === 'object' ? { ...v.fonts } : {},
+    };
+  } catch {
+    return empty;
+  }
+}
+
 export function OrganizationSettingsTab() {
   const { organizationId, organizationData, accounts, refreshOrganizations } = useAccount();
   const { markClean } = useUnsavedChanges();
@@ -43,6 +62,8 @@ export function OrganizationSettingsTab() {
   const [savedLogosSig, setSavedLogosSig] = useState('');
   const [primary, setPrimary] = useState('');
   const [savedPrimary, setSavedPrimary] = useState('');
+  const [branding, setBranding] = useState<BrandingSet>({ colors: {}, fonts: {} });
+  const [savedBrandingSig, setSavedBrandingSig] = useState('');
   const [saving, setSaving] = useState(false);
   const [titleActionsEl, setTitleActionsEl] = useState<HTMLElement | null>(null);
 
@@ -59,6 +80,9 @@ export function OrganizationSettingsTab() {
       setSavedLogosSig(JSON.stringify(parsed));
       setPrimary(organizationData.primaryAccountKey ?? '');
       setSavedPrimary(organizationData.primaryAccountKey ?? '');
+      const b = parseBranding(organizationData.branding);
+      setBranding(b);
+      setSavedBrandingSig(JSON.stringify(b));
     }
   }, [organizationData]);
 
@@ -76,7 +100,13 @@ export function OrganizationSettingsTab() {
   const nameDirty = name.trim().length > 0 && name.trim() !== savedName;
   const logosDirty = JSON.stringify(logos) !== savedLogosSig;
   const primaryDirty = primary !== savedPrimary;
-  const dirty = nameDirty || logosDirty || primaryDirty;
+  const brandingDirty = JSON.stringify(branding) !== savedBrandingSig;
+  const dirty = nameDirty || logosDirty || primaryDirty || brandingDirty;
+
+  const setColor = (k: string, v: string) =>
+    setBranding((prev) => ({ ...prev, colors: { ...prev.colors, [k]: v } }));
+  const setFont = (k: string, v: string) =>
+    setBranding((prev) => ({ ...prev, fonts: { ...prev.fonts, [k]: v } }));
 
   const save = async () => {
     setSaving(true);
@@ -89,18 +119,26 @@ export function OrganizationSettingsTab() {
         ...(logos.white ? { white: logos.white } : {}),
         ...(logos.black ? { black: logos.black } : {}),
       };
+      // Drop empty color/font slots so the org brand kit only cascades the
+      // values that were actually set.
+      const trimMap = (m: Record<string, string>) =>
+        Object.fromEntries(Object.entries(m).filter(([, v]) => v && v.trim()));
+      const brandingPayload = { colors: trimMap(branding.colors), fonts: trimMap(branding.fonts) };
+
       const r = await fetch(`/api/organizations/${organizationId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
           logos: JSON.stringify(logosPayload),
+          branding: JSON.stringify(brandingPayload),
           primaryAccountKey: primary || null,
         }),
       });
       if (!r.ok) throw new Error(String(r.status));
       setSavedName(name.trim());
       setSavedLogosSig(JSON.stringify(logos));
+      setSavedBrandingSig(JSON.stringify(branding));
       setSavedPrimary(primary);
       markClean();
       await refreshOrganizations();
@@ -169,6 +207,49 @@ export function OrganizationSettingsTab() {
                 value={logos[key]}
                 onChange={(e) => setLogos((prev) => ({ ...prev, [key]: e.target.value }))}
                 placeholder="https://..."
+                className={inputClass}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Brand colors */}
+        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mt-6 mb-2">Colors</h4>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {BRAND_COLORS.map((k) => (
+            <div key={k}>
+              <label className="block text-[10px] text-[var(--muted-foreground)] mb-1 capitalize">{k}</label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="color"
+                  value={branding.colors[k] || '#000000'}
+                  onChange={(e) => setColor(k, e.target.value)}
+                  className="h-8 w-8 flex-shrink-0 rounded border border-[var(--border)] bg-transparent p-0.5 cursor-pointer"
+                  aria-label={`${k} color`}
+                />
+                <input
+                  type="text"
+                  value={branding.colors[k] || ''}
+                  onChange={(e) => setColor(k, e.target.value)}
+                  placeholder="#—"
+                  className="w-full min-w-0 px-2 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Brand fonts */}
+        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mt-6 mb-2">Fonts</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {BRAND_FONTS.map((k) => (
+            <div key={k}>
+              <label className="block text-[10px] text-[var(--muted-foreground)] mb-1 capitalize">{k} font</label>
+              <input
+                type="text"
+                value={branding.fonts[k] || ''}
+                onChange={(e) => setFont(k, e.target.value)}
+                placeholder="e.g. Inter, Helvetica, sans-serif"
                 className={inputClass}
               />
             </div>

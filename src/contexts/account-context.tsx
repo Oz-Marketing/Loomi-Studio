@@ -66,6 +66,11 @@ export interface AccountData {
       brandDefault?: string;
     };
   };
+  /** The sub-account's OWN branding (no org inheritance) — for edit forms. */
+  ownBranding?: {
+    colors?: Record<string, string>;
+    fonts?: Record<string, string>;
+  } | null;
   /** Uploaded custom font files (e.g. OEM-required), per account. */
   customFonts?: { family: string; weight?: string; style?: string; url: string }[];
   customValues?: Record<string, { name: string; value: string }>;
