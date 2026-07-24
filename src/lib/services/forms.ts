@@ -247,13 +247,29 @@ export async function listForms(options?: {
   const page = clampPage(options?.page);
   const pageSize = clampPageSize(options?.pageSize);
   const isTemplate = options?.isTemplate === true;
-  const where =
-    options?.scope === 'system'
-      ? { isTemplate, accountKey: null }
-      : {
-          ...whereForScope(options?.accountKeys ?? null, options?.accountKey ?? null),
-          isTemplate,
-        };
+  let where: Record<string, unknown>;
+  if (options?.scope === 'system') {
+    // System/library templates are neither account- nor org-owned. Excluding
+    // org-owned here keeps inherited templates out of the global library list.
+    where = { isTemplate, accountKey: null, organizationId: null };
+  } else if (isTemplate && options?.accountKey) {
+    // Effective template set for a sub-account: its own templates PLUS any
+    // authored at its parent organization (Phase 2 inheritance).
+    const account = await prisma.account.findUnique({
+      where: { key: options.accountKey },
+      select: { organizationId: true },
+    });
+    const orgId = account?.organizationId ?? null;
+    where = {
+      isTemplate,
+      OR: [{ accountKey: options.accountKey }, ...(orgId ? [{ organizationId: orgId }] : [])],
+    };
+  } else {
+    where = {
+      ...whereForScope(options?.accountKeys ?? null, options?.accountKey ?? null),
+      isTemplate,
+    };
+  }
 
   const [rows, total] = await Promise.all([
     prisma.form.findMany({
@@ -293,8 +309,8 @@ export async function ensureUniqueSlug(slug: string, excludeId?: string): Promis
 }
 
 export async function createForm(input: {
-  // Null only for a system/library template (accountKey-less); live forms
-  // and sub-account templates always supply a real account.
+  // Null only for a system/library or org-owned template (account-less); live
+  // forms and sub-account templates always supply a real account.
   accountKey: string | null;
   name: string;
   createdByUserId?: string | null;
@@ -302,6 +318,9 @@ export async function createForm(input: {
   schema?: FormTemplate;
   /** When true, the new row is a reusable template, not a live form. */
   isTemplate?: boolean;
+  /** Set (with accountKey null, isTemplate true) to author an org-owned
+   *  template inherited by the org's sub-accounts. */
+  organizationId?: string | null;
 }): Promise<FormDetail> {
   const name = input.name.trim();
   if (!name) throw new FormServiceError('name is required');
@@ -313,7 +332,7 @@ export async function createForm(input: {
     });
     if (!account) throw new FormServiceError('Account not found', 404);
   } else if (!input.isTemplate) {
-    // Only system templates may be account-less.
+    // Only system / org templates may be account-less.
     throw new FormServiceError('accountKey is required');
   }
 
@@ -328,6 +347,7 @@ export async function createForm(input: {
   const created = await prisma.form.create({
     data: {
       accountKey: input.accountKey,
+      organizationId: input.organizationId ?? null,
       name,
       slug,
       status,

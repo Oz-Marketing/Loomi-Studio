@@ -47,9 +47,13 @@ export async function POST(req: NextRequest) {
       ? body.accountKey.trim()
       : null;
   const isTemplate = body?.isTemplate === true;
+  const organizationId =
+    typeof body?.organizationId === 'string' && body.organizationId.trim()
+      ? body.organizationId.trim()
+      : null;
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 });
-  // Live forms and sub-account templates need an account. Only a
-  // system/library template (admin-curated) may be account-less.
+  // Live forms and sub-account templates need an account. Only a system/library
+  // or org-owned template may be account-less.
   if (!accountKey && !isTemplate) {
     return NextResponse.json({ error: 'accountKey is required' }, { status: 400 });
   }
@@ -62,6 +66,8 @@ export async function POST(req: NextRequest) {
   try {
     const form = await createForm({
       accountKey,
+      // Org-owned template: account-less, tagged to the org.
+      organizationId: !accountKey && isTemplate ? organizationId : null,
       name,
       isTemplate,
       createdByUserId: session!.user.id,

@@ -48,6 +48,10 @@ export async function POST(req: NextRequest) {
   const accountKey = typeof body?.accountKey === 'string' ? body.accountKey.trim() : '';
   const templateId = typeof body?.templateId === 'string' ? body.templateId : 'blank';
   const isTemplate = body?.isTemplate === true;
+  const organizationId =
+    typeof body?.organizationId === 'string' && body.organizationId.trim()
+      ? body.organizationId.trim()
+      : null;
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 });
   // Live pages + sub-account templates need an account; only an admin-curated
   // system/library template (isTemplate + no account) may be account-less.
@@ -103,6 +107,9 @@ export async function POST(req: NextRequest) {
   try {
     const page = await createLandingPage({
       accountKey: accountKey || null,
+      // Org-owned template: account-less, tagged to the org so its
+      // sub-accounts inherit it.
+      organizationId: !accountKey && isTemplate ? organizationId : null,
       name,
       schema,
       isTemplate,
