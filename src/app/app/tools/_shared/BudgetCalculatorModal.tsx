@@ -118,6 +118,31 @@ export function BudgetCalculatorModal({
     seedSpecsForMode(calcMode),
   );
 
+  // §6 Undo / Clear — one snapshot stack of `specs`, scoped to this modal
+  // session (component state → discarded on close, per spec). Snapshots are
+  // taken BEFORE a mutation; consecutive keystrokes in the SAME field coalesce
+  // into one undo step, while discrete actions (checkbox, mode, off, spread)
+  // each push their own. Clear jumps back to the mode's opening snapshot.
+  const openingSpecsRef = useRef(specs);
+  const [undoStack, setUndoStack] = useState<Record<string, AdAllocSpec>[]>([]);
+  const lastEditKeyRef = useRef<string | null>(null);
+  const pushSnapshot = (editKey: string | null) => {
+    if (editKey !== null && editKey === lastEditKeyRef.current) return;
+    lastEditKeyRef.current = editKey;
+    setUndoStack((st) => [...st, specs]);
+  };
+  const undo = () => {
+    if (undoStack.length === 0) return;
+    setSpecs(undoStack[undoStack.length - 1]);
+    setUndoStack((st) => st.slice(0, -1));
+    lastEditKeyRef.current = null;
+  };
+  const clearEdits = () => {
+    setSpecs(openingSpecsRef.current);
+    setUndoStack([]);
+    lastEditKeyRef.current = null;
+  };
+
   // Helpers — donor = ad status is Off / Completed Run (it's finalized,
   // locked at pacerActual on Apply). Receiver = anything else. Accepts a
   // PacerAd or a PoolAdView (both carry adStatus).
@@ -211,6 +236,7 @@ export function BudgetCalculatorModal({
   const handleSpread = (pool: Pool) => {
     const s = spreadFor(pool);
     if (!s.canSpread) return;
+    pushSnapshot(null); // one undo level reverts the whole spread
     setSpecs((prev) => {
       const next = { ...prev };
       s.evenRows.forEach((r, i) => {
@@ -250,10 +276,22 @@ export function BudgetCalculatorModal({
       didInitSpecsRef.current = true;
       return;
     }
-    setSpecs(seedSpecsForMode(calcMode));
+    // A mode switch is a fresh plan — reset the seed AND the undo history so
+    // Clear/Undo can't cross the mode boundary into stale snapshots.
+    const seeded = seedSpecsForMode(calcMode);
+    setSpecs(seeded);
+    openingSpecsRef.current = seeded;
+    setUndoStack([]);
+    lastEditKeyRef.current = null;
   }, [calcMode, seedSpecsForMode]);
 
-  const updateSpec = (adId: string, patch: Partial<AdAllocSpec>) =>
+  const updateSpec = (adId: string, patch: Partial<AdAllocSpec>) => {
+    // Text edits (amount/percent/client) coalesce into one undo step per field;
+    // discrete field changes (mode, checkbox) each get their own snapshot.
+    const textField = Object.keys(patch).find(
+      (k) => k === 'amount' || k === 'percent' || k === 'clientAmount',
+    );
+    pushSnapshot(textField ? `${adId}:${textField}` : null);
     setSpecs((prev) => ({
       ...prev,
       [adId]: {
@@ -265,6 +303,7 @@ export function BudgetCalculatorModal({
         ...patch,
       },
     }));
+  };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -354,7 +393,13 @@ export function BudgetCalculatorModal({
         >
           {calcMode === 'midflight' && (
             <>
-              <CompactStat label="Initial" value={fmt(m.initial)} />
+              {/* §5f: "Original Budget" (context, not spendable) — NOT renamed
+                  to Total Budget, which would re-imply the gross is the anchor. */}
+              <CompactStat
+                label="Original Budget"
+                value={fmt(m.initial)}
+                title={`${pool === 'base' ? 'Base' : 'Added'} allocations at open — context, not the spendable pool`}
+              />
               <CompactStat
                 label="Locked Spend"
                 value={fmt(m.lockedSpend)}
@@ -364,9 +409,12 @@ export function BudgetCalculatorModal({
                     : 'No locked ads yet — mark an ad Off or Completed Run'
                 }
               />
+              {/* Remaining is the anchor in Mid-flight — emphasized with the
+                  pool accent so it reads as the dominant number. */}
               <CompactStat
                 label="Remaining"
                 value={fmt(m.anchor)}
+                color={accent}
                 title={
                   m.preserved > 0
                     ? `${fmt(m.initial)} − ${fmt(m.lockedSpend)} locked − ${fmt(m.preserved)} preserved`
@@ -520,10 +568,11 @@ export function BudgetCalculatorModal({
           })}
         </div>
 
-        {/* Total budget — single-pool views show the pool ceiling here; the
-            Split view shows each pool's Total in its own panel (no combined
-            account total, which would imply base + added are fungible). */}
-        {view !== 'split' && (
+        {/* Total budget — shown for a single-pool SETUP view (there the ceiling
+            is the spendable anchor). Dropped in Mid-flight (Remaining is the
+            anchor, not the gross ceiling) and in Split (each pool shows its own
+            Total in its panel — no combined account total). */}
+        {view !== 'split' && calcMode === 'setup' && (
           <Tooltip
             label="Client budget goal × margin for this pool"
             className="ml-auto self-center"
@@ -562,10 +611,6 @@ export function BudgetCalculatorModal({
                   ad.flightStart && ad.flightEnd
                     ? calcDays(ad.flightStart, ad.flightEnd)
                     : 0;
-                const dailyRate =
-                  ad.budgetType === 'Daily' && flightDays > 0
-                    ? allocated / flightDays
-                    : null;
                 // Donor rows are auto-handled (status Off / Completed Run) —
                 // their allocation locks at pacerActual and is excluded from
                 // "Entered" in BOTH modes (computeAllocations / enteredSoFar
@@ -797,11 +842,6 @@ export function BudgetCalculatorModal({
                               ? '—'
                               : fmt(allocated)}
                         </div>
-                        {dailyRate != null && spec.included && (
-                          <div className="text-[10px] text-[var(--muted-foreground)]">
-                            {fmt(dailyRate)}/day · {flightDays}d
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -811,7 +851,26 @@ export function BudgetCalculatorModal({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-[var(--border)]">
+        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-[var(--border)]">
+          {/* §6 Undo / Clear — step back one snapshot, or jump to the opening
+              state. Both are disabled until there's an edit to undo. */}
+          <button
+            type="button"
+            onClick={undo}
+            disabled={undoStack.length === 0}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={clearEdits}
+            disabled={undoStack.length === 0}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Clear
+          </button>
+          <div className="ml-auto flex gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -846,6 +905,7 @@ export function BudgetCalculatorModal({
               Apply to {includedCount} ad{includedCount === 1 ? '' : 's'}
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>,
