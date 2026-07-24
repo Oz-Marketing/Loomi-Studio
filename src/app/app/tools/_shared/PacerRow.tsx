@@ -411,6 +411,10 @@ export function PacerRow({
             cumulativeSpend: num(ad.pacerRunSpend) ?? num(ad.pacerActual),
             nowMs,
             timeZone,
+            // Data edge: anchor the health window's end to the last sync, not
+            // now() — a stale sync must not deflate the reading with unsynced
+            // budgeted days. Null (never synced) falls back to now().
+            syncedAtMs: ad.pacerSyncedAt ? Date.parse(ad.pacerSyncedAt) : null,
           })
         : null,
     [isGoogle, ad, nowMs, timeZone],

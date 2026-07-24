@@ -148,6 +148,80 @@ describe('computeMetaPacingHealth', () => {
   });
 });
 
+// ─── Pacing-health time-anchor fix (P1): denominator → data edge ─────────────
+
+describe('computeMetaPacingHealth — data-edge anchoring', () => {
+  // Certified Pre-Owned card: flight Jul 1–31, daily $5.37. The rolling window
+  // (Jul 17–22) sums $23.63; the data edge is Jul 22 at ~10:19 MDT (last sync,
+  // trailing partial $0.56) while the clock is a full day ahead (Jul 23 10:19).
+  const CPO_SERIES: DailySpendPoint[] = [
+    { date: '2026-07-17', spend: 5.0, dailyBudget: 5.37 },
+    { date: '2026-07-18', spend: 4.8, dailyBudget: 5.37 },
+    { date: '2026-07-19', spend: 5.1, dailyBudget: 5.37 },
+    { date: '2026-07-20', spend: 4.2, dailyBudget: 5.37 },
+    { date: '2026-07-21', spend: 3.97, dailyBudget: 5.37 },
+    { date: '2026-07-22', spend: 0.56, dailyBudget: 5.37 },
+  ];
+  const CLOCK = Date.UTC(2026, 6, 23, 16, 19, 0); // Jul 23 10:19 MDT
+  const DATA_EDGE = Date.UTC(2026, 6, 22, 16, 19, 0); // Jul 22 10:19 MDT
+
+  it('anchors the denominator to the data edge, not the clock (→ 81%, not 68%)', () => {
+    const h = computeMetaPacingHealth({
+      dailyBudget: 5.37,
+      liveDateIso: '2026-07-01',
+      series: CPO_SERIES,
+      cumulativeSpend: null,
+      nowMs: CLOCK,
+      syncedAtMs: DATA_EDGE,
+      timeZone: TZ,
+    });
+    expect(h.windowSpend).toBeCloseTo(23.63, 2); // numerator unchanged
+    expect(h.windowDays).toBeCloseTo(5.43, 2); // data edge, NOT 6.43 (clock)
+    expect(h.pacingRatio!).toBeCloseTo(0.81, 2); // NOT the deflated 0.68
+    expect(h.verdict).toBe('soft'); // ≥0.75 → the "underdelivering" warning won't fire
+  });
+
+  it('does not deflate: the same data read to the clock would score lower', () => {
+    const h = computeMetaPacingHealth({
+      dailyBudget: 5.37,
+      liveDateIso: '2026-07-01',
+      series: CPO_SERIES,
+      cumulativeSpend: null,
+      nowMs: CLOCK,
+      syncedAtMs: DATA_EDGE,
+      timeZone: TZ,
+    });
+    const deflatedToClock = h.windowSpend / (5.37 * 6.43); // phantom sync-lag day
+    expect(h.windowDays).toBeLessThan(6.43);
+    expect(h.pacingRatio!).toBeGreaterThan(deflatedToClock);
+  });
+
+  it('fresh sync (data edge == now) is byte-identical to the pre-fix path', () => {
+    const series: DailySpendPoint[] = [];
+    for (let d = 1; d <= 10; d++) {
+      series.push({
+        date: `2026-07-${String(d).padStart(2, '0')}`,
+        spend: 10,
+        dailyBudget: 10,
+      });
+    }
+    const NOW = Date.UTC(2026, 6, 10, 22, 31, 0);
+    const base = {
+      dailyBudget: 10,
+      liveDateIso: '2026-06-01',
+      series,
+      cumulativeSpend: null,
+      nowMs: NOW,
+      timeZone: TZ,
+    };
+    const withSync = computeMetaPacingHealth({ ...base, syncedAtMs: NOW });
+    const withoutSync = computeMetaPacingHealth(base); // falls back to now()
+    expect(withSync.windowDays).toBeCloseTo(6.69, 2);
+    expect(withSync.windowDays).toBeCloseTo(withoutSync.windowDays, 6);
+    expect(withSync.pacingRatio!).toBeCloseTo(withoutSync.pacingRatio!, 6);
+  });
+});
+
 // ─── Overage allowance (spec §5.2) ──────────────────────────────────────────
 
 describe('deriveOverageAllowance', () => {
