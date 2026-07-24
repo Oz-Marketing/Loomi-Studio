@@ -134,7 +134,10 @@ export function BudgetCalculatorModal({
   plan: PacerPlan;
   onClose: () => void;
   onApply: (
-    updates: Record<string, { allocation: number; splitBaseAmount?: number }>,
+    updates: Record<
+      string,
+      { allocation: number; splitBaseAmount?: number; adStatus?: string }
+    >,
   ) => void;
 }) {
   const [source, setSource] = useState<'base' | 'added'>('base');
@@ -313,6 +316,7 @@ export function BudgetCalculatorModal({
 
   const handleSpread = () => {
     if (!canSpread) return;
+    pushSnapshot(null); // one undo level reverts every row the spread wrote
     // Cent-accurate shares that sum to the pool exactly — no phantom residual
     // from rounding each row independently (12a).
     const shares = splitToCents(spreadPool, evenRowsForSpread.length);
@@ -357,10 +361,50 @@ export function BudgetCalculatorModal({
       didInitSpecsRef.current = true;
       return;
     }
-    setSpecs(seedSpecsForMode(calcMode));
+    // New mode = a fresh opening state; the undo history from the old mode no
+    // longer applies.
+    const seeded = seedSpecsForMode(calcMode);
+    setSpecs(seeded);
+    openingSpecsRef.current = seeded;
+    setUndoStack([]);
+    lastEditKeyRef.current = null;
   }, [calcMode, seedSpecsForMode]);
 
-  const updateSpec = (adId: string, patch: Partial<AdAllocSpec>) =>
+  // ── Undo / Clear ──────────────────────────────────────────────────────────
+  // A snapshot stack scoped to this modal session (cleared on close/Apply). A
+  // snapshot of the CURRENT specs is pushed just before a mutation; consecutive
+  // edits to the same field coalesce into one step (so typing is one undo, not
+  // one per keystroke), while discrete actions (checkbox, mode change, Spread)
+  // each get their own. Clear jumps back to the opening state.
+  const openingSpecsRef = useRef(specs);
+  const [undoStack, setUndoStack] = useState<Record<string, AdAllocSpec>[]>([]);
+  const lastEditKeyRef = useRef<string | null>(null);
+  const pushSnapshot = (editKey: string | null) => {
+    if (editKey != null && editKey === lastEditKeyRef.current) return;
+    lastEditKeyRef.current = editKey;
+    setUndoStack((st) => [...st, specs]);
+  };
+  const undo = () => {
+    setUndoStack((st) => {
+      if (st.length === 0) return st;
+      setSpecs(st[st.length - 1]);
+      lastEditKeyRef.current = null;
+      return st.slice(0, -1);
+    });
+  };
+  const clearEdits = () => {
+    setSpecs(openingSpecsRef.current);
+    setUndoStack([]);
+    lastEditKeyRef.current = null;
+  };
+
+  const updateSpec = (adId: string, patch: Partial<AdAllocSpec>) => {
+    // Text edits (amount/percent/client) coalesce into one undo step per field;
+    // discrete changes (mode, checkbox) each snapshot on their own.
+    const textField = Object.keys(patch).find(
+      (k) => k === 'amount' || k === 'percent' || k === 'clientAmount',
+    );
+    pushSnapshot(textField ? `${adId}:${textField}` : null);
     setSpecs((prev) => ({
       ...prev,
       [adId]: {
@@ -372,6 +416,7 @@ export function BudgetCalculatorModal({
         ...patch,
       },
     }));
+  };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -410,7 +455,7 @@ export function BudgetCalculatorModal({
     // portion that this view didn't touch.
     const updates: Record<
       string,
-      { allocation: number; splitBaseAmount?: number }
+      { allocation: number; splitBaseAmount?: number; adStatus?: string }
     > = {};
     for (const a of sourceAds) {
       const v = allocations[a.id];
@@ -424,7 +469,14 @@ export function BudgetCalculatorModal({
         const added = source === 'added' ? v : c.addedAllocation;
         updates[realId] = { allocation: base + added, splitBaseAmount: base };
       } else {
-        updates[a.id] = { allocation: v };
+        // Calc-local "Off — lock at spent": commit the ad Off in the planner AND
+        // lock its allocation at the freed value (its Pacer spend), so winding
+        // it down and going Off are one action.
+        const spec = specs[a.id] ?? DEFAULT_SPEC;
+        updates[a.id] =
+          spec.mode === 'off'
+            ? { allocation: v, adStatus: 'Off' }
+            : { allocation: v };
       }
     }
     onApply(updates);
@@ -892,7 +944,26 @@ export function BudgetCalculatorModal({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-[var(--border)]">
+        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-[var(--border)]">
+          {/* Undo steps back one snapshot; Clear jumps to the opening state.
+              Both disabled until there's an edit to undo. */}
+          <button
+            type="button"
+            onClick={undo}
+            disabled={undoStack.length === 0}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={clearEdits}
+            disabled={undoStack.length === 0}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Clear
+          </button>
+          <div className="ml-auto flex gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -927,6 +998,7 @@ export function BudgetCalculatorModal({
               Apply to {includedCount} ad{includedCount === 1 ? '' : 's'}
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>,
