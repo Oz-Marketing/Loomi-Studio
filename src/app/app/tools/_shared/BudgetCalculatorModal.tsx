@@ -17,17 +17,6 @@ import {
   effMarkupOf,
   sourceColor,
 } from '@/lib/ad-pacer/helpers';
-import {
-  poolAds,
-  poolCeiling,
-  computePoolMeter,
-  floorAwareShares,
-  DEFAULT_SPEC,
-  type Pool,
-  type PoolMeter,
-  type AdAllocSpec,
-  type AllocationMode,
-} from '@/lib/ad-pacer/budget-calc';
 import { CompactStat } from './metrics';
 import { DollarInput, inputClass } from './inputs';
 import { Tooltip } from './Tooltip';
@@ -44,9 +33,98 @@ import { Tooltip } from './Tooltip';
  * field. If any ad in the source already has an allocation, prompts before
  * overwriting.
  */
-// Allocation types + math (splitToCents, computeAllocations, poolAds,
-// computePoolMeter) live in @/lib/ad-pacer/budget-calc — a pure, unit-tested
-// module so the meter accounting is verified independently of this UI.
+type AllocationMode = 'even' | 'amount' | 'percent' | 'off' | 'client';
+
+interface AdAllocSpec {
+  mode: AllocationMode;
+  amount: string; // when mode === 'amount'
+  percent: string; // when mode === 'percent'
+  // when mode === 'client': the gross/billable amount the user types.
+  // computeAllocations multiplies it by the effective markup to produce
+  // the actual-spend value written on Apply.
+  clientAmount: string;
+  included: boolean; // when false the row is ignored — its current allocation stays put
+}
+
+const DEFAULT_SPEC: AdAllocSpec = {
+  mode: 'even',
+  amount: '',
+  percent: '',
+  clientAmount: '',
+  included: true,
+};
+
+/**
+ * Builds the per-ad allocation map for the Budget Calculator.
+ *
+ * Priority order per row:
+ *   1. Status "Off" / "Completed Run" → locked; allocation snaps to
+ *      `pacerActual` (the Pacer page's tracked spend). Its unspent
+ *      portion (alloc − pacerActual) feeds the redistribution pool.
+ *   2. Mode "off" → same lock behavior (explicit user choice).
+ *   3. Mode "amount" → explicit actual-spend dollar value.
+ *   4. Mode "client" → gross/billable dollars × `markup` = actual spend.
+ *      Used when the rep is given a client-facing number instead of the
+ *      internal actual-spend number.
+ *   5. Mode "percent" → percentage of `pool`. In mid-flight the pool is
+ *      Remaining-to-Split (Initial − Locked Spend − Excluded Preserved);
+ *      in setup mode the pool is just the Total Budget.
+ *   6. Mode "even" → skipped here; user must click Spread to convert it
+ *      to amount mode at that moment.
+ * Excluded rows (`included === false`) are left out entirely — the parent
+ * preserves their existing allocation on Apply.
+ */
+/**
+ * Split `total` dollars into `n` parts that sum back to `total` EXACTLY to the
+ * cent (12a). Equal shares, with leftover cents handed to the first rows — so
+ * "distribute evenly" never leaves a phantom remainder from rounding each row
+ * independently. Operates in integer cents; rounds only at the very end.
+ */
+function splitToCents(total: number, n: number): number[] {
+  if (n <= 0) return [];
+  const cents = Math.round(total * 100);
+  const base = Math.trunc(cents / n);
+  let remainder = cents - base * n; // 0..n-1 leftover cents
+  return Array.from({ length: n }, () => {
+    const extra = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder -= 1;
+    return (base + extra) / 100;
+  });
+}
+
+function computeAllocations(
+  ads: PacerAd[],
+  pool: number,
+  markup: number,
+  specs: Record<string, AdAllocSpec>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const ad of ads) {
+    const spec = specs[ad.id] ?? DEFAULT_SPEC;
+    if (!spec.included) continue;
+
+    const statusDonor =
+      ad.adStatus === 'Off' || ad.adStatus === 'Completed Run';
+    if (statusDonor) {
+      out[ad.id] = num(ad.pacerActual) ?? 0;
+      continue;
+    }
+
+    if (spec.mode === 'off') {
+      out[ad.id] = num(ad.pacerActual) ?? 0;
+    } else if (spec.mode === 'amount') {
+      out[ad.id] = num(spec.amount) ?? 0;
+    } else if (spec.mode === 'client') {
+      const gross = num(spec.clientAmount) ?? 0;
+      out[ad.id] = gross * markup;
+    } else if (spec.mode === 'percent') {
+      const pct = num(spec.percent) ?? 0;
+      out[ad.id] = (pool * pct) / 100;
+    }
+    // even mode: skipped — user must click Spread to assign values.
+  }
+  return out;
+}
 
 export function BudgetCalculatorModal({
   plan,
@@ -59,21 +137,53 @@ export function BudgetCalculatorModal({
     updates: Record<string, { allocation: number; splitBaseAmount?: number }>,
   ) => void;
 }) {
-  // Pool VIEW (which ads show): Base / Added are single-pool; Split is a
-  // dual-pool view (split ads only, both meters). Independent of the MODE axis.
-  const [view, setView] = useState<Pool | 'split'>('base');
+  const [source, setSource] = useState<'base' | 'added'>('base');
   // Setup = fresh planning (clean slate, no spent column).
   // Mid-flight = adjusting allocations after some spend has happened (shows
   // spent per row, exposes "Off — lock at spent" to wind ads down and free
   // their remaining budget for the rest).
   const [calcMode, setCalcMode] = useState<'setup' | 'midflight'>('setup');
 
+  // Split ads draw from BOTH pools (12b), so they appear in each source view
+  // editing only that source's portion. We project a split ad to a pseudo-ad
+  // with a SOURCE-QUALIFIED id ("<id>::base" / "<id>::added") whose allocation
+  // and pacerActual are that source's portion — so every keyed-by-id helper,
+  // spec, and row below works unchanged, and the two portions stay independent
+  // across the source toggle. handleApply maps the qualified ids back.
+  const sourceAds = useMemo(() => {
+    const single = plan.ads.filter((a) => a.budgetSource === source);
+    const split = plan.ads
+      .filter((a) => a.budgetSource === 'split')
+      .map((a) => {
+        const c = adContribution(a);
+        return {
+          ...a,
+          id: `${a.id}::${source}`,
+          allocation: String(
+            source === 'base' ? c.baseAllocation : c.addedAllocation,
+          ),
+          pacerActual: String(
+            source === 'base' ? c.baseSpent : c.addedSpent,
+          ),
+        };
+      });
+    return [...single, ...split];
+  }, [plan.ads, source]);
   // Effective markup — per-account override (Account.markup) when set,
-  // otherwise the global default. Converts the gross client goal into the
-  // actual-spend ceiling, and powers Client Budget mode below.
+  // otherwise the global default. Used here to convert the gross client
+  // goal into the actual-spend default, and below for Client Budget mode.
   const effectiveMarkup = effMarkupOf(plan.markup);
-  const baseCeiling = poolCeiling(plan, 'base', effectiveMarkup);
-  const addedCeiling = poolCeiling(plan, 'added', effectiveMarkup);
+  const goal =
+    source === 'base' ? num(plan.baseBudgetGoal) : num(plan.addedBudgetGoal);
+  const defaultBudget =
+    goal != null ? Math.round(goal * effectiveMarkup * 100) / 100 : 0;
+
+  // Total budget is fixed to the source's actual-spend goal (client budget ×
+  // markup) — not editable; shown read-only next to the tabs.
+  const totalBudget = defaultBudget;
+
+  // (Per-row "Already Spent" inputs live on each AdAllocSpec; the pool
+  // total is summed below in `totalSpent`.)
 
   // Per-ad allocation specs, keyed by ad id.
   // * Setup mode: pre-fill existing allocations in "Set amount" mode so
@@ -102,11 +212,9 @@ export function BudgetCalculatorModal({
       });
       for (const ad of plan.ads) {
         if (ad.budgetSource === 'split') {
-          // Split ads: seed each portion in amount mode; the split row edits
-          // the two portions independently and shows their Total.
           const c = adContribution(ad);
-          seed[`${ad.id}::base`] = amountSpec(c.baseAllocation);
-          seed[`${ad.id}::added`] = amountSpec(c.addedAllocation);
+          if (c.baseAllocation > 0) seed[`${ad.id}::base`] = amountSpec(c.baseAllocation);
+          if (c.addedAllocation > 0) seed[`${ad.id}::added`] = amountSpec(c.addedAllocation);
           continue;
         }
         const existing = num(ad.allocation);
@@ -120,117 +228,104 @@ export function BudgetCalculatorModal({
     seedSpecsForMode(calcMode),
   );
 
-  // §6 Undo / Clear — one snapshot stack of `specs`, scoped to this modal
-  // session (component state → discarded on close, per spec). Snapshots are
-  // taken BEFORE a mutation; consecutive keystrokes in the SAME field coalesce
-  // into one undo step, while discrete actions (checkbox, mode, off, spread)
-  // each push their own. Clear jumps back to the mode's opening snapshot.
-  const openingSpecsRef = useRef(specs);
-  const [undoStack, setUndoStack] = useState<Record<string, AdAllocSpec>[]>([]);
-  const lastEditKeyRef = useRef<string | null>(null);
-  const pushSnapshot = (editKey: string | null) => {
-    if (editKey !== null && editKey === lastEditKeyRef.current) return;
-    lastEditKeyRef.current = editKey;
-    setUndoStack((st) => [...st, specs]);
-  };
-  const undo = () => {
-    if (undoStack.length === 0) return;
-    setSpecs(undoStack[undoStack.length - 1]);
-    setUndoStack((st) => st.slice(0, -1));
-    lastEditKeyRef.current = null;
-  };
-  const clearEdits = () => {
-    setSpecs(openingSpecsRef.current);
-    setUndoStack([]);
-    lastEditKeyRef.current = null;
-  };
-
   // Helpers — donor = ad status is Off / Completed Run (it's finalized,
-  // locked at pacerActual on Apply). Receiver = anything else. Accepts a
-  // PacerAd or a PoolAdView (both carry adStatus).
-  const isDonor = (a: { adStatus: string | null | undefined }) =>
+  // locked at pacerActual on Apply). Receiver = anything else.
+  const isDonor = (a: PacerAd) =>
     a.adStatus === 'Off' || a.adStatus === 'Completed Run';
 
-  // Account-global pool meters — ALWAYS both, from the pure, unit-tested
-  // module. A pool's meter counts its pure-pool ads AND every split ad's
-  // portion for that pool, no matter which tab is on screen — so Base and
-  // Split can never double-spend the base pool. Setup counts locked/unchecked
-  // ads as committed against the ceiling; Mid-flight re-plans Initial − Locked
-  // − Preserved.
-  const baseAds = useMemo(() => poolAds(plan, 'base'), [plan]);
-  const addedAds = useMemo(() => poolAds(plan, 'added'), [plan]);
-  const baseMeter = useMemo(
-    () => computePoolMeter('base', baseAds, specs, calcMode, effectiveMarkup, baseCeiling),
-    [baseAds, specs, calcMode, effectiveMarkup, baseCeiling],
+  // Source pool summary. sourceAds already carries each split ad's per-source
+  // portion (projected, qualified id), so these sums cover split ads with no
+  // separate handling.
+  // * Initially Allocated = source-portion allocations at modal open (the ad
+  //   isn't mutated until Apply, so the live value equals the opening value).
+  // * Locked Spend        = Σ pacerActual for status-locked ads (Off/Completed).
+  // * Excluded Preserved  = Σ existing allocation for unchecked rows.
+  // * Remaining to Split  = Mid-flight: Initial − Locked − Excluded; Setup mode:
+  //   just the Total Budget.
+  const initiallyAllocated = sourceAds.reduce(
+    (s, a) => s + (num(a.allocation) ?? 0),
+    0,
   );
-  const addedMeter = useMemo(
-    () => computePoolMeter('added', addedAds, specs, calcMode, effectiveMarkup, addedCeiling),
-    [addedAds, specs, calcMode, effectiveMarkup, addedCeiling],
-  );
-  // Merged computed allocations (disjoint keys across pools) so any row's
-  // lookup works regardless of the active view.
+  const lockedSpend =
+    calcMode === 'midflight'
+      ? sourceAds.reduce(
+          (s, a) => (isDonor(a) ? s + (num(a.pacerActual) ?? 0) : s),
+          0,
+        )
+      : 0;
+  const excludedPreserved =
+    calcMode === 'midflight'
+      ? sourceAds.reduce((s, a) => {
+          const spec = specs[a.id] ?? DEFAULT_SPEC;
+          return spec.included ? s : s + (num(a.allocation) ?? 0);
+        }, 0)
+      : 0;
+  const remainingToSplit =
+    calcMode === 'midflight'
+      ? Math.max(0, initiallyAllocated - lockedSpend - excludedPreserved)
+      : totalBudget;
+
+  // Allocations — uses remainingToSplit (not totalBudget) as the base for
+  // percent-mode rows, so "Set 75%" means 75% of the redistribution pool
+  // the user is actually distributing, not 75% of the gross ceiling.
+  // effectiveMarkup (declared above) powers the Client Budget mode.
   const allocations = useMemo(
-    () => ({ ...baseMeter.allocations, ...addedMeter.allocations }),
-    [baseMeter, addedMeter],
-  );
-  const meterOf = (pool: Pool): PoolMeter => (pool === 'base' ? baseMeter : addedMeter);
-  // The pool(s) the active view shows a meter for: Split shows both.
-  const viewPools: Pool[] = view === 'split' ? ['base', 'added'] : [view];
-
-  // Rows to render for the active view. Base/Added show their pure-pool ads;
-  // Split shows each split ad ONCE (renderSplitRow gives it a Base control + an
-  // Added control + a derived Total on a single line — split ads live only on
-  // the Split tab).
-  const viewRows = useMemo<PacerAd[]>(
-    () => plan.ads.filter((a) => a.budgetSource === view),
-    [plan.ads, view],
+    () => computeAllocations(sourceAds, remainingToSplit, effectiveMarkup, specs),
+    [sourceAds, remainingToSplit, effectiveMarkup, specs],
   );
 
-  // Spread state per pool: included, non-donor, even-mode rows share that
-  // pool's Unallocated. Spread is available whenever that pool has unallocated
-  // budget and at least one even row to absorb it — no donor required (a pool
-  // can be rebalanced even if nothing was turned Off in it).
-  const spreadFor = (pool: Pool) => {
-    const m = meterOf(pool);
-    const evenRows = (pool === 'base' ? baseAds : addedAds).filter((r) => {
-      const spec = specs[r.id] ?? DEFAULT_SPEC;
-      return !isDonor(r) && spec.included && spec.mode === 'even';
-    });
-    const spreadPool = Math.max(0, m.unallocated);
-    const canSpread = evenRows.length > 0 && spreadPool > 0.005;
-    // §5c/§5d: the SAME floor-aware split powers the preview and the commit, so
-    // the preview never shows a number the commit won't honor. `perEven` is a
-    // single figure only when no floor binds (the common case); otherwise the
-    // shares differ per row and the preview says so.
-    const { shares } = floorAwareShares(
-      spreadPool,
-      evenRows.map((r) => r.spent),
-    );
-    const uniform =
-      shares.length > 0 && shares.every((v) => Math.abs(v - shares[0]) < 0.005);
-    return {
-      pool,
-      evenRows,
-      spreadPool,
-      canSpread,
-      shares,
-      perEven: uniform ? shares[0] : null,
-    };
-  };
+  // Active-row commitments — what the user has explicitly typed for
+  // receivers (amount/percent/off). Donor rows are auto-locked via
+  // status and already reflected in lockedSpend. Excluded rows preserve
+  // their existing allocation. Even-mode receiver rows skip here — they
+  // only get a value once the user clicks Spread.
+  const enteredSoFar = sourceAds.reduce((s, a) => {
+    const spec = specs[a.id] ?? DEFAULT_SPEC;
+    if (!spec.included) return s;
+    if (isDonor(a)) return s;
+    const v = allocations[a.id];
+    return v == null ? s : s + v;
+  }, 0);
+  const stillToAllocate = remainingToSplit - enteredSoFar;
+  const overAllocated = stillToAllocate < -0.005;
+  // overBudget reuses the same semantic as before so the existing Apply
+  // guard ("can't apply when over") still kicks in.
+  const overBudget = overAllocated;
 
-  const handleSpread = (pool: Pool) => {
-    const s = spreadFor(pool);
-    if (!s.canSpread) return;
-    pushSnapshot(null); // one undo level reverts the whole spread
+  // Spread state — only included, non-donor, even-mode rows are
+  // candidates for the remainder. Donors are locked at pacerActual and
+  // must not be overwritten by the spread.
+  const evenRowsForSpread = sourceAds.filter((a) => {
+    const spec = specs[a.id] ?? DEFAULT_SPEC;
+    if (isDonor(a)) return false;
+    return spec.included && spec.mode === 'even';
+  });
+  const spreadPool = Math.max(0, stillToAllocate);
+  // Mid-flight mode gates Spread on there being at least one donor (an
+  // ad with status Off or Completed Run that contributed to the pool).
+  // Without a donor, there's nothing being freed and the pool is just
+  // the existing allocations. Setup mode has no donor concept, so
+  // Spread is always available there.
+  const spentGateOk = calcMode !== 'midflight' || lockedSpend > 0;
+  const canSpread =
+    evenRowsForSpread.length > 0 && spreadPool > 0.005 && spentGateOk;
+  const perEvenPreview = canSpread ? spreadPool / evenRowsForSpread.length : 0;
+
+  const handleSpread = () => {
+    if (!canSpread) return;
+    // Cent-accurate shares that sum to the pool exactly — no phantom residual
+    // from rounding each row independently (12a).
+    const shares = splitToCents(spreadPool, evenRowsForSpread.length);
     setSpecs((prev) => {
       const next = { ...prev };
-      s.evenRows.forEach((r, i) => {
-        const existing = next[r.id] ?? DEFAULT_SPEC;
-        next[r.id] = {
+      evenRowsForSpread.forEach((ad, i) => {
+        const existing = next[ad.id] ?? DEFAULT_SPEC;
+        next[ad.id] = {
           ...existing,
           mode: 'amount',
-          amount: s.shares[i].toFixed(2),
+          amount: shares[i].toFixed(2),
           percent: '',
+          clientAmount: existing.clientAmount,
           included: true,
         };
       });
@@ -238,15 +333,16 @@ export function BudgetCalculatorModal({
     });
   };
 
-  // Any included "Set amount" row (either pool) below its already-spent amount
-  // blocks Apply — you can't allocate an ad less than it has physically spent.
-  const hasUnderSpent = [...baseAds, ...addedAds].some((r) => {
-    const spec = specs[r.id] ?? DEFAULT_SPEC;
-    if (!spec.included || spec.mode !== 'amount' || spec.amount.trim() === '') return false;
-    return (num(spec.amount) ?? 0) < r.spent - 0.005;
+  // Any included "Set amount" row whose value sits below its already-spent
+  // amount blocks Apply — you can't allocate less than you've already paid.
+  const hasUnderSpent = sourceAds.some((a) => {
+    const spec = specs[a.id] ?? DEFAULT_SPEC;
+    if (!spec.included || spec.mode !== 'amount') return false;
+    if (spec.amount.trim() === '') return false;
+    const v = num(spec.amount) ?? 0;
+    const spent = num(a.pacerActual) ?? 0;
+    return v < spent - 0.005;
   });
-  // Apply commits BOTH pools, so it's blocked while either is over-allocated.
-  const overBudget = baseMeter.overAllocated || addedMeter.overAllocated;
 
   // Switching modes re-seeds the row state from scratch:
   // * → Setup:      restore the existing-allocation pre-fills so the user
@@ -261,46 +357,21 @@ export function BudgetCalculatorModal({
       didInitSpecsRef.current = true;
       return;
     }
-    // A mode switch is a fresh plan — reset the seed AND the undo history so
-    // Clear/Undo can't cross the mode boundary into stale snapshots.
-    const seeded = seedSpecsForMode(calcMode);
-    setSpecs(seeded);
-    openingSpecsRef.current = seeded;
-    setUndoStack([]);
-    lastEditKeyRef.current = null;
+    setSpecs(seedSpecsForMode(calcMode));
   }, [calcMode, seedSpecsForMode]);
 
-  const updateSpec = (adId: string, patch: Partial<AdAllocSpec>) => {
-    // Text edits (amount/percent/client) coalesce into one undo step per field;
-    // discrete field changes (mode, checkbox) each get their own snapshot.
-    const textField = Object.keys(patch).find(
-      (k) => k === 'amount' || k === 'percent' || k === 'clientAmount',
-    );
-    pushSnapshot(textField ? `${adId}:${textField}` : null);
+  const updateSpec = (adId: string, patch: Partial<AdAllocSpec>) =>
     setSpecs((prev) => ({
       ...prev,
-      // Spread the full previous spec so fields the patch doesn't touch (e.g.
-      // the split `total`) survive.
       [adId]: {
-        ...DEFAULT_SPEC,
-        ...prev[adId],
+        mode: prev[adId]?.mode ?? 'even',
+        amount: prev[adId]?.amount ?? '',
+        percent: prev[adId]?.percent ?? '',
+        clientAmount: prev[adId]?.clientAmount ?? '',
+        included: prev[adId]?.included ?? true,
         ...patch,
       },
     }));
-  };
-
-  // Split entry: a split ad is ONE row with an independent Base control and
-  // Added control (each a full allocation mode + input, keyed ::base / ::added)
-  // plus a derived Total = base + added. The checkbox includes/excludes the
-  // whole ad (both portions together). Both portions feed their own pool meter.
-  const toggleSplitIncluded = (id: string, val: boolean) => {
-    pushSnapshot(null);
-    setSpecs((prev) => ({
-      ...prev,
-      [`${id}::base`]: { ...DEFAULT_SPEC, ...prev[`${id}::base`], included: val },
-      [`${id}::added`]: { ...DEFAULT_SPEC, ...prev[`${id}::added`], included: val },
-    }));
-  };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -310,379 +381,53 @@ export function BudgetCalculatorModal({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // The multi-row write set, built from BOTH pools' computed allocations
-  // (Apply is atomic across pools now). Pure ads write directly; a split ad's
-  // two portions combine into one real-ad update (allocation = base + added,
-  // splitBaseAmount = base), each portion falling back to its existing value
-  // when only the other was edited. Even/unchecked rows have no computed value
-  // and are preserved.
-  const buildUpdates = () => {
-    const updates: Record<
-      string,
-      { allocation: number; splitBaseAmount?: number }
-    > = {};
-    const splitParts: Record<string, { base?: number; added?: number }> = {};
-    for (const pool of ['base', 'added'] as const) {
-      const rows = pool === 'base' ? baseAds : addedAds;
-      const allocs = meterOf(pool).allocations;
-      for (const r of rows) {
-        const v = allocs[r.id];
-        if (v == null) continue;
-        if (r.budgetSource === 'split') (splitParts[r.realId] ??= {})[pool] = v;
-        else updates[r.id] = { allocation: v };
-      }
-    }
-    for (const [realId, parts] of Object.entries(splitParts)) {
-      const orig = plan.ads.find((o) => o.id === realId);
-      if (!orig) continue;
-      const c = adContribution(orig);
-      const base = parts.base ?? c.baseAllocation;
-      const added = parts.added ?? c.addedAllocation;
-      updates[realId] = { allocation: base + added, splitBaseAmount: base };
-    }
-    return updates;
-  };
-
-  const includedCount = Object.keys(buildUpdates()).length;
+  // Count of rows the Apply button will actually write to — only rows
+  // with a computed allocation (amount/percent/off). Even-mode rows are
+  // skipped until the user spreads them, so they don't count here.
+  const includedCount = sourceAds.filter(
+    (a) => allocations[a.id] != null,
+  ).length;
 
   const handleApply = () => {
-    const updates = buildUpdates();
-    const withExisting = Object.keys(updates).filter((id) => {
-      const orig = plan.ads.find((o) => o.id === id);
-      return orig != null && (num(orig.allocation) ?? 0) > 0;
+    // Only ask about overwrite for rows that will actually be written AND
+    // already have an allocation. Even-mode rows are skipped on Apply.
+    const adsWithExisting = sourceAds.filter((a) => {
+      if (allocations[a.id] == null) return false;
+      const existing = num(a.allocation);
+      return existing != null && existing > 0;
     });
-    if (withExisting.length > 0) {
+    if (adsWithExisting.length > 0) {
       if (
         !window.confirm(
-          `${withExisting.length} ad${withExisting.length === 1 ? '' : 's'} already ${withExisting.length === 1 ? 'has' : 'have'} an allocation set. Overwrite?`,
+          `${adsWithExisting.length} ad${adsWithExisting.length === 1 ? '' : 's'} in ${source === 'base' ? 'Base' : 'Added'} already ${adsWithExisting.length === 1 ? 'has' : 'have'} an allocation set. Overwrite?`,
         )
       ) {
         return;
       }
     }
+    // Map computed (source-portion) values back to real ads. For a Split ad,
+    // set splitBaseAmount + combined allocation, preserving the OTHER source's
+    // portion that this view didn't touch.
+    const updates: Record<
+      string,
+      { allocation: number; splitBaseAmount?: number }
+    > = {};
+    for (const a of sourceAds) {
+      const v = allocations[a.id];
+      if (v == null) continue;
+      if (a.budgetSource === 'split') {
+        const realId = a.id.split('::')[0];
+        const orig = plan.ads.find((o) => o.id === realId);
+        if (!orig) continue;
+        const c = adContribution(orig);
+        const base = source === 'base' ? v : c.baseAllocation;
+        const added = source === 'added' ? v : c.addedAllocation;
+        updates[realId] = { allocation: base + added, splitBaseAmount: base };
+      } else {
+        updates[a.id] = { allocation: v };
+      }
+    }
     onApply(updates);
-  };
-
-  // One pool's meter strip (+ its Spread bar). Rendered once per active pool —
-  // twice, stacked, on the dual-pool Split tab (each pool validated on its own
-  // meter; base and added never net against each other, no combined total).
-  const renderPoolPanel = (pool: Pool) => {
-    const m = meterOf(pool);
-    const s = spreadFor(pool);
-    const accent = pool === 'base' ? COLORS.base : COLORS.added;
-    const over = m.overAllocated;
-    return (
-      <div key={pool} className="mb-2">
-        {view === 'split' && (
-          <div className="flex items-center justify-between mb-1 px-0.5">
-            <span className="text-[11px] font-semibold" style={{ color: accent }}>
-              {pool === 'base' ? 'Base' : 'Added'} pool
-            </span>
-            <span className="text-[10px] text-[var(--muted-foreground)]">
-              Total Budget {fmt(m.ceiling)}
-            </span>
-          </div>
-        )}
-        <div
-          className={`grid shrink-0 gap-px rounded-lg bg-[var(--border)] ${
-            calcMode === 'midflight' ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-2'
-          }`}
-        >
-          {calcMode === 'midflight' && (
-            <>
-              {/* §5f: "Original Budget" (context, not spendable) — NOT renamed
-                  to Total Budget, which would re-imply the gross is the anchor. */}
-              <CompactStat
-                label="Original Budget"
-                value={fmt(m.initial)}
-                title={`${pool === 'base' ? 'Base' : 'Added'} allocations at open — context, not the spendable pool`}
-              />
-              <CompactStat
-                label="Locked Spend"
-                value={fmt(m.lockedSpend)}
-                title={
-                  m.lockedSpend > 0
-                    ? 'Pacer spend on Off / Completed Run ads (locked at this value on Apply)'
-                    : 'No locked ads yet — mark an ad Off or Completed Run'
-                }
-              />
-              {/* Remaining is the anchor in Mid-flight — emphasized with the
-                  pool accent so it reads as the dominant number. */}
-              <CompactStat
-                label="Remaining"
-                value={fmt(m.anchor)}
-                color={accent}
-                title={
-                  m.preserved > 0
-                    ? `${fmt(m.initial)} − ${fmt(m.lockedSpend)} locked − ${fmt(m.preserved)} preserved`
-                    : m.lockedSpend > 0
-                      ? `${fmt(m.initial)} − ${fmt(m.lockedSpend)} locked`
-                      : 'Nothing freed yet'
-                }
-              />
-            </>
-          )}
-          <CompactStat
-            label="Entered"
-            value={fmt(m.entered)}
-            title={`Out of ${fmt(m.anchor)} to split`}
-            color={
-              over
-                ? COLORS.error
-                : m.unallocated < 0.005
-                  ? COLORS.success
-                  : COLORS.warn
-            }
-          />
-          <CompactStat
-            label={over ? 'Over' : 'Unallocated'}
-            value={fmt(Math.abs(m.unallocated))}
-            title={
-              over
-                ? 'Reduce locked rows or raise total'
-                : m.unallocated < 0.005
-                  ? 'Fully allocated'
-                  : s.evenRows.length > 0
-                    ? `${s.evenRows.length} row${s.evenRows.length === 1 ? '' : 's'} waiting for Spread`
-                    : 'Not assigned to any ad'
-            }
-            color={over ? COLORS.error : undefined}
-          />
-        </div>
-        {s.canSpread && (
-          <div className="flex shrink-0 items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-1.5 mt-1">
-            <div className="text-[11px] text-[var(--muted-foreground)] min-w-0 truncate">
-              <span className="font-semibold text-[var(--foreground)]">{fmt(s.spreadPool)}</span>{' '}
-              across{' '}
-              <span className="font-semibold text-[var(--foreground)]">{s.evenRows.length}</span>{' '}
-              row{s.evenRows.length === 1 ? '' : 's'}
-              {s.perEven != null ? (
-                <>
-                  {' '}={' '}
-                  <span className="font-semibold text-[var(--foreground)]">{fmt(s.perEven)}</span>{' '}
-                  each
-                </>
-              ) : (
-                <> · floor-aware (each ≥ its spent)</>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => handleSpread(pool)}
-              className="px-3 py-1 text-[11px] font-semibold rounded-md bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90 transition-colors whitespace-nowrap"
-            >
-              Spread{view === 'split' ? ` ${pool === 'base' ? 'Base' : 'Added'}` : ' remainder'}
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // One portion (Base or Added) of a split ad: its own allocation-mode dropdown
-  // + mode-specific input, stacked under a colored label. Keyed ::base/::added
-  // so it feeds that pool's meter. Used twice per split row.
-  const portionField = (ad: PacerAd, pool: Pool, portionSpent: number) => {
-    const id = `${ad.id}::${pool}`;
-    const spec = specs[id] ?? DEFAULT_SPEC;
-    const donor = ad.adStatus === 'Off' || ad.adStatus === 'Completed Run';
-    const accent = pool === 'base' ? COLORS.base : COLORS.added;
-    const underSpent =
-      spec.included &&
-      spec.mode === 'amount' &&
-      spec.amount.trim() !== '' &&
-      (num(spec.amount) ?? 0) < portionSpent - 0.005;
-    // Resolved per-pool contribution (what actually feeds the meter + Total).
-    // `floored` = the spent floor bumped it above what was typed (incl. an empty
-    // input on an ad that's already spent) — the invisible-$X-appearing case.
-    const resolved = allocations[id];
-    const floored =
-      spec.included &&
-      spec.mode === 'amount' &&
-      resolved != null &&
-      resolved > (num(spec.amount) ?? 0) + 0.005;
-    return (
-      <div className="min-w-0">
-        <span
-          className="block text-[9px] font-semibold uppercase tracking-wider mb-1"
-          style={{ color: accent }}
-        >
-          {pool === 'base' ? 'Base' : 'Added'}
-        </span>
-        {donor ? (
-          <div className="flex items-center gap-1 px-2 py-1.5 rounded border border-[var(--border)] bg-[var(--muted)]/60 text-[11px] text-[var(--muted-foreground)]">
-            <LockClosedIcon className="w-3 h-3 flex-shrink-0" />
-            <span>Locked {fmt(portionSpent)}</span>
-          </div>
-        ) : !spec.included ? (
-          <div className="text-[10px] text-[var(--muted-foreground)] italic px-1 py-1.5">
-            left as-is
-          </div>
-        ) : (
-          <>
-            <select
-              value={spec.mode}
-              onChange={(e) => updateSpec(id, { mode: e.target.value as AllocationMode })}
-              className={`${inputClass} text-[11px] py-1.5`}
-            >
-              <option value="even">Distribute evenly</option>
-              <option value="amount">Set amount</option>
-              <option value="client">Client Budget (gross)</option>
-              <option value="percent">Set %</option>
-              {calcMode === 'midflight' && <option value="off">Off — lock at spent</option>}
-            </select>
-            <div className="mt-1">
-              {spec.mode === 'amount' && (
-                <div className="flex items-center gap-1">
-                  <div className="flex-1 min-w-0">
-                    <DollarInput
-                      value={spec.amount}
-                      onChange={(v) => updateSpec(id, { amount: v })}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  {underSpent && (
-                    <Tooltip label={`Below ${fmt(portionSpent)} already spent`}>
-                      <ExclamationTriangleIcon
-                        className="w-4 h-4 flex-shrink-0"
-                        style={{ color: COLORS.error }}
-                      />
-                    </Tooltip>
-                  )}
-                </div>
-              )}
-              {spec.mode === 'percent' && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={spec.percent}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === '' || /^\d*\.?\d*$/.test(v)) updateSpec(id, { percent: v });
-                    }}
-                    placeholder="0"
-                    className={`${inputClass} pr-7`}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--muted-foreground)] pointer-events-none">
-                    %
-                  </span>
-                </div>
-              )}
-              {spec.mode === 'client' && (
-                <div>
-                  <DollarInput
-                    value={spec.clientAmount}
-                    onChange={(v) => updateSpec(id, { clientAmount: v ?? '' })}
-                    placeholder="0.00"
-                  />
-                  {spec.clientAmount.trim() !== '' && (
-                    <p className="text-[10px] mt-0.5 text-[var(--muted-foreground)]">
-                      × {effectiveMarkup} ={' '}
-                      <span className="font-semibold text-[var(--foreground)]">
-                        {fmt((num(spec.clientAmount) ?? 0) * effectiveMarkup)}
-                      </span>
-                    </p>
-                  )}
-                </div>
-              )}
-              {spec.mode === 'even' && (
-                <div className="text-[10px] text-[var(--muted-foreground)] italic px-1 py-1.5">
-                  waiting for Spread
-                </div>
-              )}
-              {spec.mode === 'off' && (
-                <div className="text-[10px] text-[var(--muted-foreground)] italic px-1 py-1.5">
-                  locked at {fmt(portionSpent)}
-                </div>
-              )}
-            </div>
-            {spec.mode !== 'even' && resolved != null && (
-              <div className="text-[10px] text-right mt-1" style={{ color: accent }}>
-                → {fmt(resolved)}
-                {floored && (
-                  <span className="text-[var(--muted-foreground)]"> · min spent</span>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    );
-  };
-
-  // A split ad on the Split tab: ONE row with an independent Base control and
-  // Added control (each a full mode + input) and a derived Total = base + added
-  // (what the ad gets). Both portions feed their own pool meter. Same layout in
-  // Setup and Mid-flight.
-  const renderSplitRow = (ad: PacerAd) => {
-    const c = adContribution(ad);
-    const included = (specs[`${ad.id}::base`] ?? DEFAULT_SPEC).included;
-    const baseVal = allocations[`${ad.id}::base`] ?? c.baseAllocation;
-    const addedVal = allocations[`${ad.id}::added`] ?? c.addedAllocation;
-    const total = baseVal + addedVal;
-    return (
-      <div
-        key={ad.id}
-        className={`grid grid-cols-1 md:grid-cols-[28px_1fr_150px_150px_96px] gap-2 items-start rounded-lg border bg-[var(--card)] px-3 py-2 ${
-          included ? 'border-[var(--border)]' : 'border-[var(--border)] opacity-60'
-        }`}
-      >
-        <Tooltip
-          label={
-            included
-              ? 'Uncheck to leave this ad untouched on Apply'
-              : 'This ad keeps its current allocation on Apply'
-          }
-        >
-          <label className="flex items-center justify-center cursor-pointer pt-5">
-            <input
-              type="checkbox"
-              checked={included}
-              onChange={(e) => toggleSplitIncluded(ad.id, e.target.checked)}
-              className="w-4 h-4 accent-[var(--primary)]"
-            />
-          </label>
-        </Tooltip>
-        <div className="min-w-0 pt-4">
-          <div className="text-xs font-semibold text-[var(--foreground)] truncate">
-            {ad.name || 'Untitled Ad'}
-          </div>
-          <div className="text-[10px]" style={{ color: sourceColor('split') }}>
-            Split · {ad.budgetType}
-          </div>
-          {/* Current plan (before this edit) so the reallocation has context. */}
-          <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-            Allocated{' '}
-            <span className="font-semibold text-[var(--foreground)] tabular-nums">
-              {fmt(c.baseAllocation + c.addedAllocation)}
-            </span>{' '}
-            <span style={{ color: COLORS.base }}>B {fmt(c.baseAllocation)}</span>
-            {' · '}
-            <span style={{ color: COLORS.added }}>A {fmt(c.addedAllocation)}</span>
-          </div>
-          {calcMode === 'midflight' && (
-            <div className="text-[10px] text-[var(--muted-foreground)]">
-              Spent{' '}
-              <span className="font-semibold text-[var(--foreground)] tabular-nums">
-                {fmt(c.baseSpent + c.addedSpent)}
-              </span>{' '}
-              <span className="italic">(Pacer)</span>
-            </div>
-          )}
-        </div>
-        {portionField(ad, 'base', c.baseSpent)}
-        {portionField(ad, 'added', c.addedSpent)}
-        <div className="text-right pt-4">
-          <span className="block text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-1">
-            Total
-          </span>
-          <div className="text-sm font-bold tabular-nums text-[var(--foreground)]">
-            {fmt(total)}
-          </div>
-        </div>
-      </div>
-    );
   };
 
   if (typeof document === 'undefined') return null;
@@ -702,7 +447,7 @@ export function BudgetCalculatorModal({
             </h3>
             <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
               {calcMode === 'setup'
-                ? `Plan a fresh allocation across the ${view === 'base' ? 'Base' : view === 'added' ? 'Added' : 'Split'} ads.`
+                ? `Plan a fresh allocation across the ${source === 'base' ? 'Base' : 'Added'} ads.`
                 : `Reallocate after spending. Donors (Off / Completed Run) auto-lock at Pacer spend; their freed budget redistributes to active ads.`}
             </p>
           </div>
@@ -744,20 +489,19 @@ export function BudgetCalculatorModal({
           })}
         </div>
 
-        {/* Pool view tabs (Base / Added / Split) — same row as the Mode tabs.
-            Base/Added are single-pool; Split is the dual-pool view (split ads
-            only, both meters). Active fill uses the pool's accent color. */}
+        {/* Source tabs (Base / Added) — sit on the same row as Mode
+            tabs to save vertical space. Active fill uses each source's
+            accent color (Base = blue, Added = green). */}
         <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-1 self-start">
-          {(['base', 'added', 'split'] as const).map((v) => {
-            const active = view === v;
-            const count = plan.ads.filter((a) => a.budgetSource === v).length;
-            const accent =
-              v === 'base' ? COLORS.base : v === 'added' ? COLORS.added : sourceColor('split');
+          {(['base', 'added'] as const).map((s) => {
+            const active = source === s;
+            const count = plan.ads.filter((a) => a.budgetSource === s).length;
+            const accent = s === 'base' ? COLORS.base : COLORS.added;
             return (
               <button
-                key={v}
+                key={s}
                 type="button"
-                onClick={() => setView(v)}
+                onClick={() => setSource(s)}
                 className={`px-3 py-1 text-[11px] font-medium rounded transition-colors ${
                   active
                     ? 'text-white'
@@ -765,49 +509,134 @@ export function BudgetCalculatorModal({
                 }`}
                 style={active ? { background: accent } : undefined}
               >
-                {v === 'base' ? 'Base' : v === 'added' ? 'Added' : 'Split'} ({count})
+                {s === 'base' ? 'Base' : 'Added'} ({count})
               </button>
             );
           })}
         </div>
 
-        {/* Total budget — shown for a single-pool SETUP view (there the ceiling
-            is the spendable anchor). Dropped in Mid-flight (Remaining is the
-            anchor, not the gross ceiling) and in Split (each pool shows its own
-            Total in its panel — no combined account total). */}
-        {view !== 'split' && calcMode === 'setup' && (
-          <Tooltip
-            label="Client budget goal × margin for this pool"
-            className="ml-auto self-center"
-          >
-            <div className="text-right">
-              <span className="block text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] leading-none">
-                Total Budget
-              </span>
-              <span className="block text-base font-bold tabular-nums text-[var(--foreground)] leading-tight">
-                {fmt(view === 'base' ? baseCeiling : addedCeiling)}
-              </span>
-            </div>
-          </Tooltip>
-        )}
+        {/* Total budget — fixed to the source's goal (client × markup), shown
+            read-only on the right of the tabs. */}
+        <Tooltip
+          label="Client budget goal × margin for this source"
+          className="ml-auto self-center"
+        >
+        <div className="text-right">
+          <span className="block text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] leading-none">
+            Total Budget
+          </span>
+          <span className="block text-base font-bold tabular-nums text-[var(--foreground)] leading-tight">
+            {fmt(totalBudget)}
+          </span>
+        </div>
+        </Tooltip>
         </div>
 
-        {/* Per-pool meter strip(s) + Spread — one panel for a single-pool
-            view, both (stacked) for the dual-pool Split view. */}
-        <div className="shrink-0 mb-1">{viewPools.map(renderPoolPanel)}</div>
+        {/* Compact stat strip — Mid-flight: 5 cells (Initial, Locked Spend,
+            Remaining, Entered, Still). Setup: 2 cells (Entered, Still). */}
+        <div
+          className={`grid shrink-0 gap-px mb-3 rounded-lg bg-[var(--border)] ${
+            calcMode === 'midflight'
+              ? 'grid-cols-2 md:grid-cols-5'
+              : 'grid-cols-2'
+          }`}
+        >
+          {calcMode === 'midflight' && (
+            <>
+              <CompactStat
+                label="Initial"
+                value={fmt(initiallyAllocated)}
+                title={`${sourceAds.length} ${source === 'base' ? 'Base' : 'Added'} ad${sourceAds.length === 1 ? '' : 's'}`}
+              />
+              <CompactStat
+                label="Locked Spend"
+                value={fmt(lockedSpend)}
+                title={
+                  lockedSpend > 0
+                    ? 'Pacer spend on Off / Completed Run ads (locked at this value on Apply)'
+                    : 'No locked ads yet — mark an ad Off or Completed Run'
+                }
+              />
+              <CompactStat
+                label="Remaining"
+                value={fmt(remainingToSplit)}
+                title={
+                  excludedPreserved > 0
+                    ? `${fmt(initiallyAllocated)} − ${fmt(lockedSpend)} locked − ${fmt(excludedPreserved)} preserved`
+                    : lockedSpend > 0
+                      ? `${fmt(initiallyAllocated)} − ${fmt(lockedSpend)} locked`
+                      : 'Nothing freed yet'
+                }
+              />
+            </>
+          )}
+          <CompactStat
+            label="Entered"
+            value={fmt(enteredSoFar)}
+            title={`Out of ${fmt(remainingToSplit)} to split`}
+            color={
+              overAllocated
+                ? COLORS.error
+                : stillToAllocate < 0.005
+                  ? COLORS.success
+                  : COLORS.warn
+            }
+          />
+          <CompactStat
+            label={overAllocated ? 'Over' : 'Unallocated'}
+            value={fmt(Math.abs(stillToAllocate))}
+            title={
+              overAllocated
+                ? 'Reduce locked rows or raise total'
+                : stillToAllocate < 0.005
+                  ? 'Fully allocated'
+                  : evenRowsForSpread.length > 0
+                    ? `${evenRowsForSpread.length} row${evenRowsForSpread.length === 1 ? '' : 's'} waiting for Spread`
+                    : 'Not assigned to any ad'
+            }
+            color={overAllocated ? COLORS.error : undefined}
+          />
+        </div>
+
+        {/* Spread button — only shows when there's a positive remainder
+            AND at least one included even-mode row to absorb it. Click
+            converts those rows to amount mode at the computed per-row
+            share. No auto-recalc afterward. */}
+        {canSpread && (
+          <div className="flex shrink-0 items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-1.5 mb-2">
+            <div className="text-[11px] text-[var(--muted-foreground)] min-w-0 truncate">
+              <span className="font-semibold text-[var(--foreground)]">
+                {fmt(spreadPool)}
+              </span>{' '}
+              across{' '}
+              <span className="font-semibold text-[var(--foreground)]">
+                {evenRowsForSpread.length}
+              </span>{' '}
+              row{evenRowsForSpread.length === 1 ? '' : 's'} ={' '}
+              <span className="font-semibold text-[var(--foreground)]">
+                {fmt(perEvenPreview)}
+              </span>{' '}
+              each
+            </div>
+            <button
+              type="button"
+              onClick={handleSpread}
+              className="px-3 py-1 text-[11px] font-semibold rounded-md bg-[var(--primary)] text-white hover:bg-[var(--primary)]/90 transition-colors whitespace-nowrap"
+            >
+              Spread remainder
+            </button>
+          </div>
+        )}
 
         {/* Ad list */}
         <div className="themed-scrollbar overflow-y-auto -mx-2 px-2 flex-1 min-h-0">
-          {viewRows.length === 0 ? (
+          {sourceAds.length === 0 ? (
             <div className="rounded-lg border border-dashed border-[var(--border)] py-8 text-center text-xs text-[var(--muted-foreground)]">
-              No {view === 'base' ? 'Base' : view === 'added' ? 'Added' : 'Split'} ads
-              in this period yet.
+              No {source === 'base' ? 'Base' : 'Added'} ads in this period yet.
             </div>
           ) : (
             <div className="space-y-2">
-              {viewRows.map((ad) => {
-                // Split ads render as one dual-control row (Base + Added + Total).
-                if (view === 'split') return renderSplitRow(ad);
+              {sourceAds.map((ad) => {
                 const spec = specs[ad.id] ?? DEFAULT_SPEC;
                 const allocated = allocations[ad.id] ?? 0;
                 const currentAllocation = num(ad.allocation) ?? 0;
@@ -816,6 +645,10 @@ export function BudgetCalculatorModal({
                   ad.flightStart && ad.flightEnd
                     ? calcDays(ad.flightStart, ad.flightEnd)
                     : 0;
+                const dailyRate =
+                  ad.budgetType === 'Daily' && flightDays > 0
+                    ? allocated / flightDays
+                    : null;
                 // Donor rows are auto-handled (status Off / Completed Run) —
                 // their allocation locks at pacerActual and is excluded from
                 // "Entered" in BOTH modes (computeAllocations / enteredSoFar
@@ -867,6 +700,12 @@ export function BudgetCalculatorModal({
                       <div className="text-[10px] text-[var(--muted-foreground)]">
                         {ad.budgetType}
                         {flightDays > 0 ? ` · ${flightDays} days` : ''}
+                        {ad.budgetSource === 'split' && (
+                          <span style={{ color: sourceColor('split') }}>
+                            {' '}· Split ({source === 'base' ? 'Base' : 'Added'}{' '}
+                            portion)
+                          </span>
+                        )}
                       </div>
                       <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
                         {currentAllocation > 0 ? (
@@ -1010,18 +849,16 @@ export function BudgetCalculatorModal({
                         </>
                       )}
                     </div>
-                    {(adIsDonor || spec.mode === 'off') && spec.included ? (
-                      // Donors AND calc-local off-mode rows free their remainder
-                      // (allocation − spent) into the pool — show what's freed.
+                    {adIsDonor && spec.included ? (
                       <div className="text-right">
                         <div
                           className="text-sm font-bold"
                           style={{ color: COLORS.success }}
                         >
-                          {fmt(Math.max(0, currentAllocation - currentSpent))}
+                          {fmt(currentAllocation - currentSpent)}
                         </div>
                         <div className="text-[10px] text-[var(--muted-foreground)]">
-                          freed
+                          available
                         </div>
                       </div>
                     ) : (
@@ -1041,6 +878,11 @@ export function BudgetCalculatorModal({
                               ? '—'
                               : fmt(allocated)}
                         </div>
+                        {dailyRate != null && spec.included && (
+                          <div className="text-[10px] text-[var(--muted-foreground)]">
+                            {fmt(dailyRate)}/day · {flightDays}d
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1050,26 +892,7 @@ export function BudgetCalculatorModal({
           )}
         </div>
 
-        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-[var(--border)]">
-          {/* §6 Undo / Clear — step back one snapshot, or jump to the opening
-              state. Both are disabled until there's an edit to undo. */}
-          <button
-            type="button"
-            onClick={undo}
-            disabled={undoStack.length === 0}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Undo
-          </button>
-          <button
-            type="button"
-            onClick={clearEdits}
-            disabled={undoStack.length === 0}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Clear
-          </button>
-          <div className="ml-auto flex gap-2">
+        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-[var(--border)]">
           <button
             type="button"
             onClick={onClose}
@@ -1104,7 +927,6 @@ export function BudgetCalculatorModal({
               Apply to {includedCount} ad{includedCount === 1 ? '' : 's'}
             </button>
           )}
-          </div>
         </div>
       </div>
     </div>,
