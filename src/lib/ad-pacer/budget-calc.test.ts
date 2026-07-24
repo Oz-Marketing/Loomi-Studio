@@ -6,6 +6,8 @@ import {
   computeAllocations,
   computePoolMeter,
   splitToCents,
+  floorAwareShares,
+  isDonorRow,
   DEFAULT_SPEC,
   type AdAllocSpec,
 } from './budget-calc';
@@ -161,5 +163,72 @@ describe('splitToCents', () => {
     const parts = splitToCents(100, 3);
     expect(parts.reduce((s, v) => s + v, 0)).toBeCloseTo(100, 6);
     expect(parts).toEqual([33.34, 33.33, 33.33]);
+  });
+});
+
+describe('§5a — calculator-local Off frees its remainder', () => {
+  it('an off-mode ad locks at spent and frees its remainder into the pool', () => {
+    const p = plan(
+      [
+        // r1 is LIVE but set to off-mode in the calculator (no planner status).
+        ad({ id: 'r1', budgetSource: 'base', allocation: '400', pacerActual: '120', adStatus: 'Live' }),
+        ad({ id: 'r2', budgetSource: 'base', allocation: '300', pacerActual: '150' }),
+        ad({ id: 'r3', budgetSource: 'base', allocation: '300', pacerActual: '100' }),
+      ],
+      { baseBudgetGoal: '1000', markup: 1 },
+    );
+    const specs = {
+      r1: spec({ mode: 'off' }), // calc-local wind-down
+      r2: spec({ mode: 'even' }),
+      r3: spec({ mode: 'even' }),
+    };
+    const m = computePoolMeter('base', poolAds(p, 'base'), specs, 'midflight', 1, 1000);
+    // Off-mode row is treated as a donor: its $120 spent locks, remainder frees.
+    expect(m.lockedSpend).toBeCloseTo(120, 2);
+    // Pool = 1000 initial − 120 locked − 0 preserved = 880 (r1's $280 remainder
+    // is now part of the spreadable pool). Spread gate (lockedSpend > 0) passes.
+    expect(m.poolBase).toBeCloseTo(880, 2);
+    expect(m.unallocated).toBeCloseTo(880, 2);
+    expect(isDonorRow('Live', 'off')).toBe(true);
+  });
+});
+
+describe('§5b — spent floor clamps below-spent entries (Mid-flight)', () => {
+  const rows = [
+    { id: 'a', realId: 'a', budgetSource: 'base' as const, adStatus: 'Live', allocation: 300, spent: 100 },
+  ];
+  it('clamps an amount below spent up to the spent floor when floorSpent', () => {
+    const specs = { a: spec({ mode: 'amount', amount: '50' }) };
+    expect(computeAllocations(rows, 1000, 1, specs, true).a).toBeCloseTo(100, 2);
+    // Setup (no floor) leaves the raw value — the row still blocks Apply.
+    expect(computeAllocations(rows, 1000, 1, specs, false).a).toBeCloseTo(50, 2);
+  });
+});
+
+describe('floorAwareShares — §5c water-filling', () => {
+  it('no floors binding → plain even split', () => {
+    const { shares, feasible } = floorAwareShares(300, [0, 0, 0]);
+    expect(feasible).toBe(true);
+    expect(shares).toEqual([100, 100, 100]);
+  });
+
+  it('a binding floor is pinned; the rest split evenly', () => {
+    const { shares, feasible } = floorAwareShares(300, [150, 0, 0]);
+    expect(feasible).toBe(true);
+    expect(shares[0]).toBeCloseTo(150, 2); // pinned at its floor
+    expect(shares[1]).toBeCloseTo(75, 2);
+    expect(shares[2]).toBeCloseTo(75, 2);
+    expect(shares.reduce((s, v) => s + v, 0)).toBeCloseTo(300, 2);
+  });
+
+  it('floors exceeding the pool are infeasible (Apply stays blocked)', () => {
+    const { shares, feasible } = floorAwareShares(300, [200, 200, 0]);
+    expect(feasible).toBe(false);
+    expect(shares).toEqual([200, 200, 0]); // each pinned at its floor
+  });
+
+  it('reconciles to the pool exactly to the cent', () => {
+    const { shares } = floorAwareShares(100, [0, 0, 0]);
+    expect(shares.reduce((s, v) => s + v, 0)).toBeCloseTo(100, 6);
   });
 });

@@ -21,7 +21,7 @@ import {
   poolAds,
   poolCeiling,
   computePoolMeter,
-  splitToCents,
+  floorAwareShares,
   DEFAULT_SPEC,
   type Pool,
   type PoolMeter,
@@ -188,20 +188,29 @@ export function BudgetCalculatorModal({
     const spreadPool = Math.max(0, m.unallocated);
     const gateOk = calcMode !== 'midflight' || m.lockedSpend > 0;
     const canSpread = evenRows.length > 0 && spreadPool > 0.005 && gateOk;
+    // §5c/§5d: the SAME floor-aware split powers the preview and the commit, so
+    // the preview never shows a number the commit won't honor. `perEven` is a
+    // single figure only when no floor binds (the common case); otherwise the
+    // shares differ per row and the preview says so.
+    const { shares } = floorAwareShares(
+      spreadPool,
+      evenRows.map((r) => r.spent),
+    );
+    const uniform =
+      shares.length > 0 && shares.every((v) => Math.abs(v - shares[0]) < 0.005);
     return {
       pool,
       evenRows,
       spreadPool,
       canSpread,
-      perEven: canSpread ? spreadPool / evenRows.length : 0,
+      shares,
+      perEven: uniform ? shares[0] : null,
     };
   };
 
   const handleSpread = (pool: Pool) => {
     const s = spreadFor(pool);
     if (!s.canSpread) return;
-    // Cent-accurate shares that sum to the pool exactly (no per-row residual).
-    const shares = splitToCents(s.spreadPool, s.evenRows.length);
     setSpecs((prev) => {
       const next = { ...prev };
       s.evenRows.forEach((r, i) => {
@@ -209,7 +218,7 @@ export function BudgetCalculatorModal({
         next[r.id] = {
           ...existing,
           mode: 'amount',
-          amount: shares[i].toFixed(2),
+          amount: s.shares[i].toFixed(2),
           percent: '',
           included: true,
         };
@@ -401,9 +410,16 @@ export function BudgetCalculatorModal({
               <span className="font-semibold text-[var(--foreground)]">{fmt(s.spreadPool)}</span>{' '}
               across{' '}
               <span className="font-semibold text-[var(--foreground)]">{s.evenRows.length}</span>{' '}
-              row{s.evenRows.length === 1 ? '' : 's'} ={' '}
-              <span className="font-semibold text-[var(--foreground)]">{fmt(s.perEven)}</span>{' '}
-              each
+              row{s.evenRows.length === 1 ? '' : 's'}
+              {s.perEven != null ? (
+                <>
+                  {' '}={' '}
+                  <span className="font-semibold text-[var(--foreground)]">{fmt(s.perEven)}</span>{' '}
+                  each
+                </>
+              ) : (
+                <> · floor-aware (each ≥ its spent)</>
+              )}
             </div>
             <button
               type="button"
@@ -750,16 +766,18 @@ export function BudgetCalculatorModal({
                         </>
                       )}
                     </div>
-                    {adIsDonor && spec.included ? (
+                    {(adIsDonor || spec.mode === 'off') && spec.included ? (
+                      // Donors AND calc-local off-mode rows free their remainder
+                      // (allocation − spent) into the pool — show what's freed.
                       <div className="text-right">
                         <div
                           className="text-sm font-bold"
                           style={{ color: COLORS.success }}
                         >
-                          {fmt(currentAllocation - currentSpent)}
+                          {fmt(Math.max(0, currentAllocation - currentSpent))}
                         </div>
                         <div className="text-[10px] text-[var(--muted-foreground)]">
-                          available
+                          freed
                         </div>
                       </div>
                     ) : (
