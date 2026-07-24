@@ -161,7 +161,13 @@ function TemplatesPageInner() {
             orgLabel={orgLabel}
           />
         )}
-        {tab === 'ads' && <AdTemplatesTab accountKey={scopedAccountKey} />}
+        {tab === 'ads' && (
+          <AdTemplatesTab
+            accountKey={scopedAccountKey}
+            organizationId={scopedOrgId}
+            orgLabel={orgLabel}
+          />
+        )}
       </div>
     </TemplatesHeaderActionsContext.Provider>
   );

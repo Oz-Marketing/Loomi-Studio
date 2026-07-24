@@ -2265,6 +2265,9 @@ model AdTemplateDoc {
   // null = global (offered to every account the industry filter allows);
   // set = only that account sees it in the picker (dealer-branded plates etc.).
   accountKey     String?
+  // Org-owned template (author-once): account-less, tagged to an organization
+  // so every sub-account in that org inherits it in the generator picker.
+  organizationId String?
   // Shared template taxonomy (same Category + Tags model email uses): a single
   // category string + a JSON string[] of tag names. Designers assign them so the
   // library filters consistently across every template kind.
@@ -2280,6 +2283,7 @@ model AdTemplateDoc {
 
   @@index([status, isActive])
   @@index([accountKey])
+  @@index([organizationId])
 }
 
 // A reusable "block": a saved cluster of builder elements (e.g. a Lease/APR
